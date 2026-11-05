@@ -8,6 +8,10 @@ on:
       - "tests/test_appapi_deploy_workflow.py"
       - "nextcloud_exapp/**"
       - "appinfo/info.xml"
+      - "scripts/exapp_release_manifest.py"
+      - "tests/test_exapp_release_manifest.py"
+      - "tests/test_exapp_publication_workflow.py"
+      - ".github/workflows/publish-exapp-commit-image.yml"
       - "tests/exapp_mock_core.py"
       - "web/**"
   pull_request:
@@ -16,6 +20,10 @@ on:
       - "tests/test_appapi_deploy_workflow.py"
       - "nextcloud_exapp/**"
       - "appinfo/info.xml"
+      - "scripts/exapp_release_manifest.py"
+      - "tests/test_exapp_release_manifest.py"
+      - "tests/test_exapp_publication_workflow.py"
+      - ".github/workflows/publish-exapp-commit-image.yml"
       - "tests/exapp_mock_core.py"
       - "web/**"
   workflow_dispatch:
