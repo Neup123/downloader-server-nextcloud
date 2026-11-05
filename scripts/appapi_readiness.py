@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shlex
 import subprocess
 import sys
@@ -73,7 +72,7 @@ def summarize_daemon_registration(raw: str) -> str:
     an explicit no-daemon line or a Symfony console table with a Name column.
     An unknown format must not be interpreted as a registered daemon.
     """
-    if re.search(r"\bNo registered daemon configs[.]\b|\bNo registered daemon configs[.]", raw, re.IGNORECASE):
+    if "no registered daemon configs." in raw.lower():
         return "none"
 
     rows = []
