@@ -4,6 +4,8 @@ import json
 import unittest
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
+from urllib.request import ProxyHandler, build_opener
+from unittest.mock import patch
 
 from scripts.nextcloud_preflight import (
     PreflightClient, PreflightError, parse_dav_length, run_preflight, validate_dav_collection, validate_folder,
@@ -120,6 +122,18 @@ class PreflightTests(unittest.TestCase):
             with self.subTest(folder=folder), self.assertRaises(PreflightError):
                 validate_folder(folder)
         self.assertEqual(validate_folder("Photos/2026"), ["Photos", "2026"])
+
+    def test_webdav_preflight_ignores_ambient_proxy_environment(self):
+        with patch.dict("os.environ", {
+            "HTTPS_PROXY": "http://untrusted-proxy.invalid:8080",
+            "HTTP_PROXY": "http://untrusted-proxy.invalid:8080",
+            "ALL_PROXY": "socks5://untrusted-proxy.invalid:1080",
+        }), patch("scripts.nextcloud_preflight.build_opener", wraps=build_opener) as factory:
+            PreflightClient("https://example.test/cloud", "user", "secret")
+        # urllib omits an empty ProxyHandler from opener.handlers; inspect the
+        # explicit handler passed to its factory instead.
+        self.assertIsInstance(factory.call_args.args[0], ProxyHandler)
+        self.assertEqual(factory.call_args.args[0].proxies, {})
 
     def test_url_requires_https_and_never_embeds_credentials(self):
         with self.assertRaises(PreflightError):
