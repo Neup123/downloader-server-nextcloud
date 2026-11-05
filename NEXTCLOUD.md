@@ -144,6 +144,16 @@ References: [official Nextcloud WebDAV operations](https://docs.nextcloud.com/se
 [Test Deploy](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/TestDeploy.html).
 
 
+## Optional safe Docker container discovery
+
+Both `scripts/appapi_readiness.py` and `python -m scripts.target_readiness`
+accept `--auto-container` in place of `--container <name>`. This performs
+only `docker ps --format '{{.Names}}'`, selects a single recognized Nextcloud
+application container, and **fails** if none or multiple match. It excludes
+Nextcloud AIO's master container, Redis and other services. Explicit
+`--container` remains recommended on production hosts with several instances.
+No AppAPI or daemon configuration is changed by this detection.
+
 ## Read-only AppAPI readiness check
 
 Run this **on the Nextcloud host** before selecting ExApp packaging. The

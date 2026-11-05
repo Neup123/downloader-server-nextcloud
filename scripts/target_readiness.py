@@ -15,7 +15,7 @@ import shlex
 import sys
 from typing import Any, Sequence
 
-from scripts.appapi_readiness import ReadinessError, run_readiness
+from scripts.appapi_readiness import ReadinessError, detect_nextcloud_container, run_readiness
 from scripts.nextcloud_preflight import PreflightClient, PreflightError, run_preflight
 
 
@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument("--container", help="Actual Nextcloud Docker container name")
     choice.add_argument("--occ-command", help="Quoted command prefix for executing Nextcloud occ without a shell")
+    choice.add_argument("--auto-container", action="store_true", help="Discover exactly one running Nextcloud application container; never guess between multiple instances")
     parser.add_argument("--url", required=True, help="Target Nextcloud HTTPS origin including subpath if applicable")
     parser.add_argument("--username", required=True, help="Target WebDAV user; password is requested securely")
     parser.add_argument("--folder", default="", help="Existing destination folder relative to user's Files root")
@@ -72,12 +73,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-test", action="store_true", help="Explicitly upload, read back and remove a temporary WebDAV file")
     args = parser.parse_args(argv)
 
-    command = (
-        ["docker", "exec", "--user", "www-data", args.container, "php", "occ"]
-        if args.container else shlex.split(args.occ_command)
-    )
-    password = os.environ.get("NEXTCLOUD_APP_PASSWORD") or getpass.getpass("Nextcloud app password: ")
     try:
+        container = detect_nextcloud_container() if args.auto_container else args.container
+        command = (
+            ["docker", "exec", "--user", "www-data", container, "php", "occ"]
+            if container else shlex.split(args.occ_command)
+        )
+        password = os.environ.get("NEXTCLOUD_APP_PASSWORD") or getpass.getpass("Nextcloud app password: ")
         client = PreflightClient(args.url, args.username, password, allow_http=args.allow_http)
         report = collect_target_report(command, client, folder=args.folder, write_test=args.write_test)
     except (PreflightError, ReadinessError, ValueError) as exc:

@@ -59,6 +59,12 @@ python3 -m scripts.target_readiness \\
   --folder Downloader
 ```
 
+If Docker Desktop contains **exactly one** recognizable Nextcloud application
+container, you may use `--auto-container` instead of `--container
+nextcloud-aio-nextcloud`. It only reads the output of `docker ps` and refuses
+ambiguous matches. If several Nextcloud containers are present, select the
+intended one explicitly with `--container`; do not guess from the first match.
+
 The app password is requested securely, or read from `NEXTCLOUD_APP_PASSWORD`
 if set. The report does not reveal passwords, daemon names or deployment
 configuration and does not modify AppAPI. The separate `--write-test` flag
