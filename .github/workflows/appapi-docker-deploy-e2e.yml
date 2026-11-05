@@ -1,0 +1,138 @@
+name: Disposable AppAPI Docker ExApp deployment acceptance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/appapi-docker-deploy-e2e.yml"
+      - "tests/test_appapi_deploy_workflow.py"
+  pull_request:
+    paths:
+      - ".github/workflows/appapi-docker-deploy-e2e.yml"
+      - "tests/test_appapi_deploy_workflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disposable-appapi-docker-deploy-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  docker-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create masked credentials and isolated Docker network
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import secrets
+          for name in ("NEXTCLOUD_APP_PASSWORD", "APPAPI_DSP_PASSWORD"):
+              value = secrets.token_urlsafe(32)
+              print("::add-mask::" + value)
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+                  out.write(f"{name}={value}\n")
+          PY
+          docker network create downloader-appapi-ci
+
+      - name: Start clean Nextcloud 35 container and trusted-network DSP
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name downloader-appapi-nextcloud \
+            --hostname downloader-appapi-nextcloud \
+            --network downloader-appapi-ci \
+            -p 127.0.0.1:8099:80 \
+            -e SQLITE_DATABASE=nextcloud.db \
+            -e NEXTCLOUD_ADMIN_USER=admin \
+            -e NEXTCLOUD_ADMIN_PASSWORD="$NEXTCLOUD_APP_PASSWORD" \
+            -e "NEXTCLOUD_TRUSTED_DOMAINS=127.0.0.1 localhost downloader-appapi-nextcloud" \
+            nextcloud:35.0.2-apache
+
+          # Docker Socket Proxy is privileged *only on this disposable CI runner*.
+          # It is attached to a private user-defined bridge and exposes no host port.
+          docker run --detach \
+            --name downloader-appapi-dsp \
+            --hostname downloader-appapi-dsp \
+            --network downloader-appapi-ci \
+            -e NC_HAPROXY_PASSWORD="$APPAPI_DSP_PASSWORD" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            --privileged \
+            ghcr.io/nextcloud/nextcloud-appapi-dsp:v1.5.3
+
+      - name: Wait for fully installed disposable Nextcloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import time
+          from urllib.request import urlopen
+          for _ in range(180):
+              try:
+                  with urlopen("http://127.0.0.1:8099/status.php", timeout=3) as response:
+                      status = json.load(response)
+                  if status.get("installed") and not status.get("maintenance"):
+                      print("Nextcloud 35 installation ready")
+                      break
+              except (OSError, ValueError):
+                  pass
+              time.sleep(2)
+          else:
+              raise SystemExit("Disposable Nextcloud did not become ready")
+          PY
+
+      - name: Register a real AppAPI Deploy Daemon on disposable Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec --user www-data downloader-appapi-nextcloud php occ app:enable app_api
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:daemon:register \
+            downloader-ci-dsp "Disposable CI Docker" docker-install http \
+            downloader-appapi-dsp:2375 http://downloader-appapi-nextcloud/index.php \
+            --net=downloader-appapi-ci \
+            --haproxy_password="$APPAPI_DSP_PASSWORD" --set-default
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:daemon:list
+
+      - name: Prove full Docker ExApp lifecycle with pinned upstream test manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This is Nextcloud's official disposable skeleton, not Downloader Server.
+          # Pin its info.xml to a known upstream source commit for repeatability.
+          manifest="https://raw.githubusercontent.com/nextcloud/app-skeleton-python/64448cc066e498e8ae74bb65cc11c60566935b11/appinfo/info.xml"
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:register \
+            app-skeleton-python downloader-ci-dsp --info-xml "$manifest"
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:enable \
+            app-skeleton-python
+          docker inspect nc_app_app-skeleton-python --format '{{.State.Running}}' | grep -Fx true
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:list \
+            | grep -F "app-skeleton-python"
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:disable \
+            app-skeleton-python
+          docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:unregister \
+            app-skeleton-python
+
+      - name: Collect diagnostic logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          docker logs --tail 150 downloader-appapi-dsp 2>&1 || true
+          docker logs --tail 150 downloader-appapi-nextcloud 2>&1 || true
+          docker ps -a --filter "network=downloader-appapi-ci" || true
+
+      - name: Remove all disposable containers, volumes and network
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker rm --force --volumes downloader-appapi-nextcloud downloader-appapi-dsp
+          docker ps -a --format '{{.Names}}' | grep '^nc_app_' | xargs -r docker rm --force --volumes
+          docker network rm downloader-appapi-ci
