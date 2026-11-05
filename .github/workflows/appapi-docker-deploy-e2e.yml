@@ -6,10 +6,18 @@ on:
     paths:
       - ".github/workflows/appapi-docker-deploy-e2e.yml"
       - "tests/test_appapi_deploy_workflow.py"
+      - "nextcloud_exapp/**"
+      - "appinfo/info.xml"
+      - "tests/exapp_mock_core.py"
+      - "web/**"
   pull_request:
     paths:
       - ".github/workflows/appapi-docker-deploy-e2e.yml"
       - "tests/test_appapi_deploy_workflow.py"
+      - "nextcloud_exapp/**"
+      - "appinfo/info.xml"
+      - "tests/exapp_mock_core.py"
+      - "web/**"
   workflow_dispatch:
 
 permissions:
@@ -120,12 +128,111 @@ jobs:
           docker exec --user www-data downloader-appapi-nextcloud php occ app_api:app:unregister \
             app-skeleton-python
 
+      - name: Build and deploy our Downloader Server ExApp from a local CI image
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          echo "::add-mask::$token"
+          echo "DOWNLOADER_TEST_CORE_TOKEN=$token" >> "$GITHUB_ENV"
+
+          # The public version tag in appinfo/info.xml must match exactly.
+          # Only the disposable runner has this image; no registry is published.
+          docker build -f nextcloud_exapp/Dockerfile \
+            -t ghcr.io/neup123/downloader-server-nextcloud:0.1.0-dev .
+
+          docker run --detach \
+            --name downloader-test-core \
+            --network downloader-appapi-ci \
+            -e MOCK_CORE_TOKEN="$token" \
+            -v "$PWD/tests/exapp_mock_core.py:/fixture.py:ro" \
+            python:3.13-alpine python /fixture.py
+
+          docker cp appinfo/info.xml downloader-appapi-nextcloud:/tmp/downloader-info.xml
+          # AppAPI explicitly supports a source-registry -> local mapping.
+          # This bypasses a remote pull only on this disposable CI daemon.
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ app_api:daemon:registry:add downloader-ci-dsp \
+            --registry-from=ghcr.io --registry-to=local
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ app_api:app:register downloader-server-nextcloud downloader-ci-dsp \
+            --info-xml /tmp/downloader-info.xml \
+            --env "DOWNLOADER_API_URL=http://downloader-test-core:8080" \
+            --env "DOWNLOADER_API_TOKEN=$token" \
+            --env "DOWNLOADER_ALLOW_TRUSTED_HTTP=true" \
+            --wait-finish
+          docker inspect nc_app_downloader-server-nextcloud \
+            --format '{{.State.Running}}' | grep -Fx true
+
+      - name: Verify AppAPI signing and actual authenticated proxy forwarding
+        shell: bash
+        run: |
+          set -euo pipefail
+          exapp_env="$(docker inspect nc_app_downloader-server-nextcloud \
+            --format '{{range .Config.Env}}{{println .}}{{end}}')"
+          secret="$(printf '%s\n' "$exapp_env" | sed -n 's/^APP_SECRET=//p')"
+          port="$(printf '%s\n' "$exapp_env" | sed -n 's/^APP_PORT=//p')"
+          test -n "$secret"
+          test -n "$port"
+          echo "::add-mask::$secret"
+          docker run --rm -i --network downloader-appapi-ci \
+            -e EXAPP_SECRET="$secret" \
+            -e EXAPP_PORT="$port" \
+            python:3.13-alpine python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          base = f"http://nc_app_downloader-server-nextcloud:{os.environ['EXAPP_PORT']}"
+          for attempt in range(90):
+              try:
+                  with urlopen(base + "/heartbeat", timeout=3) as r:
+                      if json.load(r).get("status") == "ok":
+                          break
+              except (URLError, OSError, ValueError):
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit("Our ExApp never became ready")
+          url = base + "/api/v1/jobs"
+          try:
+              urlopen(url, timeout=5)
+          except HTTPError as exc:
+              assert exc.code == 401, f"Unsigned request returned {exc.code}"
+          else:
+              raise AssertionError("ExApp accepted an unsigned request")
+
+          signature = base64.b64encode(
+              f"admin:{os.environ['EXAPP_SECRET']}".encode()
+          ).decode()
+          request = Request(url, headers={
+              "EX-APP-ID": "downloader-server-nextcloud",
+              "EX-APP-VERSION": "0.1.0",
+              "AUTHORIZATION-APP-API": signature,
+              "Authorization": "Bearer must-not-reach-core",
+              "Cookie": "session=must-not-reach-core",
+          })
+          with urlopen(request, timeout=20) as response:
+              data = json.load(response)
+          assert data[0]["id"] == "ci-proxy-verified", data
+          print("Signed AppAPI request forwarded to local test origin; unsigned denied")
+          PY
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ app_api:app:disable downloader-server-nextcloud
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ app_api:app:unregister downloader-server-nextcloud
+
       - name: Collect diagnostic logs on failure
         if: failure()
         shell: bash
         run: |
           docker logs --tail 150 downloader-appapi-dsp 2>&1 || true
           docker logs --tail 150 downloader-appapi-nextcloud 2>&1 || true
+          docker logs --tail 100 nc_app_downloader-server-nextcloud 2>&1 || true
+          docker logs --tail 100 downloader-test-core 2>&1 || true
           docker ps -a --filter "network=downloader-appapi-ci" || true
 
       - name: Remove all disposable containers, volumes and network
@@ -133,6 +240,6 @@ jobs:
         shell: bash
         run: |
           set +e
-          docker rm --force --volumes downloader-appapi-nextcloud downloader-appapi-dsp
+          docker rm --force --volumes downloader-appapi-nextcloud downloader-appapi-dsp downloader-test-core
           docker ps -a --format '{{.Names}}' | grep '^nc_app_' | xargs -r docker rm --force --volumes
           docker network rm downloader-appapi-ci
