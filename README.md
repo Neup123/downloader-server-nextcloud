@@ -29,3 +29,5 @@ Use the core service's generic WebDAV delivery module. Nextcloud files must be d
 ## Documentation
 
 Start with [NEXTCLOUD.md](NEXTCLOUD.md) for the prerequisites, deployment decision tree, configuration boundaries, and current blockers.
+
+A **read-only-by-default Nextcloud WebDAV preflight** is available at `scripts/nextcloud_preflight.py`. It checks server status, authentication, and access to an existing destination folder; the optional `--write-test` verifies upload, remote size, readback, and cleanup. It does **not** verify AppAPI or the Deploy Daemon. See [NEXTCLOUD.md](NEXTCLOUD.md#webdav-target-instance-preflight-safe-before-selecting-an-integration-method).

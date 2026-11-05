@@ -83,3 +83,52 @@ Keep the integration thin so Nextcloud major upgrades cannot break the core down
 - The first upstream history merge described above has not yet been performed.
 
 Do not begin ExApp packaging or declare a supported Nextcloud version until the target-instance checks in Section 3 are complete.
+
+
+## WebDAV target-instance preflight (safe before selecting an integration method)
+
+The repository provides a read-only-by-default readiness probe. It checks the live
+Nextcloud `status.php` response and WebDAV authentication/PROPFIND access for the
+intended user and *existing* destination folder. A separate opt-in test creates
+a randomly named folder within that destination, uploads a small payload, checks
+the reported WebDAV file size, downloads it to verify SHA-256, and then deletes
+the test file and temporary directory. **The write check modifies the live
+Nextcloud Files store temporarily; run it only after confirming the folder.**
+
+Use a dedicated Nextcloud **app password**, not an account password. The CLI
+prompts securely, or takes the password from `NEXTCLOUD_APP_PASSWORD` in the
+environment. Never copy secrets into command-line flags, GitHub issues, or logs.
+
+```bash
+python3 scripts/nextcloud_preflight.py \
+  --url https://cloud.example.org \
+  --username example-user \
+  --folder Downloader
+
+python3 scripts/nextcloud_preflight.py \
+  --url https://cloud.example.org \
+  --username example-user \
+  --folder Downloader \
+  --write-test
+```
+
+The probe requires only Python 3.10+ standard-library modules; no extra
+packages or Nextcloud shell access are needed. It uses HTTPS certificate
+verification and disallows HTTP redirects. `--allow-http` is intended only
+for a controlled local development environment. If a reverse proxy uses a
+subdirectory, include it in `--url`. If the intended folder does not yet
+exist, create it in Nextcloud Files before running the probe.
+
+**What this does not prove:** WebDAV success does not establish AppAPI
+compatibility or deployment readiness. On the actual Nextcloud server, an
+administrator must separately record the exact version, check whether
+`app_api` is enabled (`occ app:list`), list registered daemons
+(`occ app_api:daemon:list`), and invoke **Test deploy** in
+Settings → Administration → AppAPI. Record the daemon type, its reachability,
+the Test deploy result, and whether the installation uses AIO/HaRP.
+Do not publish a supported-server claim or select ExApp packaging until these
+checks have actually succeeded.
+
+References: [official Nextcloud WebDAV operations](https://docs.nextcloud.com/server/stable/developer_manual/client_apis/WebDAV/basic.html),
+[Deploy Daemon management](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/ManagingDeployDaemons.html),
+[Test Deploy](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/TestDeploy.html).
