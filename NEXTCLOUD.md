@@ -30,7 +30,7 @@ configuration is local to each checkout, not stored in Git history):
 Do **not** use `--allow-unrelated-histories` again: the remote repository
 already has a shared ancestor with core `main`. Future core-owned changes
 can be brought in with ordinary upstream merges now that core PR #2
-landed on `main`; that does not mean this repository already contains all new core code.
+landed on `main`. The verified core source was imported into this repository\'s `main` via ordinary merge commit `c8f81a2`; Nextcloud-owned GitHub Actions workflows are retained instead of importing duplicate core release schedules.
 
 Do not edit or duplicate core-owned files here unless a documented Nextcloud-specific delta requires it. Prefer AppAPI packaging metadata, Nextcloud integration code, and deployment configuration in clearly separated paths.
 
@@ -87,7 +87,7 @@ Keep the integration thin so Nextcloud major upgrades cannot break the core down
 - Disposable AppAPI Docker deployment CI has been added and passed using the official example ExApp. Downloader Server's own ExApp packaging is still under development.
 - The actual target Nextcloud instance has not been inspected in this build session.
 - AppAPI/Deploy Daemon feasibility is therefore **unverified**.
-- Shared upstream Git ancestry was established by merge commit `0044d368`. Core PR #2 was subsequently merged into core `main`; its additional commits are available for a normal upstream merge but have not yet been imported into this repository.
+- Shared upstream Git ancestry was established by merge commit `0044d368`; the accepted core `main` was synchronized into this Nextcloud `main` by normal two-parent merge `c8f81a2`, after combined Python and production Docker acceptance.
 
 Develop and test ExApp packaging against disposable CI independently of production. Do not claim the **real target** is supported or deploy to production until the target-instance checks in Section 3 succeed.
 
