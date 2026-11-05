@@ -17,7 +17,7 @@ import ssl
 import sys
 import xml.etree.ElementTree as ET
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
@@ -30,26 +30,50 @@ class NoRedirects(HTTPRedirectHandler):
         return None
 
 
-def parse_dav_length(payload: bytes) -> int:
-    """Return a successful DAV:getcontentlength or reject missing/invalid metadata."""
+def parse_dav_length(payload: bytes, target_url: str) -> int:
+    """Verify one successful DAV:getcontentlength for the exact upload target.
+
+    HTTP 207 is a collection of resource responses and per-property statuses:
+    a matching size for another file, or a 404 propstat, proves nothing.
+    """
+    if len(payload) > 1_000_000:
+        raise PreflightError("WebDAV metadata response is unexpectedly large")
     try:
         root = ET.fromstring(payload)
     except ET.ParseError as exc:
         raise PreflightError("Nextcloud returned malformed WebDAV XML") from exc
-    for propstat in root.findall(".//{DAV:}propstat"):
-        status = propstat.findtext("{DAV:}status", default="")
-        if " 200 " not in status:
-            continue
-        size = propstat.findtext(".//{DAV:}getcontentlength")
-        if size is not None:
-            try:
-                result = int(size)
-                if result >= 0:
-                    return result
-            except ValueError:
-                pass
-    raise PreflightError("No successful WebDAV content-length property was returned")
+    dav = "{DAV:}"
+    if root.tag != dav + "multistatus":
+        raise PreflightError("Nextcloud returned an unexpected WebDAV XML root")
 
+    expected = urlsplit(target_url)
+    sizes: list[int] = []
+    for response in root.findall(dav + "response"):
+        href = response.findtext(dav + "href")
+        if not href:
+            continue
+        located = urlsplit(urljoin(target_url, href.strip()))
+        if (located.scheme != expected.scheme or located.netloc != expected.netloc
+                or unquote(located.path) != unquote(expected.path)
+                or located.query or located.fragment):
+            continue
+        for propstat in response.findall(dav + "propstat"):
+            status = (propstat.findtext(dav + "status") or "").strip().split()
+            if len(status) < 2 or not status[0].startswith("HTTP/") or status[1] != "200":
+                continue
+            prop = propstat.find(dav + "prop")
+            text = prop.findtext(dav + "getcontentlength") if prop is not None else None
+            if text is None:
+                continue
+            try:
+                size = int(text)
+            except ValueError:
+                continue
+            if size >= 0:
+                sizes.append(size)
+    if len(sizes) != 1:
+        raise PreflightError("No unambiguous successful WebDAV content-length for the uploaded file")
+    return sizes[0]
 
 def validate_folder(folder: str) -> list[str]:
     if not folder:
@@ -130,7 +154,7 @@ class PreflightClient:
             created = True
             self.request("PUT", file_url, body=payload, expected=(200, 201, 204))
             uploaded = True
-            size = parse_dav_length(self.propfind(file_url))
+            size = parse_dav_length(self.propfind(file_url), file_url)
             if size != len(payload):
                 raise PreflightError(f"WebDAV size mismatch: expected {len(payload)}, received {size}")
             actual = self.request("GET", file_url)

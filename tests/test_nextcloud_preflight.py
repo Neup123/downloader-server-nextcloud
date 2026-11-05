@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import unittest
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 from scripts.nextcloud_preflight import (
     PreflightClient, PreflightError, parse_dav_length, run_preflight, validate_folder,
 )
 
+TARGET = "https://example.test/cloud/remote.php/dav/files/user/Downloads/probe.bin"
 DAV_SIZE = (
     b'<?xml version="1.0"?>'
-    b'<d:multistatus xmlns:d="DAV:"><d:response><d:propstat>'
+    b'<d:multistatus xmlns:d="DAV:"><d:response><d:href>__FILE__</d:href><d:propstat>'
     b'<d:prop><d:getcontentlength>38</d:getcontentlength></d:prop>'
     b'<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>'
 )
@@ -47,7 +49,7 @@ class FakeOpener:
         assert req.get_header("Authorization") == "Basic dXNlcjpzZWNyZXQ="
         if method == "PROPFIND" and url.endswith("/probe.bin"):
             size = len(self.payload or b"") + (1 if self.bad_size else 0)
-            return FakeResponse(207, DAV_SIZE.replace(b">38<", f">{size}<".encode()))
+            return FakeResponse(207, DAV_SIZE.replace(b"__FILE__", urlsplit(url).path.encode()).replace(b">38<", f">{size}<".encode()))
         if method == "PROPFIND":
             return FakeResponse(207, b"<d:multistatus xmlns:d='DAV:'/>")
         if method == "MKCOL":
@@ -118,12 +120,29 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(PreflightClient("http://localhost:8080", "user", "secret", allow_http=True).dav_url,
                          "http://localhost:8080/remote.php/dav/files/user")
 
+    def test_webdav_response_must_match_exact_uploaded_file(self):
+        valid = DAV_SIZE.replace(b"__FILE__", urlsplit(TARGET).path.encode())
+        unrelated = DAV_SIZE.replace(b"__FILE__", b"/unrelated/probe.bin")
+        with self.assertRaises(PreflightError):
+            parse_dav_length(unrelated, TARGET)
+        with self.assertRaises(PreflightError):
+            parse_dav_length(valid.replace(b"200 OK", b"403 Forbidden"), TARGET)
+        reply = valid.split(b"<d:response>", 1)[1].split(b"</d:response>", 1)[0]
+        duplicate = valid.replace(
+            b"</d:multistatus>",
+            b"<d:response>" + reply + b"</d:response></d:multistatus>",
+        )
+        with self.assertRaises(PreflightError):
+            parse_dav_length(duplicate, TARGET)
+        with self.assertRaises(PreflightError):
+            parse_dav_length(b"x" * 1_000_001, TARGET)
+
     def test_webdav_metadata_must_be_successful(self):
-        self.assertEqual(parse_dav_length(DAV_SIZE), 38)
+        self.assertEqual(parse_dav_length(DAV_SIZE.replace(b"__FILE__", urlsplit(TARGET).path.encode()), TARGET), 38)
         with self.assertRaises(PreflightError):
-            parse_dav_length(b"<invalid")
+            parse_dav_length(b"<invalid", TARGET)
         with self.assertRaises(PreflightError):
-            parse_dav_length(DAV_SIZE.replace(b"200 OK", b"404 Not Found"))
+            parse_dav_length(DAV_SIZE.replace(b"__FILE__", urlsplit(TARGET).path.encode()).replace(b"200 OK", b"404 Not Found"), TARGET)
 
 
 if __name__ == "__main__":
