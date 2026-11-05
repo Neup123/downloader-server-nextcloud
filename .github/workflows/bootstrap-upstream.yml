@@ -1,0 +1,64 @@
+name: Bootstrap core upstream history
+
+# One-time history import. This workflow only runs when its own file is added
+# or edited; ordinary upstream changes never push to main automatically.
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/bootstrap-upstream.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-upstream-history
+  cancel-in-progress: false
+
+jobs:
+  import-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import core main with real Git ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/Neup123/Media-Downloader-server.git
+          git fetch --no-tags upstream main
+          core_sha="$(git rev-parse upstream/main)"
+          if git merge-base --is-ancestor "$core_sha" HEAD; then
+            echo "Core main is already an ancestor; no import required."
+            exit 0
+          fi
+
+          # Only README.md conflicts in the initial unrelated histories.
+          # Keep this repo's Nextcloud README; take core-owned BLUEPRINT.md.
+          if git merge --allow-unrelated-histories --no-ff --no-commit upstream/main; then
+            echo "Merged without conflicts."
+          else
+            if [[ ! -f .git/MERGE_HEAD ]]; then
+              echo "Unexpected merge failure" >&2
+              exit 1
+            fi
+            unresolved="$(git diff --name-only --diff-filter=U)"
+            if [[ "$unresolved" != "README.md" ]]; then
+              echo "Unexpected conflicts: $unresolved" >&2
+              exit 1
+            fi
+            git checkout --ours README.md
+            git add README.md
+          fi
+          if [[ -n "$(git ls-files -u)" ]]; then
+            echo "Unresolved merge conflicts remain" >&2
+            exit 1
+          fi
+          git commit -m "Bootstrap shared ancestry with core main"
+          git merge-base --is-ancestor "$core_sha" HEAD
+          git diff --exit-code upstream/main -- BLUEPRINT.md
+          git push origin HEAD:main
