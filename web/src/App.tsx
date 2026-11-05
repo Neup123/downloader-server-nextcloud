@@ -52,7 +52,10 @@ function CommonOptionFields({ fields, values, onChange }: {
   </div>;
 }
 
-const API = '/api/v1';
+const IS_NEXTCLOUD_EXAPP = import.meta.env.MODE === 'nextcloud';
+const EXAPP_ROOT = new URL('.', window.location.href.endsWith('/') ? window.location.href : window.location.href + '/').pathname.replace(/\/$/, '');
+const API = IS_NEXTCLOUD_EXAPP ? EXAPP_ROOT + '/api/v1' : '/api/v1';
+const API_REFERENCE = IS_NEXTCLOUD_EXAPP ? EXAPP_ROOT + '/api-reference' : '/api-reference';
 const ytDefaults: YtSettings = {
   format: 'bv*+ba/b', subtitles_lang: '', write_subtitles: false,
   embed_subtitles: false, extra_args: [], allow_playlist: false, playlist_items: '',
@@ -93,7 +96,7 @@ function label(value: string): string {
 }
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('downloader-api-key') ?? '');
+  const [apiKey, setApiKey] = useState(() => IS_NEXTCLOUD_EXAPP ? 'nextcloud-session' : localStorage.getItem('downloader-api-key') ?? '');
   const [tab, setTab] = useState<'downloads' | 'engines' | 'routing' | 'delivery'>('downloads');
   const [engine, setEngine] = useState<EngineSelection>('auto');
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -164,7 +167,7 @@ export default function App() {
 
   useEffect(() => {
     if (!apiKey) return;
-    localStorage.setItem('downloader-api-key', apiKey);
+    if (!IS_NEXTCLOUD_EXAPP) localStorage.setItem('downloader-api-key', apiKey);
     void refresh();
     const interval = window.setInterval(() => void refresh(), 2000);
     return () => window.clearInterval(interval);
@@ -651,16 +654,16 @@ export default function App() {
     <header className="topbar">
       <div className="brandmark">D</div>
       <div><div className="brand">Downloader Server</div><div className="subbrand">Server-side media downloads</div></div>
-      <div className="top-actions"><a href="/api-reference" target="_blank" rel="noreferrer">API reference</a></div>
+      <div className="top-actions"><a href={API_REFERENCE} target="_blank" rel="noreferrer">API reference</a></div>
     </header>
 
-    <section className="connection panel">
+    {!IS_NEXTCLOUD_EXAPP && <section className="connection panel">
       <div><div className="eyebrow">SERVICE CONNECTION</div><h2>Connect to your downloader</h2><p>Enter the server API key.</p></div>
       <div className="keyrow">
         <input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="API key" autoComplete="current-password" />
         <button className="secondary" onClick={() => { localStorage.removeItem('downloader-api-key'); setApiKey(''); setJobs([]); }}>Disconnect</button>
       </div>
-    </section>
+    </section>}
     {message && <div className="notice" role="status">{message}</div>}
 
     <nav className="tabs">
@@ -927,6 +930,6 @@ export default function App() {
       </form>
     </section>}
 
-    <footer>Downloader Server · standalone service · <a href="/api-reference" target="_blank" rel="noreferrer">API</a></footer>
+    <footer>Downloader Server · {IS_NEXTCLOUD_EXAPP ? 'Nextcloud administrator gateway' : 'standalone service'} · <a href={API_REFERENCE} target="_blank" rel="noreferrer">API</a></footer>
   </div>;
 }
