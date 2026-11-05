@@ -51,19 +51,19 @@ class AppApiReadinessTests(unittest.TestCase):
         self.assertIn("unverified", report["exapp_ready"])
 
     def test_empty_daemon_list_is_reported_without_claiming_exapp_ready(self):
-        runner = FakeRunner(daemon_output="No registered daemon configs.\\n")
+        runner = FakeRunner(daemon_output="No registered daemon configs.\n")
         report = run_readiness(["php", "occ"], runner=runner)
         self.assertEqual(report["deploy_daemon"]["registration"], "none")
         self.assertIn("unverified", report["exapp_ready"])
 
     def test_registered_daemons_are_counted_but_never_named(self):
         table = (
-            "+----+-------------+-------------------------+\\n"
-            "| Id | Name        | Config                  |\\n"
-            "+----+-------------+-------------------------+\\n"
-            "| 1  | real-server | password=private-secret |\\n"
-            "| 2  | other-host  | token=private-key       |\\n"
-            "+----+-------------+-------------------------+\\n"
+            "+----+-------------+-------------------------+\n"
+            "| Id | Name        | Config                  |\n"
+            "+----+-------------+-------------------------+\n"
+            "| 1  | real-server | password=private-secret |\n"
+            "| 2  | other-host  | token=private-key       |\n"
+            "+----+-------------+-------------------------+\n"
         )
         report = run_readiness(["php", "occ"], runner=FakeRunner(daemon_output=table))
         self.assertEqual(report["deploy_daemon"]["registration"], "present (2 entries; details withheld)")
