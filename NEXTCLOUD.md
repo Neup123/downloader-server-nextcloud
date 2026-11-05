@@ -121,8 +121,11 @@ python3 scripts/nextcloud_preflight.py \
 
 The probe requires only Python 3.10+ standard-library modules; no extra
 packages or Nextcloud shell access are needed. It uses HTTPS certificate
-verification and disallows HTTP redirects. `--allow-http` is intended only
-for a controlled local development environment. If a reverse proxy uses a
+verification, disallows HTTP redirects, and bypasses inherited `HTTP_PROXY`,
+`HTTPS_PROXY`, and related environment proxies to keep authenticated requests
+on a direct connection to the configured Nextcloud origin. The probe host
+must therefore be able to reach that origin directly. `--allow-http` is
+intended only for a controlled local development environment. If a reverse proxy uses a
 subdirectory, include it in `--url`. If the intended folder does not yet
 exist, create it in Nextcloud Files before running the probe.
 
