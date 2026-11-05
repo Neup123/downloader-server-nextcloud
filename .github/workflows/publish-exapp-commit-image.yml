@@ -1,0 +1,128 @@
+name: Publish CI-accepted ExApp image with OCI digest provenance
+
+# Elevated package-write credential is used only AFTER an actual, trusted
+# main-branch push passes the disposable Nextcloud AppAPI acceptance workflow.
+# Never check out artifacts or run code from a pull request in this workflow.
+on:
+  workflow_run:
+    workflows:
+      - Disposable AppAPI Docker ExApp deployment acceptance
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: exapp-commit-image-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      IMAGE_REPO: ghcr.io/neup123/downloader-server-nextcloud
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate exact source SHA and trusted main ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          tag="sha-$SOURCE_SHA"
+          echo "IMAGE_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Build and inspect image from the exact accepted source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -f nextcloud_exapp/Dockerfile \
+            -t "$IMAGE_REPO:$IMAGE_TAG" .
+          docker run --rm --entrypoint python "$IMAGE_REPO:$IMAGE_TAG" -c '
+          from pathlib import Path
+          from nextcloud_exapp.proxy import ProxySettings
+          assert Path("/app/nextcloud_exapp/dist/index.html").is_file()
+          assert Path("/app/nextcloud_exapp/dist/assets").is_dir()
+          assert ProxySettings.validate("https://example.org", "x"*48).origin == "https://example.org"
+          '
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$IMAGE_TAG")" = "$SOURCE_SHA"
+
+      - name: Log in using repository-scoped GitHub token
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish absent SHA tag only; never replace an existing tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "$IMAGE_REPO:$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Existing source-addressed image found; refusing to overwrite it."
+          else
+            docker push "$IMAGE_REPO:$IMAGE_TAG"
+          fi
+
+      - name: Pull from GHCR by tag and digest; confirm source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE_REPO:$IMAGE_TAG"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$IMAGE_TAG")" = "$SOURCE_SHA"
+          digest_ref="$(docker image inspect "$IMAGE_REPO:$IMAGE_TAG" --format '{{json .RepoDigests}}' \
+            | python3 -c 'import json,os,sys; refs=json.load(sys.stdin); prefix=os.environ["IMAGE_REPO"]+"@sha256:"; matches=[r for r in refs if r.startswith(prefix)]; assert len(matches)==1, "No unique GHCR repo digest"; print(matches[0])')"
+          digest="${digest_ref#"$IMAGE_REPO@"}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "$digest_ref"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$digest_ref")" = "$SOURCE_SHA"
+          echo "PUBLISHED_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: Generate appinfo XML and verified digest provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/exapp_release_manifest.py \
+            --source-sha "$SOURCE_SHA" \
+            --digest "$PUBLISHED_DIGEST" \
+            --manifest appinfo/info.xml \
+            --output exapp-release
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          record = json.loads(Path("exapp-release/image-provenance.json").read_text())
+          actual = hashlib.sha256(Path("exapp-release/info.xml").read_bytes()).hexdigest()
+          assert actual == record["appapi_manifest_sha256"]
+          import os
+          assert record["container_image_digest"] == os.environ["IMAGE_REPO"] + "@" + os.environ["PUBLISHED_DIGEST"]
+          assert record["source_commit"] == __import__("os").environ["SOURCE_SHA"]
+          assert record["appapi_manifest_digest_pinned"] is False
+          print("Release manifest checksum and OCI digest provenance recorded")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: downloader-exapp-provenance-${{ github.event.workflow_run.head_sha }}
+          path: exapp-release/
+          if-no-files-found: error
+          retention-days: 90
