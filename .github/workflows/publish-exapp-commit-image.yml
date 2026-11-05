@@ -113,7 +113,8 @@ jobs:
           record = json.loads(Path("exapp-release/image-provenance.json").read_text())
           actual = hashlib.sha256(Path("exapp-release/info.xml").read_bytes()).hexdigest()
           assert actual == record["appapi_manifest_sha256"]
-          assert record["container_image_digest"].endswith(record["container_image_digest"].split("@")[-1])
+          import os
+          assert record["container_image_digest"] == os.environ["IMAGE_REPO"] + "@" + os.environ["PUBLISHED_DIGEST"]
           assert record["source_commit"] == __import__("os").environ["SOURCE_SHA"]
           assert record["appapi_manifest_digest_pinned"] is False
           print("Release manifest checksum and OCI digest provenance recorded")
