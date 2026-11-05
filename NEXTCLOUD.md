@@ -174,8 +174,12 @@ or supply an appropriate `--occ-command` prefix such as
 arguments and executed without a shell.
 
 The report shows the server version, whether AppAPI is enabled, and whether
-the Deploy Daemon list command succeeded. It **does not establish** that a
-daemon is registered, reachable, correctly routed, or usable. An
+the Deploy Daemon list command succeeded. For recognized Nextcloud output,
+it also reports **none** or a count of registered daemon entries; it never
+prints their names, network configuration, or credentials. An unknown output
+format is reported as unverified, not as an available daemon. Registration
+alone **does not establish** that a daemon is reachable, correctly routed,
+or usable. An
 administrator must inspect the registered daemons locally and run **Test
 Deploy** in Settings → Administration → AppAPI. That action deploys a
 temporary test ExApp; unlike the read-only probe it is not safe to treat as

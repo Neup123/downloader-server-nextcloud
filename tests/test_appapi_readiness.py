@@ -5,14 +5,15 @@ import json
 import subprocess
 import unittest
 
-from scripts.appapi_readiness import ReadinessError, run_readiness
+from scripts.appapi_readiness import ReadinessError, run_readiness, summarize_daemon_registration
 
 
 class FakeRunner:
-    def __init__(self, *, enabled=True, daemon_error=False, status=None, app_list=None):
+    def __init__(self, *, enabled=True, daemon_error=False, status=None, app_list=None, daemon_output=None):
         self.calls = []
         self.enabled = enabled
         self.daemon_error = daemon_error
+        self.daemon_output = daemon_output
         self.status = status or {"installed": True, "versionstring": "35.0.2", "maintenance": False}
         self.app_list = app_list
 
@@ -31,7 +32,7 @@ class FakeRunner:
         if op == "app_api:daemon:list":
             if self.daemon_error:
                 return subprocess.CompletedProcess(command, 1, "", "secret-internal-daemon-token")
-            return subprocess.CompletedProcess(command, 0, "host=internal:2375 password=secret-internal-token", "")
+            return subprocess.CompletedProcess(command, 0, self.daemon_output if self.daemon_output is not None else "host=internal:2375 password=secret-internal-token", "")
         raise AssertionError("Unexpected occ operation")
 
 
@@ -48,6 +49,36 @@ class AppApiReadinessTests(unittest.TestCase):
             self.assertEqual(command[:6], ["docker", "exec", "--user", "www-data", "nextcloud-aio-nextcloud", "php"])
         self.assertNotIn("secret-", json.dumps(report))
         self.assertIn("unverified", report["exapp_ready"])
+
+    def test_empty_daemon_list_is_reported_without_claiming_exapp_ready(self):
+        runner = FakeRunner(daemon_output="No registered daemon configs.\n")
+        report = run_readiness(["php", "occ"], runner=runner)
+        self.assertEqual(report["deploy_daemon"]["registration"], "none")
+        self.assertIn("unverified", report["exapp_ready"])
+
+    def test_registered_daemons_are_counted_but_never_named(self):
+        table = (
+            "+----+-------------+-------------------------+\n"
+            "| Id | Name        | Config                  |\n"
+            "+----+-------------+-------------------------+\n"
+            "| 1  | real-server | password=private-secret |\n"
+            "| 2  | other-host  | token=private-key       |\n"
+            "+----+-------------+-------------------------+\n"
+        )
+        report = run_readiness(["php", "occ"], runner=FakeRunner(daemon_output=table))
+        self.assertEqual(report["deploy_daemon"]["registration"], "present (2 entries; details withheld)")
+        serialized = json.dumps(report)
+        self.assertNotIn("real-server", serialized)
+        self.assertNotIn("private-secret", serialized)
+        self.assertNotIn("other-host", serialized)
+        self.assertNotIn("private-key", serialized)
+        self.assertIn("unverified", report["exapp_ready"])
+
+    def test_unrecognized_successful_daemon_output_is_not_misreported(self):
+        self.assertEqual(
+            summarize_daemon_registration("host=internal:2375 password=supersecret"),
+            "unverified (unrecognized command output)",
+        )
 
     def test_disabled_appapi_never_invokes_daemon_command(self):
         runner = FakeRunner(enabled=False)

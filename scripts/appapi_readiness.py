@@ -65,6 +65,37 @@ def _enabled_app(apps: dict[str, Any], name: str) -> tuple[bool, str | None]:
     return False, None
 
 
+def summarize_daemon_registration(raw: str) -> str:
+    """Interpret only recognized CLI shapes; never expose daemon configuration.
+
+    A successful command can still mean zero registered daemons. AppAPI emits
+    an explicit no-daemon line or a Symfony console table with a Name column.
+    An unknown format must not be interpreted as a registered daemon.
+    """
+    if "no registered daemon configs." in raw.lower():
+        return "none"
+
+    rows = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [part.strip() for part in stripped[1:-1].split("|")]
+            rows.append(cells)
+    header_index = next(
+        (index for index, cells in enumerate(rows)
+         if "name" in [cell.lower() for cell in cells]),
+        None,
+    )
+    if header_index is None:
+        return "unverified (unrecognized command output)"
+    header = rows[header_index]
+    count = sum(
+        1 for cells in rows[header_index + 1:]
+        if len(cells) == len(header) and any(cells)
+    )
+    return f"present ({count} entries; details withheld)" if count else "none"
+
+
 def run_readiness(
     occ_command: Sequence[str],
     *,
@@ -103,11 +134,12 @@ def run_readiness(
     try:
         # This is read-only. The content deliberately stays in memory and
         # is not recorded; it may contain internal deploy daemon metadata.
-        _call_occ(occ_command, ["app_api:daemon:list"], runner=runner)
+        daemon_output = _call_occ(occ_command, ["app_api:daemon:list"], runner=runner)
     except ReadinessError:
         result["deploy_daemon"]["list_command"] = "failed"
     else:
-        result["deploy_daemon"]["list_command"] = "succeeded (inspect actual daemon registration locally)"
+        result["deploy_daemon"]["list_command"] = "succeeded"
+        result["deploy_daemon"]["registration"] = summarize_daemon_registration(daemon_output)
     return result
 
 
