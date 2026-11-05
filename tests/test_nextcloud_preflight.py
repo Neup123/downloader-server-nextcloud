@@ -4,7 +4,7 @@ import json
 import unittest
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler
+from urllib.request import ProxyHandler, build_opener
 from unittest.mock import patch
 
 from scripts.nextcloud_preflight import (
@@ -128,12 +128,12 @@ class PreflightTests(unittest.TestCase):
             "HTTPS_PROXY": "http://untrusted-proxy.invalid:8080",
             "HTTP_PROXY": "http://untrusted-proxy.invalid:8080",
             "ALL_PROXY": "socks5://untrusted-proxy.invalid:1080",
-        }):
-            runner = PreflightClient("https://example.test/cloud", "user", "secret")
-        proxy_handlers = [handler for handler in runner._opener.handlers
-                          if isinstance(handler, ProxyHandler)]
-        self.assertEqual(len(proxy_handlers), 1)
-        self.assertEqual(proxy_handlers[0].proxies, {})
+        }), patch("scripts.nextcloud_preflight.build_opener", wraps=build_opener) as factory:
+            PreflightClient("https://example.test/cloud", "user", "secret")
+        # urllib omits an empty ProxyHandler from opener.handlers; inspect the
+        # explicit handler passed to its factory instead.
+        self.assertIsInstance(factory.call_args.args[0], ProxyHandler)
+        self.assertEqual(factory.call_args.args[0].proxies, {})
 
     def test_url_requires_https_and_never_embeds_credentials(self):
         with self.assertRaises(PreflightError):
