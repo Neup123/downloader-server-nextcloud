@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 from xml.etree import ElementTree
 
-from nextcloud_exapp.proxy import ProxySettings, RESPONSE_HEADERS, safe_upstream_headers
+from nextcloud_exapp.proxy import (
+    ProxySettings, RESPONSE_HEADERS, is_events_route, safe_upstream_headers,
+    upstream_api_url,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,6 +46,34 @@ class NextcloudBridgeConfigurationTests(unittest.TestCase):
         self.assertNotIn("location", RESPONSE_HEADERS)
         self.assertNotIn("set-cookie", RESPONSE_HEADERS)
         self.assertNotIn("authorization", RESPONSE_HEADERS)
+
+    def test_proxy_target_is_always_under_fixed_api_root(self):
+        self.assertEqual(
+            upstream_api_url(
+                "https://downloads.example.org:443", "jobs/f9a/events", "offset=4&last=abc"
+            ),
+            "https://downloads.example.org:443/api/v1/jobs/f9a/events?offset=4&last=abc",
+        )
+        self.assertEqual(
+            upstream_api_url("https://downloads.example.org", "cookies/file name.json"),
+            "https://downloads.example.org/api/v1/cookies/file%20name.json",
+        )
+        for unsafe in (
+            "", "/", "//evil.example", "jobs//123", "jobs/../healthz",
+            "../healthz", "jobs/%2e%2e/healthz", "jobs/%252e%252e/healthz",
+            "jobs/%2fprivate", "jobs/%252fprivate", "jobs/\\\\private",
+            "jobs/%3fexample", "jobs/%23fragment", "jobs/one?next=two",
+        ):
+            with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
+                upstream_api_url("https://downloads.example.org", unsafe)
+        for query in ("abc\nnext=evil", "foo#fragment", "x" * 8193):
+            with self.subTest(query=query), self.assertRaises(ValueError):
+                upstream_api_url("https://downloads.example.org", "jobs", query)
+
+    def test_only_job_event_endpoints_receive_long_running_read_timeout(self):
+        self.assertTrue(is_events_route("jobs/9c7c/events"))
+        for path in ("jobs/9c7c", "jobs/9c7c/events/other", "jobs//events", "events"):
+            self.assertFalse(is_events_route(path))
 
     def test_manifest_restricts_every_browser_route_to_nextcloud_admin(self):
         xml = ElementTree.parse(ROOT / "appinfo/info.xml").getroot()
