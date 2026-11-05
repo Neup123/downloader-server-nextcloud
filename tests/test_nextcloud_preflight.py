@@ -6,7 +6,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 from scripts.nextcloud_preflight import (
-    PreflightClient, PreflightError, parse_dav_length, run_preflight, validate_folder,
+    PreflightClient, PreflightError, parse_dav_length, run_preflight, validate_dav_collection, validate_folder,
 )
 
 TARGET = "https://example.test/cloud/remote.php/dav/files/user/Downloads/probe.bin"
@@ -51,7 +51,16 @@ class FakeOpener:
             size = len(self.payload or b"") + (1 if self.bad_size else 0)
             return FakeResponse(207, DAV_SIZE.replace(b"__FILE__", urlsplit(url).path.encode()).replace(b">38<", f">{size}<".encode()))
         if method == "PROPFIND":
-            return FakeResponse(207, b"<d:multistatus xmlns:d='DAV:'/>")
+            assert b"<d:resourcetype/>" in req.data
+            folder_url = urlsplit(url).path
+            xml = (
+                "<d:multistatus xmlns:d='DAV:'><d:response>"
+                "<d:href>" + folder_url + "</d:href>"
+                "<d:propstat><d:prop><d:resourcetype><d:collection/>"
+                "</d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status>"
+                "</d:propstat></d:response></d:multistatus>"
+            )
+            return FakeResponse(207, xml.encode())
         if method == "MKCOL":
             return FakeResponse(201)
         if method == "PUT":
@@ -119,6 +128,26 @@ class PreflightTests(unittest.TestCase):
             PreflightClient("https://user:secret@example.test", "user", "secret")
         self.assertEqual(PreflightClient("http://localhost:8080", "user", "secret", allow_http=True).dav_url,
                          "http://localhost:8080/remote.php/dav/files/user")
+
+    def test_read_access_rejects_misleading_multistatus(self):
+        target = "https://example.test/cloud/remote.php/dav/files/user/Downloads"
+        valid = (
+            "<d:multistatus xmlns:d='DAV:'><d:response>"
+            "<d:href>/cloud/remote.php/dav/files/user/Downloads/</d:href>"
+            "<d:propstat><d:prop><d:resourcetype><d:collection/>"
+            "</d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status>"
+            "</d:propstat></d:response></d:multistatus>"
+        ).encode()
+        validate_dav_collection(valid, target)
+        for invalid in (
+            valid.replace(b"Downloads/", b"Different/"),
+            valid.replace(b"200 OK", b"404 Not Found"),
+            valid.replace(b"<d:collection/>", b""),
+            b"<d:multistatus xmlns:d='DAV:'/>",
+            b"not XML",
+        ):
+            with self.subTest(invalid=invalid[:40]), self.assertRaises(PreflightError):
+                validate_dav_collection(invalid, target)
 
     def test_webdav_response_must_match_exact_uploaded_file(self):
         valid = DAV_SIZE.replace(b"__FILE__", urlsplit(TARGET).path.encode())
