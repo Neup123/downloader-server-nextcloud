@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -20,6 +21,36 @@ from typing import Any, Callable, Sequence
 
 class ReadinessError(RuntimeError):
     pass
+
+
+def detect_nextcloud_container(
+    *, runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> str:
+    """Discover exactly one recognized running Nextcloud application container.
+
+    AIO master/Redis and unrelated containers are not candidates. Ambiguity
+    requires the user to specify --container; never guess a production target.
+    """
+    try:
+        result = runner(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReadinessError("Could not inspect running Docker containers") from exc
+    if result.returncode:
+        raise ReadinessError("Docker container discovery failed")
+    candidates = sorted({
+        name.strip() for name in result.stdout.splitlines()
+        if name.strip() in {"nextcloud", "nextcloud-aio-nextcloud"}
+        or re.fullmatch(r"nextcloud-[0-9]+", name.strip())
+    })
+    if len(candidates) != 1:
+        raise ReadinessError(
+            "Expected exactly one recognizable Nextcloud application container; "
+            "use --container to select it explicitly"
+        )
+    return candidates[0]
 
 
 def _call_occ(
@@ -154,12 +185,17 @@ def main(argv: list[str] | None = None) -> int:
         "--occ-command",
         help="Quoted argv prefix to invoke occ without a shell, e.g. 'php /var/www/html/occ'",
     )
-    args = parser.parse_args(argv)
-    command = (
-        ["docker", "exec", "--user", "www-data", args.container, "php", "occ"]
-        if args.container else shlex.split(args.occ_command)
+    connection.add_argument(
+        "--auto-container", action="store_true",
+        help="Discover a unique running Nextcloud Docker application container; refuse ambiguous matches",
     )
+    args = parser.parse_args(argv)
     try:
+        container = detect_nextcloud_container() if args.auto_container else args.container
+        command = (
+            ["docker", "exec", "--user", "www-data", container, "php", "occ"]
+            if container else shlex.split(args.occ_command)
+        )
         report = run_readiness(command)
     except ReadinessError as exc:
         print(f"Readiness check failed: {exc}", file=sys.stderr)
