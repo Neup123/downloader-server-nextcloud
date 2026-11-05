@@ -1,7 +1,7 @@
-name: Bootstrap core upstream history
+name: Sync verified core upstream into Nextcloud main
 
-# One-time history import. This workflow only runs when its own file is added
-# or edited; ordinary upstream changes never push to main automatically.
+# Shared history is already established. Merge with normal ancestry and preserve
+# the downstream README, while keeping all core-owned source files upstream-led.
 on:
   push:
     branches: [main]
@@ -12,18 +12,25 @@ permissions:
   contents: write
 
 concurrency:
-  group: bootstrap-upstream-history
+  group: core-upstream-sync
   cancel-in-progress: false
 
 jobs:
-  import-history:
+  sync-core:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Import core main with real Git ancestry
+          persist-credentials: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Merge current core main with established shared history
+        id: merge
         shell: bash
         run: |
           set -euo pipefail
@@ -33,14 +40,15 @@ jobs:
           git fetch --no-tags upstream main
           core_sha="$(git rev-parse upstream/main)"
           if git merge-base --is-ancestor "$core_sha" HEAD; then
-            echo "Core main is already an ancestor; no import required."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Core main is already incorporated."
             exit 0
           fi
 
-          # Only README.md conflicts in the initial unrelated histories.
-          # Keep this repo's Nextcloud README; take core-owned BLUEPRINT.md.
-          if git merge --allow-unrelated-histories --no-ff --no-commit upstream/main; then
-            echo "Merged without conflicts."
+          # The README is intentionally Nextcloud-specific. Any other conflict
+          # requires manual inspection rather than an automatic content choice.
+          if git merge --no-ff --no-commit upstream/main; then
+            echo "Core changes merged without conflicts."
           else
             if [[ ! -f .git/MERGE_HEAD ]]; then
               echo "Unexpected merge failure" >&2
@@ -48,7 +56,7 @@ jobs:
             fi
             unresolved="$(git diff --name-only --diff-filter=U)"
             if [[ "$unresolved" != "README.md" ]]; then
-              echo "Unexpected conflicts: $unresolved" >&2
+              echo "Unexpected merge conflicts: $unresolved" >&2
               exit 1
             fi
             git checkout --ours README.md
@@ -58,7 +66,28 @@ jobs:
             echo "Unresolved merge conflicts remain" >&2
             exit 1
           fi
-          git commit -m "Bootstrap shared ancestry with core main"
-          git merge-base --is-ancestor "$core_sha" HEAD
           git diff --exit-code upstream/main -- BLUEPRINT.md
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify combined repository Python and Nextcloud tests
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt pytest PyYAML
+          python -m compileall -q app scripts tests
+          python -m pytest -q
+          python -m unittest discover -s tests -p 'test_appapi_*.py' -v
+          python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
+          python -m unittest discover -s tests -p 'test_target_*.py' -v
+
+      - name: Verify merged production Docker image builds
+        if: steps.merge.outputs.changed == 'true'
+        run: docker build --tag downloader-server:nextcloud-upstream-acceptance .
+
+      - name: Commit tested merge to downstream main
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git commit -m "Merge accepted core main into Nextcloud integration"
           git push origin HEAD:main
