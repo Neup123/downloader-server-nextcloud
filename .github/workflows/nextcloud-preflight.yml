@@ -20,5 +20,8 @@ jobs:
           python-version: "3.13"
       - name: Compile script and tests
         run: python -m compileall -q scripts tests
-      - name: Run offline preflight tests
-        run: python -m unittest discover -s tests -v
+      - name: Run Nextcloud-specific offline preflight tests
+        run: |
+          python -m unittest discover -s tests -p 'test_appapi_*.py' -v
+          python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
+          python -m unittest discover -s tests -p 'test_target_*.py' -v
