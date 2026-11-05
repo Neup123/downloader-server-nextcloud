@@ -1,0 +1,53 @@
+name: Nextcloud Downloader ExApp build and security tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "nextcloud_exapp/**"
+      - "appinfo/info.xml"
+      - "web/**"
+      - "tests/test_nextcloud_bridge_config.py"
+      - ".github/workflows/nextcloud-exapp-build.yml"
+  pull_request:
+    paths:
+      - "nextcloud_exapp/**"
+      - "appinfo/info.xml"
+      - "web/**"
+      - "tests/test_nextcloud_bridge_config.py"
+      - ".github/workflows/nextcloud-exapp-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-exapp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Verify static origin, secret and manifest guardrails
+        run: |
+          python -m compileall -q nextcloud_exapp
+          python -m unittest tests/test_nextcloud_bridge_config.py -v
+
+      - name: Build the administrator-only Nextcloud ExApp image
+        run: |
+          docker build -f nextcloud_exapp/Dockerfile -t downloader-nextcloud-exapp:test .
+
+      - name: Prove the image contains the relative dashboard and bridge
+        run: |
+          docker run --rm --entrypoint python downloader-nextcloud-exapp:test -c '
+          from pathlib import Path
+          from nextcloud_exapp.proxy import ProxySettings
+          assert (Path("/app/nextcloud_exapp/dist/index.html")).is_file()
+          assert (Path("/app/nextcloud_exapp/dist/assets")).is_dir()
+          assert ProxySettings.validate("https://example.org", "x"*48).origin == "https://example.org"
+          print("ExApp assets and bridge import verified")
+          '
