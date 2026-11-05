@@ -75,6 +75,44 @@ def parse_dav_length(payload: bytes, target_url: str) -> int:
         raise PreflightError("No unambiguous successful WebDAV content-length for the uploaded file")
     return sizes[0]
 
+
+def validate_dav_collection(payload: bytes, target_url: str) -> None:
+    """Require a successful DAV:resourcetype collection for the actual folder.
+
+    The HTTP 207 transport status is not enough: even a missing folder or
+    a failed property can appear inside a Multi-Status response.
+    """
+    if len(payload) > 1_000_000:
+        raise PreflightError("WebDAV folder metadata response is unexpectedly large")
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise PreflightError("Nextcloud returned malformed folder metadata") from exc
+    dav = "{DAV:}"
+    if root.tag != dav + "multistatus":
+        raise PreflightError("Nextcloud returned an unexpected WebDAV folder response")
+    expected = urlsplit(target_url)
+    successful = 0
+    for response in root.findall(dav + "response"):
+        href = response.findtext(dav + "href")
+        if not href:
+            continue
+        located = urlsplit(urljoin(target_url, href.strip()))
+        if (located.scheme != expected.scheme or located.netloc != expected.netloc
+                or unquote(located.path).rstrip("/") != unquote(expected.path).rstrip("/")
+                or located.query or located.fragment):
+            continue
+        for propstat in response.findall(dav + "propstat"):
+            status = (propstat.findtext(dav + "status") or "").strip().split()
+            if len(status) < 2 or not status[0].startswith("HTTP/") or status[1] != "200":
+                continue
+            prop = propstat.find(dav + "prop")
+            if prop is not None and prop.find(dav + "resourcetype/" + dav + "collection") is not None:
+                successful += 1
+    if successful != 1:
+        raise PreflightError("The requested WebDAV destination is not a verified accessible collection")
+
+
 def validate_folder(folder: str) -> list[str]:
     if not folder:
         return []
@@ -128,17 +166,21 @@ class PreflightClient:
             "maintenance": bool(status.get("maintenance")),
         }
 
-    def propfind(self, url: str) -> bytes:
+    def propfind(self, url: str, *, collection: bool = False) -> bytes:
+        property_name = "resourcetype" if collection else "getcontentlength"
+        body = (
+            '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'
+            f'<d:{property_name}/></d:prop></d:propfind>'
+        ).encode("utf-8")
         return self.request(
-            "PROPFIND", url,
-            body=b'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/></d:prop></d:propfind>',
+            "PROPFIND", url, body=body,
             headers={"Depth": "0", "Content-Type": "application/xml"},
             expected=(207,),
         )
 
     def verify_read_access(self, folder: str = "") -> str:
         target = self.dav_url + "".join("/" + quote(part, safe="") for part in validate_folder(folder))
-        self.propfind(target)
+        validate_dav_collection(self.propfind(target, collection=True), target)
         return target
 
     def verify_write(self, parent_url: str) -> dict:
