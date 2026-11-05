@@ -18,15 +18,16 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git merge-base --is-ancestor", content)
         self.assertIn("git merge --no-ff --no-commit upstream/main", content)
-        self.assertIn('if [[ "$unresolved" != "README.md" ]]', content)
+        self.assertIn("python3 scripts/resolve_upstream_conflicts.py", content)
         self.assertIn("git ls-files -u", content)
         self.assertIn("git diff --exit-code upstream/main -- BLUEPRINT.md", content)
         self.assertIn("python -m pytest -q", content)
         self.assertIn("docker build --tag downloader-server:nextcloud-upstream-acceptance .", content)
         self.assertLess(content.index("python -m pytest -q"), content.index("git push origin HEAD:main"))
         self.assertLess(content.index("docker build --tag"), content.index("git push origin HEAD:main"))
-        self.assertIn("git restore --source=HEAD --staged --worktree .github/workflows", content)
+        self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
         self.assertNotIn("--allow-unrelated-histories", content)
+        self.assertLess(content.index("python3 scripts/resolve_upstream_conflicts.py"), content.index("python -m pytest -q"))
 
 
 if __name__ == "__main__":
