@@ -18,6 +18,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("X-API-Key") != os.environ["MOCK_CORE_TOKEN"]:
             self.respond(401, {"detail": "Not authenticated"})
             return
+        if any(self.headers.get(header) for header in (
+            "Authorization", "Cookie", "AUTHORIZATION-APP-API",
+        )):
+            self.respond(400, {"detail": "Browser credentials reached core"})
+            return
         if self.path == "/api/v1/jobs":
             self.respond(200, [{"id": "ci-proxy-verified", "status": "queued"}])
         elif self.path == "/api/v1/engines":
