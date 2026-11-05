@@ -127,8 +127,13 @@ class PreflightTests(unittest.TestCase):
             parse_dav_length(unrelated, TARGET)
         with self.assertRaises(PreflightError):
             parse_dav_length(valid.replace(b"200 OK", b"403 Forbidden"), TARGET)
+        reply = valid.split(b"<d:response>", 1)[1].split(b"</d:response>", 1)[0]
+        duplicate = valid.replace(
+            b"</d:multistatus>",
+            b"<d:response>" + reply + b"</d:response></d:multistatus>",
+        )
         with self.assertRaises(PreflightError):
-            parse_dav_length(valid + valid, TARGET)
+            parse_dav_length(duplicate, TARGET)
         with self.assertRaises(PreflightError):
             parse_dav_length(b"x" * 1_000_001, TARGET)
 
