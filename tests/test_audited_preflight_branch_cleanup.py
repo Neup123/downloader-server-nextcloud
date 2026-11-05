@@ -44,6 +44,14 @@ class AuditedRetirementTests(unittest.TestCase):
             [branch(OLD_BRANCH)], [], port_verified=False
         ), [])
 
+    def test_main_cleanup_checks_audited_branch_before_deleting(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/safe-merged-branch-cleanup.yml").read_text()
+        self.assertEqual(workflow.count("--retire-audited"), 2)
+        self.assertIn("github.event_name == 'push'", workflow)
+        self.assertIn("python scripts/cleanup_merged_branches.py --prune-equivalent --retire-audited --apply", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
