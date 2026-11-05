@@ -4,5 +4,5 @@ export function exappRoot(pathname: string): string {
     throw new Error('Invalid ExApp location');
   }
   const root = pathname.replace(/\/+$/, '');
-  return root || '/';
+  return root;
 }
