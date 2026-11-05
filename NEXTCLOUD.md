@@ -181,3 +181,28 @@ not sufficient evidence.
 Official references: [AppAPI and External Apps](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/AppAPIAndExternalApps.html),
 [Deploy Daemon management](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/ManagingDeployDaemons.html),
 [using `occ`](https://docs.nextcloud.com/server/stable/admin_manual/occ_command.html).
+
+
+## Disposable Nextcloud integration acceptance in CI
+
+The workflow `.github/workflows/live-nextcloud-preflight.yml` builds no
+Nextcloud app and makes no changes to the production installation. On PRs,
+main-branch changes and manual dispatch it launches a disposable pinned
+Nextcloud container with randomly generated, masked test credentials,
+waits for installation, then exercises:
+
+1. Read-only WebDAV destination validation for the test administrator's root.
+2. The opt-in write preflight in **the disposable instance only**: temporary
+   folder creation, file upload, exact-target metadata verification, SHA-256
+   readback and cleanup.
+3. The read-only AppAPI `occ` inspection on that disposable container. This
+   confirms the probe can run; the output intentionally does not include
+   daemon configuration or secrets.
+
+CI uses an isolated HTTP loopback mapping with `--allow-http` and a temporary
+test password. **Do not copy this HTTP/password exception to production.**
+The production instance should use HTTPS, a dedicated app password, and
+the specific destination path. A green disposable test **does not** establish
+that the target server's AppAPI Deploy Daemon works, that Test Deploy passes,
+or that its network/reverse proxy configuration permits ExApps. Those steps
+still require live administrator verification before implementation or release.
