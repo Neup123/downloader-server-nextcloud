@@ -65,18 +65,34 @@ jobs:
           git diff --exit-code upstream/main -- BLUEPRINT.md
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Verify combined repository Python and Nextcloud tests
+      - name: Verify upstream Python tests in isolated core worktree
         if: steps.merge.outputs.changed == 'true'
         env:
-          DATA_DIR: /tmp/downloader-test-data
+          DATA_DIR: /tmp/downloader-core-test-data
         run: |
           set -euo pipefail
-          python -m pip install -r requirements.txt pytest PyYAML
-          python -m compileall -q app scripts tests
-          python -m pytest -q
-          python -m unittest discover -s tests -p 'test_appapi_*.py' -v
-          python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
-          python -m unittest discover -s tests -p 'test_target_*.py' -v
+          # Core tests inspect core-only workflow files; run against the exact
+          # fetched upstream commit, never the downstream workflow directory.
+          git worktree add --detach /tmp/downloader-core-acceptance upstream/main
+          python -m pip install -r /tmp/downloader-core-acceptance/requirements.txt pytest PyYAML
+          (cd /tmp/downloader-core-acceptance && python -m pytest -q)
+
+      - name: Verify merged core files and downstream Nextcloud behavior
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          DATA_DIR: /tmp/downloader-nextcloud-test-data
+        run: |
+          set -euo pipefail
+          # Keep Nextcloud's own release and cleanup policies. The resolver
+          # temporarily used core workflow files only to settle Git conflicts.
+          git restore --source=HEAD --staged --worktree README.md .github/workflows
+          # No downstream edits to core-owned backend contracts are permitted.
+          git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile
+          python -m compileall -q app scripts tests nextcloud_exapp
+          python -m pytest -q \\
+            tests/test_appapi_*.py tests/test_audited_*.py \\
+            tests/test_cleanup_*.py tests/test_exapp_*.py \\
+            tests/test_nextcloud_*.py tests/test_target_*.py
 
       - name: Verify merged production Docker image builds
         if: steps.merge.outputs.changed == 'true'
