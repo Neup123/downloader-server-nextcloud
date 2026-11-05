@@ -14,6 +14,23 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("group: core-upstream-sync", content)
         self.assertIn("cancel-in-progress: false", content)
 
+    def test_core_tests_use_exact_upstream_worktree_and_downstream_own_workflows(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("git worktree add --detach /tmp/downloader-core-acceptance upstream/main", content)
+        self.assertIn("(cd /tmp/downloader-core-acceptance && python -m pytest -q)", content)
+        self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
+        self.assertIn("git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile", content)
+        for pattern in (
+            "tests/test_nextcloud_*.py", "tests/test_appapi_*.py",
+            "tests/test_exapp_*.py", "tests/test_audited_*.py",
+            "tests/test_cleanup_*.py", "tests/test_target_*.py",
+        ):
+            self.assertIn(pattern, content)
+        self.assertLess(
+            content.index("git diff --exit-code upstream/main -- app"),
+            content.index("git push origin HEAD:main"),
+        )
+
     def test_no_unverified_or_unsafe_merges(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git merge-base --is-ancestor", content)
