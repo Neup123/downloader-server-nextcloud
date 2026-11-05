@@ -40,3 +40,25 @@ commands on the actual host; it reports the server version and AppAPI state
 without copying daemon configuration into logs. It does **not** perform
 AppAPI's mandatory administrator **Test Deploy** or prove ExApp readiness.
 See [NEXTCLOUD.md](NEXTCLOUD.md#read-only-appapi-readiness-check).
+
+### Combined target readiness report
+
+On the actual Nextcloud host, one command can run the separate read-only AppAPI
+and authenticated WebDAV checks together. The Nextcloud URL, user, and existing
+Files destination must refer to the **same** installation:
+
+```bash
+python3 -m scripts.target_readiness \\
+  --container nextcloud-aio-nextcloud \\
+  --url https://cloud.example.org \\
+  --username example-user \\
+  --folder Downloader
+```
+
+The app password is requested securely, or read from `NEXTCLOUD_APP_PASSWORD`
+if set. The report does not reveal passwords, daemon names or deployment
+configuration and does not modify AppAPI. The separate `--write-test` flag
+performs a disposable WebDAV upload, SHA-256 readback and cleanup **only after
+confirming the target destination**. Even a passing combined report does not
+perform or prove AppAPI Test Deploy; administrator verification is mandatory.
+See [NEXTCLOUD.md](NEXTCLOUD.md) for the remaining deployment gates.
