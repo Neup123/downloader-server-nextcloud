@@ -11,11 +11,14 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 
-from nextcloud_exapp.proxy import ProxySettings, RESPONSE_HEADERS, safe_upstream_headers
+from nextcloud_exapp.proxy import (
+    ProxySettings, RESPONSE_HEADERS, is_events_route, safe_upstream_headers,
+    upstream_api_url,
+)
 
 
 def config() -> ProxySettings:
@@ -65,20 +68,19 @@ async def reference():
 )
 async def proxy_api(path: str, request: Request):
     settings = config()
-    # Starlette has parsed this segment as a path, not a user-supplied host.
-    # Never append a URL, forward a Location redirect, or inherit a proxy.
-    if not path or "//" in path or "\\" in path or any(
-        part in (".", "..") for part in path.split("/")
-    ):
-        raise HTTPException(status_code=400, detail="Invalid API path")
-    url = f"{settings.origin}/api/v1/{path}"
-    if request.url.query:
-        url += "?" + request.url.query
+    # Keep the upstream origin fixed, and reject ambiguous decoded paths.
+    try:
+        url = upstream_api_url(settings.origin, path, request.url.query)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid API path or query") from exc
     headers = safe_upstream_headers(request.headers.get("content-type"), settings.token)
     headers["Accept"] = request.headers.get("accept", "application/json")
     headers["Accept-Encoding"] = "identity"
     client = httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0, connect=10.0),
+        timeout=httpx.Timeout(
+            connect=10.0, write=60.0, pool=10.0,
+            read=None if is_events_route(path) else 60.0,
+        ),
         trust_env=False,
         follow_redirects=False,
     )

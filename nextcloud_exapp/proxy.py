@@ -6,7 +6,8 @@ to the core service. The core API key exists only in the ExApp container.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
+import re
 
 
 @dataclass(frozen=True)
@@ -54,3 +55,33 @@ def safe_upstream_headers(content_type: str | None, token: str) -> dict[str, str
 
 
 RESPONSE_HEADERS = frozenset({"content-type", "cache-control", "content-disposition"})
+
+
+def upstream_api_url(origin: str, path: str, query: str = "") -> str:
+    """Build a fixed-origin API URL without traversal or alternate-authority paths.
+
+    ASGI already decodes request paths once. Check additional decoding rounds to
+    reject encoded separators/traversal before re-encoding path characters.
+    """
+    if not isinstance(path, str) or not path or len(path) > 4096:
+        raise ValueError("Invalid API path")
+    for candidate in (path, unquote(path), unquote(unquote(path))):
+        if (
+            candidate.startswith("/")
+            or candidate.count("/") != path.count("/")
+            or any(part in ("", ".", "..") for part in candidate.split("/"))
+            or any(ch in candidate for ch in ("\\", "?", "#"))
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in candidate)
+        ):
+            raise ValueError("Invalid API path")
+    if not isinstance(query, str) or len(query) > 8192 or any(
+        ord(ch) < 32 or ord(ch) == 127 or ch == "#" for ch in query
+    ):
+        raise ValueError("Invalid API query")
+    encoded_path = quote(path, safe="/-._~")
+    return f"{origin}/api/v1/{encoded_path}" + (f"?{query}" if query else "")
+
+
+def is_events_route(path: str) -> bool:
+    """SSE subscriptions intentionally outlive normal API read timeouts."""
+    return re.fullmatch(r"jobs/[^/]+/events", path) is not None

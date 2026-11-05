@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiErrorMessage } from './api-errors';
+import { exappRoot } from './exapp-path';
 
 type Engine = 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type EngineSelection = 'auto' | Engine;
@@ -53,7 +54,7 @@ function CommonOptionFields({ fields, values, onChange }: {
 }
 
 const IS_NEXTCLOUD_EXAPP = import.meta.env.MODE === 'nextcloud';
-const EXAPP_ROOT = new URL('.', window.location.href.endsWith('/') ? window.location.href : window.location.href + '/').pathname.replace(/\/$/, '');
+const EXAPP_ROOT = exappRoot(window.location.pathname);
 const API = IS_NEXTCLOUD_EXAPP ? EXAPP_ROOT + '/api/v1' : '/api/v1';
 const API_REFERENCE = IS_NEXTCLOUD_EXAPP ? EXAPP_ROOT + '/api-reference' : '/api-reference';
 const ytDefaults: YtSettings = {
