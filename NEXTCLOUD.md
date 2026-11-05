@@ -14,16 +14,23 @@ Core repository: https://github.com/Neup123/Media-Downloader-server
 Upstream remote name: upstream  
 Downstream remote name: origin
 
-This repository was empty before initialization. Its first README commit intentionally matches the core README so the initial history import can be made without a README content conflict. The first local checkout must establish shared Git ancestry:
+Shared Git ancestry was **already established** on the remote repository by
+[bootstrap merge commit 0044d368](https://github.com/Neup123/downloader-server-nextcloud/commit/0044d3686fed9167a9268872c9b1935740e2b74a).
+Its second parent is core `main` commit `06336a0b`; the downstream
+`BLUEPRINT.md` matches the core source blob. The Nextcloud-specific README
+intentionally remains different.
+
+A local clone must still configure its own upstream remote (Git remote
+configuration is local to each checkout, not stored in Git history):
 
     git remote add upstream https://github.com/Neup123/Media-Downloader-server.git
     git fetch upstream
-    git merge --allow-unrelated-histories upstream/main
-
-Resolve any initial Git-history conflict, keep the core files identical to upstream, and commit the merge. After that one-time bootstrap, use normal upstream merges:
-
-    git fetch upstream
     git merge upstream/main
+
+Do **not** use `--allow-unrelated-histories` again: the remote repository
+already has a shared ancestor with core `main`. Future core-owned changes
+can be brought in with ordinary upstream merges after the core review
+branch lands on `main`.
 
 Do not edit or duplicate core-owned files here unless a documented Nextcloud-specific delta requires it. Prefer AppAPI packaging metadata, Nextcloud integration code, and deployment configuration in clearly separated paths.
 
@@ -80,7 +87,7 @@ Keep the integration thin so Nextcloud major upgrades cannot break the core down
 - Nextcloud-specific code and container packaging have not been added.
 - The actual target Nextcloud instance has not been inspected in this build session.
 - AppAPI/Deploy Daemon feasibility is therefore **unverified**.
-- The first upstream history merge described above has not yet been performed.
+- Shared upstream Git ancestry was established by merge commit `0044d368`, but the core MVP remains in a separate draft review branch and has not been imported as accepted `main` code.
 
 Do not begin ExApp packaging or declare a supported Nextcloud version until the target-instance checks in Section 3 are complete.
 
