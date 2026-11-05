@@ -71,6 +71,8 @@ jobs:
 
       - name: Verify combined repository Python and Nextcloud tests
         if: steps.merge.outputs.changed == 'true'
+        env:
+          DATA_DIR: /tmp/downloader-test-data
         run: |
           set -euo pipefail
           python -m pip install -r requirements.txt pytest PyYAML
