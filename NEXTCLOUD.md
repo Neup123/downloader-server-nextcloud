@@ -220,3 +220,22 @@ the specific destination path. A green disposable test **does not** establish
 that the target server's AppAPI Deploy Daemon works, that Test Deploy passes,
 or that its network/reverse proxy configuration permits ExApps. Those steps
 still require live administrator verification before implementation or release.
+
+## One-command target readiness summary
+
+`python3 -m scripts.target_readiness` combines the existing host-side
+`occ` inspection and authenticated WebDAV destination probe. The command
+accepts the same `--container` or `--occ-command`, plus `--url`,
+`--username` and optional `--folder`. It compares the Nextcloud server
+versions reported by `occ` and `status.php` and rejects different
+installations. By default, neither probe creates files or modifies AppAPI.
+The optional `--write-test` creates a randomly named disposable WebDAV
+file, downloads it to verify SHA-256, and removes it. Use this option only
+after confirming the destination folder; an unexpected interruption can
+leave a probe artifact for manual cleanup.
+
+The report keeps the actual Deploy Daemon registration details private and
+explicitly identifies AppAPI Test Deploy as **not verified**. A registered
+daemon and successful WebDAV write check are both insufficient to publish
+an ExApp compatibility claim. Test Deploy remains a separate, explicit
+administrator operation on the actual Nextcloud instance.
