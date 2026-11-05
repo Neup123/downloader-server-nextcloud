@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<info>
+    <id>downloader-server-nextcloud</id>
+    <name>Downloader Server</name>
+    <summary>Administrator interface for a standalone media downloader</summary>
+    <description>Nextcloud AppAPI gateway to the separately deployed Downloader Server. It does not run downloads inside Nextcloud.</description>
+    <version>0.1.0</version>
+    <licence>MIT</licence>
+    <author>Neup123</author>
+    <namespace>DownloaderServer</namespace>
+    <category>tools</category>
+    <website>https://github.com/Neup123/downloader-server-nextcloud</website>
+    <repository type="git">https://github.com/Neup123/downloader-server-nextcloud</repository>
+    <dependencies>
+        <nextcloud min-version="35" max-version="35"/>
+    </dependencies>
+    <external-app>
+        <docker-install>
+            <registry>ghcr.io</registry>
+            <image>neup123/downloader-server-nextcloud</image>
+            <image-tag>0.1.0-dev</image-tag>
+        </docker-install>
+        <environment-variables>
+            <variable>
+                <name>DOWNLOADER_API_URL</name>
+                <display-name>Downloader Server URL</display-name>
+                <description>HTTPS origin of your separate Downloader Server API</description>
+            </variable>
+            <variable>
+                <name>DOWNLOADER_API_TOKEN</name>
+                <display-name>Downloader Server API token</display-name>
+                <description>Service token kept inside the ExApp server, never exposed to browsers</description>
+            </variable>
+            <variable>
+                <name>DOWNLOADER_ALLOW_TRUSTED_HTTP</name>
+                <display-name>Allow private-network HTTP</display-name>
+                <description>Set to true only for an isolated, administrator-controlled Docker network</description>
+                <default>false</default>
+            </variable>
+        </environment-variables>
+        <routes>
+            <route><url>^/$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/assets/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api-reference$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api/v1/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api/v1/.*$</url><verb>POST</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api/v1/.*$</url><verb>PUT</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api/v1/.*$</url><verb>PATCH</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/api/v1/.*$</url><verb>DELETE</verb><access_level>ADMIN</access_level></route>
+        </routes>
+    </external-app>
+</info>
