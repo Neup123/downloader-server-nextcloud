@@ -8,12 +8,16 @@ This repository must stay thin. It must not contain downloader logic or duplicat
 
 ## Current status
 
-**Integration documentation initialized; no Nextcloud app or deployment package is implemented yet.**
+**Nextcloud integration tooling and disposable AppAPI Docker deployment CI are implemented; the Downloader Server ExApp package itself is not yet implemented.**
 
 - [NEXTCLOUD.md](NEXTCLOUD.md) defines the integration boundary, AppAPI/ExApp deployment path, fallbacks, WebDAV delivery, and target-instance checks.
 - Core `main` Git ancestry was already imported in merge commit [`0044d368`](https://github.com/Neup123/downloader-server-nextcloud/commit/0044d3686fed9167a9268872c9b1935740e2b74a). Future local clones should add the `upstream` remote normally; do not repeat the unrelated-histories bootstrap.
-- The target Nextcloud version, AppAPI state, Deploy Daemon registration, reverse proxy, and WebDAV authentication remain unverified.
-- The core Phase 1 implementation is under review in the core repository. Do not package or integrate an unaccepted core build.
+- The **real target** Nextcloud version, AppAPI state, Deploy Daemon registration, reverse proxy, and WebDAV authentication remain unverified. Disposable CI uses Nextcloud 35.0.2 and has demonstrated both WebDAV readback and a real AppAPI Docker ExApp install/enable/disable/unregister sequence.
+- The standalone core development baseline was merged into core `main` in PR #2. Main is not a production-ready release: network egress isolation and live P2 engine acceptance remain outstanding.
+
+## Verified disposable AppAPI infrastructure
+
+`.github/workflows/appapi-docker-deploy-e2e.yml` provisions a fresh Nextcloud 35.0.2 instance and a trusted-network Docker Socket Proxy on a disposable GitHub Actions runner, registers a real AppAPI Deploy Daemon, deploys Nextcloud's official Python skeleton ExApp, and exercises enable/disable/unregister. The sample manifest is pinned to a source commit; its container-image tag is upstream `latest`, so this test is **not fully image-digest reproducible**. The workflow provides no production credentials or permanent daemon; it does **not** install this project's Downloader Server ExApp. For new production installations use the supported deployment mechanism recommended for the target Nextcloud version (normally HaRP), not this ephemeral CI-only Docker Socket Proxy arrangement.
 
 ## Integration sequence
 
