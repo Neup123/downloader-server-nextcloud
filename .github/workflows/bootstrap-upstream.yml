@@ -56,13 +56,7 @@ jobs:
               echo "Unexpected merge failure" >&2
               exit 1
             fi
-            unresolved="$(git diff --name-only --diff-filter=U)"
-            if [[ "$unresolved" != "README.md" ]]; then
-              echo "Unexpected merge conflicts: $unresolved" >&2
-              exit 1
-            fi
-            git checkout --ours README.md
-            git add README.md
+            python3 scripts/resolve_upstream_conflicts.py
           fi
           if [[ -n "$(git ls-files -u)" ]]; then
             echo "Unresolved merge conflicts remain" >&2
@@ -93,11 +87,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Run acceptance with the upstream workflow definitions in the
-          # temporary merge worktree, since core tests introspect them.
-          # Never publish core workflows into the Nextcloud repository: it
-          # owns separate CI and the GITHUB_TOKEN cannot write workflow files.
-          git restore --source=HEAD --staged --worktree .github/workflows
+          # Core tests inspect core workflow versions temporarily staged by
+          # the resolver; preserve downstream README and *all* its workflows
+          # only after tests and Docker build have passed.
+          git restore --source=HEAD --staged --worktree README.md .github/workflows
           if git diff --cached --name-only | grep -q '^.github/workflows/'; then
             echo "Core workflow changes unexpectedly staged" >&2
             exit 1
