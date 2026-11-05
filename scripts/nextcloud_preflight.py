@@ -18,7 +18,7 @@ import sys
 import xml.etree.ElementTree as ET
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urljoin, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 class PreflightError(RuntimeError):
@@ -135,7 +135,10 @@ class PreflightClient:
         self.dav_url = self.base_url + "/remote.php/dav/files/" + quote(username, safe="")
         token = base64.b64encode((username + ":" + password).encode("utf-8")).decode("ascii")
         self._auth = "Basic " + token
-        self._opener = build_opener(NoRedirects())
+        # Never inherit HTTP(S) proxies from the host: this client sends
+        # Basic authentication and must connect directly to the requested
+        # Nextcloud origin, including during the opt-in local HTTP test.
+        self._opener = build_opener(ProxyHandler({}), NoRedirects())
 
     def request(self, method: str, url: str, *, body: bytes | None = None, authenticated: bool = True,
                 headers: dict[str, str] | None = None, expected: tuple[int, ...] = (200,)) -> bytes:
