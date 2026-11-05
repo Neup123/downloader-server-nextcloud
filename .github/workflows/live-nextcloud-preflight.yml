@@ -90,6 +90,16 @@ jobs:
           python scripts/appapi_readiness.py \
             --container downloader-preflight-nextcloud
 
+      - name: Verify one-command combined host and WebDAV target report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.target_readiness \
+            --container downloader-preflight-nextcloud \
+            --url http://127.0.0.1:8099 \
+            --username admin \
+            --allow-http --write-test
+
       - name: Remove disposable Nextcloud container and volumes
         if: always()
         shell: bash
