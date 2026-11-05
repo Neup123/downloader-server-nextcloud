@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import subprocess
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -169,10 +170,55 @@ def equivalent_branch_candidates(
     return sorted(candidates)
 
 
+def audited_legacy_candidates(
+    branches: list[dict], pulls: list[dict], *, port_verified: bool,
+) -> list[tuple[str, str]]:
+    """One-off reviewed legacy retirement, protected by an exact Git SHA.
+
+    Issue #16 and PR #25 audit: the old Nextcloud readiness prototype is
+    superseded by the tested scripts/ readiness probes and its unique
+    auto-detection was ported. Do not turn this into a generic name prefix
+    or delete an unexpectedly changed branch.
+    """
+    if not port_verified:
+        return []
+    old_name = "feature/read-only-nextcloud-preflight"
+    expected_sha = "d5bcdfd5bb4627b6f40233147cea920233ca26a0"
+    if any(
+        pr.get("state") == "open"
+        and (pr.get("head") or {}).get("ref") == old_name
+        for pr in pulls
+    ):
+        return []
+    return [
+        (old_name, expected_sha)
+        for branch in branches
+        if branch.get("name") == old_name
+        and not branch.get("protected")
+        and (branch.get("commit") or {}).get("sha") == expected_sha
+    ]
+
+
+def legacy_port_verified() -> bool:
+    """Require current files AND the regression suite in checked-out main."""
+    root = Path(__file__).resolve().parents[1]
+    appapi = root / "scripts/appapi_readiness.py"
+    target = root / "scripts/target_readiness.py"
+    regression = root / "tests/test_auto_container_detection.py"
+    return (
+        appapi.is_file() and target.is_file() and regression.is_file()
+        and "def detect_nextcloud_container" in appapi.read_text()
+        and '"--auto-container"' in appapi.read_text()
+        and '"--auto-container"' in target.read_text()
+    )
+
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Delete eligible refs with a SHA lease")
     parser.add_argument("--prune-equivalent", action="store_true", help="Retire ancestor and identical-file branches, never unique work")
+    parser.add_argument("--retire-audited", action="store_true", help="Retire exactly one audited, SHA-locked superseded preflight prototype")
     args = parser.parse_args()
     repository = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
@@ -184,8 +230,14 @@ def main() -> None:
         candidates += equivalent_branch_candidates(
             repository, branches, pulls, token, {name for name, _ in candidates}
         )
+    equivalent = len(candidates) - exact
+    if args.retire_audited:
+        candidates += audited_legacy_candidates(
+            branches, pulls, port_verified=legacy_port_verified(),
+        )
     print(f"Reviewed {len(branches)} branches and {len(pulls)} PRs; "
-          f"{exact} exact merged heads and {len(candidates) - exact} content-equivalent heads eligible")
+          f"{exact} exact merged heads, {equivalent} content-equivalent heads "
+          f"and {len(candidates) - exact - equivalent} audited legacy heads eligible")
     failures = []
     for name, sha in candidates:
         print(f"{'Deleting' if args.apply else 'Dry run'}: {name} at {sha[:12]}")
