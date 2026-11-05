@@ -45,7 +45,7 @@ def main() -> None:
     git("rev-parse", "-q", "--verify", "MERGE_HEAD")
     paths = [
         item.decode("utf-8", "strict")
-        for item in git("diff", "--name-only", "--diff-filter=U", "-z").split(b"\\0")
+        for item in git("diff", "--name-only", "--diff-filter=U", "-z").split(bytes([0]))
         if item
     ]
     plan = plan_conflicts(paths)
