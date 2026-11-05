@@ -1,43 +1,31 @@
-# Downloader Server
+# Downloader Server — Nextcloud Adaptation
 
-Downloader Server is a server-side media downloader with one web interface for multiple established CLI engines. It manages jobs, engine settings, progress, logs, and delivery. It is designed to run as a standalone Docker Compose service; Nextcloud integration is an optional adaptation maintained separately.
+This repository contains the Nextcloud-specific integration for Downloader Server. The core downloader service, web UI, REST API, engine adapters, job manager, tests, and engine update automation are maintained in the separate core repository:
 
-## Repositories
+https://github.com/Neup123/Media-Downloader-server
 
-- Core: https://github.com/Neup123/Media-Downloader-server
-- Nextcloud adaptation: https://github.com/Neup123/downloader-server-nextcloud
-
-The core repository is the source of truth for the service, web UI, API, engine adapters, generic WebDAV delivery, tests, and engine update automation. The Nextcloud repository is limited to AppAPI/ExApp packaging and other Nextcloud-specific integration.
+This repository must stay thin. It must not contain downloader logic or duplicate core-owned functionality.
 
 ## Current status
 
-**Phase 0 — Blueprint extraction: recorded.**
+**Integration documentation initialized; no Nextcloud app or deployment package is implemented yet.**
 
-- [BLUEPRINT.md](BLUEPRINT.md) records the clean-room behavior inventory, upstream engine settings, screen inventory, service architecture, documentation references, and the Python service-stack decision.
-- No application code or deployment configuration has been added yet.
-- The next implementation phase is the core MVP: API, persistent job manager, yt-dlp and aria2 adapters, web UI, and generic WebDAV delivery.
+- [NEXTCLOUD.md](NEXTCLOUD.md) defines the integration boundary, AppAPI/ExApp deployment path, fallbacks, WebDAV delivery, and target-instance checks.
+- The target Nextcloud version, AppAPI state, Deploy Daemon registration, reverse proxy, and WebDAV authentication remain unverified.
+- The core Phase 1 implementation is under review in the core repository. Do not package or integrate an unaccepted core build.
 
-A phase is complete only after the acceptance checks in BLUEPRINT.md pass. Documentation or a successful syntax check is not evidence that an end-to-end download and delivery works.
+## Integration sequence
 
-## Service stack decision
+1. Verify the actual target Nextcloud instance and host-level deployment capabilities.
+2. Bootstrap the Git relationship with the core repository as the upstream remote, as described in NEXTCLOUD.md.
+3. Prefer AppAPI ExApp packaging where the target supports it and a Deploy Daemon is configured and tested.
+4. Use the official External Sites app to embed the standalone UI as the fallback.
+5. Add a thin PHP bridge only if neither supported path is available.
 
-- Python 3.13 and FastAPI.
-- SQLAlchemy 2 with SQLite for the initial single-container deployment.
-- React and TypeScript for the web UI.
-- Server-Sent Events for live job progress.
-- A checked-in OpenAPI YAML contract rendered by Scalar.
-- Docker Compose with persistent storage.
+## Delivery
 
-## Design constraints
-
-- Download with established engines; do not reimplement site extractors.
-- Expose global engine defaults and per-download overrides in the UI.
-- Execute subprocesses using argument arrays, never shell strings built from user input.
-- Keep credentials out of source control and redact them from logs.
-- Deliver to local directories or generic WebDAV endpoints. Nextcloud files are delivered through WebDAV, never by writing to the Nextcloud data directory.
-- Do not add Nextcloud-specific code to this repository.
-- Do not mark a feature complete until its behavior is tested and the output is verified.
+Use the core service's generic WebDAV delivery module. Nextcloud files must be delivered through WebDAV PUT and verified using WebDAV metadata. Never write directly into the Nextcloud data directory or use files:scan as the delivery path.
 
 ## Documentation
 
-Start with [BLUEPRINT.md](BLUEPRINT.md). It lists engine-specific settings, invocation behavior, parser requirements, the initial UI scope, architecture decisions, acceptance gates, and authoritative documentation links.
+Start with [NEXTCLOUD.md](NEXTCLOUD.md) for the prerequisites, deployment decision tree, configuration boundaries, and current blockers.
