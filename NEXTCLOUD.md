@@ -29,8 +29,8 @@ configuration is local to each checkout, not stored in Git history):
 
 Do **not** use `--allow-unrelated-histories` again: the remote repository
 already has a shared ancestor with core `main`. Future core-owned changes
-can be brought in with ordinary upstream merges after the core review
-branch lands on `main`.
+can be brought in with ordinary upstream merges now that core PR #2
+landed on `main`; that does not mean this repository already contains all new core code.
 
 Do not edit or duplicate core-owned files here unless a documented Nextcloud-specific delta requires it. Prefer AppAPI packaging metadata, Nextcloud integration code, and deployment configuration in clearly separated paths.
 
@@ -84,12 +84,12 @@ Keep the integration thin so Nextcloud major upgrades cannot break the core down
 ## 6. Current status and blockers
 
 - Repository initialized with the shared core overview.
-- Nextcloud-specific code and container packaging have not been added.
+- Disposable AppAPI Docker deployment CI has been added and passed using the official example ExApp. Downloader Server's own ExApp packaging is still under development.
 - The actual target Nextcloud instance has not been inspected in this build session.
 - AppAPI/Deploy Daemon feasibility is therefore **unverified**.
-- Shared upstream Git ancestry was established by merge commit `0044d368`, but the core MVP remains in a separate draft review branch and has not been imported as accepted `main` code.
+- Shared upstream Git ancestry was established by merge commit `0044d368`. Core PR #2 was subsequently merged into core `main`; its additional commits are available for a normal upstream merge but have not yet been imported into this repository.
 
-Do not begin ExApp packaging or declare a supported Nextcloud version until the target-instance checks in Section 3 are complete.
+Develop and test ExApp packaging against disposable CI independently of production. Do not claim the **real target** is supported or deploy to production until the target-instance checks in Section 3 succeed.
 
 
 ## WebDAV target-instance preflight (safe before selecting an integration method)
@@ -239,3 +239,8 @@ explicitly identifies AppAPI Test Deploy as **not verified**. A registered
 daemon and successful WebDAV write check are both insufficient to publish
 an ExApp compatibility claim. Test Deploy remains a separate, explicit
 administrator operation on the actual Nextcloud instance.
+
+
+## Disposable real AppAPI Docker-install acceptance
+
+`.github/workflows/appapi-docker-deploy-e2e.yml` verifies more than the read-only AppAPI readiness probe. It starts a fresh Nextcloud 35.0.2 instance and an isolated Docker Socket Proxy, registers a real `docker-install` Deploy Daemon, installs Nextcloud's official Python skeleton ExApp from a source-pinned manifest, verifies that the ExApp container is running, and exercises enable/disable/unregister. The initial runs on `main` passed. This proves the **CI deployment pipeline**, not this project's Downloader Server ExApp package or administrator Test Deploy on the actual server. The Docker Socket Proxy is strictly ephemeral on the isolated GitHub Actions runner; current Nextcloud documentation recommends HaRP for new production installations. The external sample's image tag is upstream `latest`, so this test alone is not digest-locked or a production reproducibility guarantee.
