@@ -89,9 +89,9 @@ jobs:
           # No downstream edits to core-owned backend contracts are permitted.
           git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile
           python -m compileall -q app scripts tests nextcloud_exapp
-          python -m pytest -q \\
-            tests/test_appapi_*.py tests/test_audited_*.py \\
-            tests/test_cleanup_*.py tests/test_exapp_*.py \\
+          python -m pytest -q \
+            tests/test_appapi_*.py tests/test_audited_*.py \
+            tests/test_cleanup_*.py tests/test_exapp_*.py \
             tests/test_nextcloud_*.py tests/test_target_*.py
 
       - name: Verify merged production Docker image builds
