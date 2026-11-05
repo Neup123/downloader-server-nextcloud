@@ -68,6 +68,7 @@ def upstream_api_url(origin: str, path: str, query: str = "") -> str:
     for candidate in (path, unquote(path), unquote(unquote(path))):
         if (
             candidate.startswith("/")
+            or candidate.count("/") != path.count("/")
             or any(part in ("", ".", "..") for part in candidate.split("/"))
             or any(ch in candidate for ch in ("\\", "?", "#"))
             or any(ord(ch) < 32 or ord(ch) == 127 for ch in candidate)
