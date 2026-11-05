@@ -1,0 +1,97 @@
+name: Live disposable Nextcloud preflight acceptance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-disposable-nextcloud-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create masked disposable credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$password"
+          echo "NEXTCLOUD_APP_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      - name: Start disposable Nextcloud test container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name downloader-preflight-nextcloud \
+            -p 127.0.0.1:8099:80 \
+            -e SQLITE_DATABASE=nextcloud.db \
+            -e NEXTCLOUD_ADMIN_USER=admin \
+            -e NEXTCLOUD_ADMIN_PASSWORD="$NEXTCLOUD_APP_PASSWORD" \
+            -e "NEXTCLOUD_TRUSTED_DOMAINS=127.0.0.1 localhost" \
+            nextcloud:35.0.2-apache
+
+      - name: Verify installed instance becomes ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import time
+          from urllib.error import URLError
+          from urllib.request import urlopen
+
+          for attempt in range(180):
+              try:
+                  with urlopen("http://127.0.0.1:8099/status.php", timeout=3) as response:
+                      data = json.load(response)
+                  if data.get("installed") and not data.get("maintenance"):
+                      print("Disposable Nextcloud installation reports ready")
+                      break
+              except (OSError, URLError, ValueError):
+                  pass
+              time.sleep(2)
+          else:
+              raise SystemExit("Nextcloud did not complete installation within the bounded wait")
+          PY
+
+      - name: Verify read-only destination access, then disposable upload and SHA-256 readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/nextcloud_preflight.py \
+            --url http://127.0.0.1:8099 \
+            --username admin \
+            --allow-http
+          python scripts/nextcloud_preflight.py \
+            --url http://127.0.0.1:8099 \
+            --username admin \
+            --allow-http --write-test
+
+      - name: Inspect actual disposable AppAPI without changing any daemon configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/appapi_readiness.py \
+            --container downloader-preflight-nextcloud
+
+      - name: Remove disposable Nextcloud container and volumes
+        if: always()
+        shell: bash
+        run: |
+          docker rm --force --volumes downloader-preflight-nextcloud || true
