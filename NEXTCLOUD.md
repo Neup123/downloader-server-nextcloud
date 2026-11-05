@@ -132,3 +132,52 @@ checks have actually succeeded.
 References: [official Nextcloud WebDAV operations](https://docs.nextcloud.com/server/stable/developer_manual/client_apis/WebDAV/basic.html),
 [Deploy Daemon management](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/ManagingDeployDaemons.html),
 [Test Deploy](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/TestDeploy.html).
+
+
+## Read-only AppAPI readiness check
+
+Run this **on the Nextcloud host** before selecting ExApp packaging. The
+script invokes only `occ status`, `occ app:list`, and, when AppAPI is
+enabled, `occ app_api:daemon:list`. It does not register, enable, install,
+or deploy anything. It prints only a sanitized JSON summary: the raw daemon
+configuration (which may include internal network details) is discarded.
+
+For Nextcloud AIO where the Nextcloud application container has the standard
+name, use:
+
+```bash
+python3 scripts/appapi_readiness.py --container nextcloud-aio-nextcloud
+```
+
+For another container use its actual name, not the example name. On a
+non-Docker installation where the invoking account can run `occ` under
+the correct web-server user:
+
+```bash
+python3 scripts/appapi_readiness.py \
+  --occ-command 'php /var/www/html/occ'
+```
+
+If permission elevation is needed, start the script under the correct user,
+or supply an appropriate `--occ-command` prefix such as
+`sudo -u www-data php /var/www/html/occ`. The command is split into
+arguments and executed without a shell.
+
+The report shows the server version, whether AppAPI is enabled, and whether
+the Deploy Daemon list command succeeded. It **does not establish** that a
+daemon is registered, reachable, correctly routed, or usable. An
+administrator must inspect the registered daemons locally and run **Test
+Deploy** in Settings → Administration → AppAPI. That action deploys a
+temporary test ExApp; unlike the read-only probe it is not safe to treat as
+inspection only. Separately run `scripts/nextcloud_preflight.py` to verify
+the target WebDAV destination, and opt in to its write test only when the
+destination is confirmed.
+
+Do not select or publish a supported ExApp deployment until **the actual
+target** has a successful Test Deploy and WebDAV delivery verification.
+AppAPI being enabled, or a successful `occ app_api:daemon:list`, is
+not sufficient evidence.
+
+Official references: [AppAPI and External Apps](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/AppAPIAndExternalApps.html),
+[Deploy Daemon management](https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/ManagingDeployDaemons.html),
+[using `occ`](https://docs.nextcloud.com/server/stable/admin_manual/occ_command.html).
