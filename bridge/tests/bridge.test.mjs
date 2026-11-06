@@ -20,3 +20,11 @@ test('The Files context, New menu and media action are registered', () => {
   assert.match(source, /downloader-folder-action/);
   assert.match(source, /downloader-viewer-action/);
 });
+
+test('Nextcloud 35 legacy Viewer has a dedicated UI-only action without private DAV re-download', () => {
+  assert.match(source, /installLegacyViewerHook/);
+  assert.match(source, /#viewer\\.viewer/);
+  assert.match(source, /downloader-viewer-action/);
+  assert.match(source, /download_source_url/);
+  assert.doesNotMatch(source, /url: *currentFile\\.davPath/);
+});
