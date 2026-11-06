@@ -18,6 +18,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Validate official External Sites fallback Compose config
+        run: |
+          docker compose version
+          python -m unittest tests/test_external_sites_fallback.py -v
+
       - name: Compile script and tests
         run: python -m compileall -q scripts tests
       - name: Install pinned AppAPI runtime for real per-user unit tests
