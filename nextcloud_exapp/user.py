@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 from fastapi import HTTPException, Request
+from nc_py_api import NextcloudException
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
 DEFAULT_FOLDER = "Downloads"
@@ -282,15 +283,26 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
     for option in ("cookies_file",):
         if overrides.get(option):
             overrides[option] = scoped_cookie_filename(context.user_id, str(overrides[option]))
+    folder_path = "/" + folder if folder else "/"
     try:
-        node = await context.nc.files.by_path("/" + folder if folder else "/")
+        node = await context.nc.files.by_path(folder_path)
+    except NextcloudException as exc:
+        # nc_py_api's WebDAV PROPFIND raises NextcloudException(404) when
+        # the path does not exist (rather than returning None). Only that
+        # exact status permits first-use creation; 401/403/5xx never do.
+        if exc.status_code != 404:
+            raise HTTPException(status_code=409, detail="Cannot open destination folder in Nextcloud Files") from exc
+        node = None
+    except FileNotFoundError:
+        node = None
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Cannot open destination folder in Nextcloud Files") from exc
     if node is None and "folder" not in data and folder == DEFAULT_FOLDER:
-        # First-use default: make the Downloads folder in the user's own Files.
+        # First-use default: make the Downloads folder in the signed user's
+        # own Files. Explicit folder choices are never auto-created.
         try:
-            await context.nc.files.makedirs("/" + DEFAULT_FOLDER, exist_ok=True)
-            node = await context.nc.files.by_path("/" + DEFAULT_FOLDER)
+            await context.nc.files.makedirs(folder_path, exist_ok=True)
+            node = await context.nc.files.by_path(folder_path)
         except Exception as exc:
             raise HTTPException(status_code=409, detail="Could not create your Downloads folder; check Files permissions") from exc
     if node is None or (hasattr(node, "is_dir") and not bool(node.is_dir)):

@@ -213,6 +213,7 @@ jobs:
           docker run --rm -i --network downloader-appapi-ci \
             -e EXAPP_SECRET="$secret" \
             -e EXAPP_PORT="$port" \
+            -e NC_USER_TEST_PASSWORD="$NEXTCLOUD_APP_PASSWORD" \
             python:3.13-alpine python - <<'PY'
           import base64
           import json
@@ -294,6 +295,46 @@ jobs:
               settings = json.load(response)
           assert settings["app_password_configured"] is False
           assert settings["destination_folder"] == "Downloads"
+
+          # Exercise real Nextcloud user Files PROPFIND, not a Python mock.
+          # A newly created user has no Downloads folder by default.
+          def dav_folder():
+              auth = base64.b64encode(
+                  f"alice:{os.environ['NC_USER_TEST_PASSWORD']}".encode()
+              ).decode()
+              return Request(
+                  "http://downloader-appapi-nextcloud/remote.php/dav/files/alice/Downloads/",
+                  headers={"Authorization": "Basic " + auth, "Depth": "0"},
+                  method="PROPFIND",
+              )
+          try:
+              urlopen(dav_folder(), timeout=20)
+          except HTTPError as exc:
+              assert exc.code == 404, f"Unexpected pre-existing Downloads response: {exc.code}"
+          else:
+              raise AssertionError("Fresh test user unexpectedly has Downloads folder")
+
+          with urlopen(signed_request(
+              "alice", "/user/api/settings", method="PUT",
+              payload={"app_password": "ci-only-unused-dav-secret"}
+          ), timeout=30) as response:
+              configured = json.load(response)
+          assert configured["app_password_configured"] is True
+
+          # The mock core DOES NOT download. Its POST response is an
+          # independent gate that the ExApp's real nc_py_api Files calls
+          # successfully created the missing /Downloads folder.
+          with urlopen(signed_request(
+              "alice", "/user/api/jobs", method="POST",
+              payload={"url": "https://example.test/dummy.pdf", "engine": "generic"}
+          ), timeout=45) as response:
+              created = json.load(response)
+          assert created["owner_id"] == "alice", created
+          assert created["delivery"]["folder"] == "Downloads", created
+          with urlopen(dav_folder(), timeout=30) as response:
+              assert response.status == 207, response.status
+              assert b"collection" in response.read().lower()
+          print("Real AppAPI + Nextcloud Files: first-use /Downloads created in Alice's own Files")
 
           try:
               urlopen(signed_request("bob", "/user/api/me"), timeout=20)
