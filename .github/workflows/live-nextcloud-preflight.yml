@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: live-disposable-nextcloud-preflight
+  group: live-disposable-nextcloud-preflight-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
