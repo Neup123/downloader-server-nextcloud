@@ -128,6 +128,35 @@ Never paste a real token in a shared terminal, issue, log, or test transcript.
 Register the required environment values in the administrator UI.
 Confirm the ExApp container is running and AppAPI reports it enabled.
 
+### Verify the exact deployed image against the release
+
+The host-side `scripts/verify_deployed_exapp.py` script checks that the
+AppAPI-created Docker container is actually running the manifest's GHCR
+image, that its OCI source-revision label matches the **GitHub Release target
+commit**, and that Docker has a single valid GHCR digest for the image.
+
+From this repository, with the downloaded release `info.xml`:
+
+```sh
+python3 scripts/verify_deployed_exapp.py \
+  --manifest info.xml \
+  --expected-source 10d050fb08e8124cba2e702f0e484ce25b105954
+```
+
+The SHA above is the **v0.5.1 release target**; use the corresponding exact
+release target SHA for any later version. For stronger independent attestation,
+take `container_image_digest` from the matching source-SHA publisher
+workflow's `image-provenance.json` artifact and add
+`--expected-digest ghcr.io/neup123/downloader-server-nextcloud@sha256:...`.
+This independently compares the installed Docker digest with the
+CI-published digest; do not infer immutability from a tag alone.
+
+The script prints no credentials or container environment. It is read-only,
+and it does **not** change Nextcloud's AppAPI limitation: the docker-install
+manifest still uses a tag instead of a native `@sha256` reference. Report
+that separately under [issue #24](https://github.com/Neup123/downloader-server-nextcloud/issues/24)
+rather than calling it natively digest-pinned.
+
 ## Step 4 — assign user entitlement
 
 Nextcloud Administration > Downloader access: add the entitled Nextcloud user
