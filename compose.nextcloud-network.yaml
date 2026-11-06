@@ -1,0 +1,16 @@
+# Optional overlay for the *guarded* Compose stack, after Nextcloud is running.
+# The AppAPI Deploy Daemon must already attach ExApps to this existing network.
+# Do not add a second core container: this only adds a Docker network alias
+# to egress-guard, which owns the core's shared network namespace.
+services:
+  egress-guard:
+    networks:
+      default: {}
+      nextcloud-integration:
+        aliases:
+          - downloader-core
+
+networks:
+  nextcloud-integration:
+    external: true
+    name: ${NEXTCLOUD_DOCKER_NETWORK:?Set the existing Nextcloud AppAPI Docker network name}

@@ -1,5 +1,8 @@
 # Install the per-user Downloader integration (Nextcloud 35)
 
+If the target cannot deploy AppAPI ExApps, use the separately tested [official External Sites fallback](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md); it is a standalone, administrator-scoped UI, **not** per-user SSO.
+
+
 ## Release images
 
 - Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.0
@@ -50,6 +53,45 @@ at internal HTTP with explicit DOWNLOADER_ALLOW_TRUSTED_HTTP=true. It must
 also be able to reach the Nextcloud WebDAV URL reported to the ExApp. Do not
 expose APP_API_TOKEN to end users or to any JavaScript.
 
+### Optional internal AppAPI-to-core Docker network route
+
+A core API bound to host `127.0.0.1:8080` is **not** automatically reachable
+at `127.0.0.1` from a separately deployed ExApp. If the ExApp and core are
+on the same Docker host, the checked-in
+[Compose network overlay](compose.nextcloud-network.yaml) can attach only
+the existing `egress-guard` service to the **already existing** network of
+the Nextcloud AppAPI Deploy Daemon. It adds no second core container, no
+new privileged egress exception and no new published port.
+
+First determine the actual network from the Nextcloud Deploy Daemon
+configuration, not from a guessed network name. **From the original core
+repository directory**, with its existing `.env`, Compose project and data
+volume, supply the overlay as a second `-f` file:
+
+```sh
+export NEXTCLOUD_DOCKER_NETWORK=THE_EXISTING_NEXTCLOUD_NETWORK
+export DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.0
+docker compose -f compose.egress.yaml -f /path/to/downloader-server-nextcloud/compose.nextcloud-network.yaml config --quiet
+docker compose -f compose.egress.yaml -f /path/to/downloader-server-nextcloud/compose.nextcloud-network.yaml up -d --no-build --wait
+```
+
+The **first** `-f` file must remain the core repository's existing
+`compose.egress.yaml` so the original Compose project and persistent volume
+are reused. Never launch the Nextcloud checkout's inherited core Compose as
+a second project while another core instance is running.
+
+When the tested AppAPI daemon attaches its ExApps to that same network,
+configure ExApp `DOWNLOADER_API_URL=http://downloader-core:8080` and
+`DOWNLOADER_ALLOW_TRUSTED_HTTP=true` server-side. This is a trusted
+container-to-container API route, not a public HTTP exception. Test ExApp
+connectivity over that route and confirm the Docker network excludes
+untrusted clients.
+
+The guarded core still cannot reach Docker-private Nextcloud WebDAV hosts;
+use the reachable public HTTPS `DOWNLOADER_WEBDAV_ORIGIN` setting described
+below. If the host cannot route to that HTTPS origin, do **not** disable
+the egress policy: the real-install test must report the blocker.
+
 ## Step 3 — register the 0.5.1 ExApp
 
 Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.1
@@ -67,14 +109,23 @@ variables on the server only:
   WebDAV destinations. Ensure DNS/hairpin routing from the core container to
   this HTTPS origin actually works. This value is server-side only.
 
-For an installation that supports the AppAPI CLI, the command shape is:
+For an installation that supports the AppAPI CLI, the **command shape** is
+shown below. Do **not** run it without first configuring
+`DOWNLOADER_API_URL` and `DOWNLOADER_API_TOKEN`: the ExApp validates them at
+startup and registration will fail when they are absent. The supported
+`app_api:app:register` command accepts repeatable `--env NAME=VALUE`
+arguments (including `DOWNLOADER_WEBDAV_ORIGIN` if required). However,
+command-line secrets can appear in shell history and process listings, so
+**prefer AppAPI's administrator deployment options UI** to enter the secret
+and register the manifest.
 
     docker cp info.xml CONTAINER:/tmp/downloader-info.xml
-    docker exec -u www-data CONTAINER php occ app_api:app:register downloader-server-nextcloud YOUR_DAEMON --info-xml /tmp/downloader-info.xml --wait-finish
+    # Supply required --env NAME=VALUE options when using the CLI.
+    docker exec -u www-data CONTAINER php occ app_api:app:register downloader-server-nextcloud YOUR_DAEMON --info-xml /tmp/downloader-info.xml --wait-finish --env DOWNLOADER_API_URL=https://YOUR-CORE-ORIGIN --env DOWNLOADER_API_TOKEN=REPLACE_WITH_REAL_SECRET
     docker exec -u www-data CONTAINER php occ app_api:app:enable downloader-server-nextcloud
 
-Prefer the administrator UI when supplying the secret so it does not enter
-shell history. Register the required environment values in that UI.
+Never paste a real token in a shared terminal, issue, log, or test transcript.
+Register the required environment values in the administrator UI.
 Confirm the ExApp container is running and AppAPI reports it enabled.
 
 ## Step 4 — assign user entitlement
