@@ -42,13 +42,37 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("actions: write", content)
         self.assertIn("GH_TOKEN: ${{ github.token }}", content)
         self.assertIn("if: steps.merge.outputs.changed == 'true'", content)
-        self.assertIn("gh workflow run appapi-docker-deploy-e2e.yml --ref main", content)
+        self.assertIn('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main', content)
+        self.assertIn('gh workflow view appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY"', content)
+        self.assertIn('if [[ "${GITHUB_REPOSITORY:-}" != "Neup123/downloader-server-nextcloud" ]]', content)
+        self.assertIn("steps.merge.outputs.reverify == 'true'", content)
         self.assertIn('actual_main="$(git ls-remote origin refs/heads/main | cut -f1)"', content)
         self.assertIn('if [[ "$actual_main" != "$accepted_sha" ]]', content)
         self.assertLess(
             content.index("git push origin HEAD:main"),
-            content.index("gh workflow run appapi-docker-deploy-e2e.yml --ref main"),
+            content.index('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main'),
         )
+
+    def test_revalidation_rechecks_tests_and_docker_before_scoped_dispatch(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("revalidate_current_main:", content)
+        self.assertIn("REVALIDATE_CURRENT_MAIN: ${{ inputs.revalidate_current_main }}", content)
+        self.assertIn('if [[ "$GITHUB_EVENT_NAME" == "push" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]', content)
+        self.assertIn('echo "reverify=false" >> "$GITHUB_OUTPUT"', content)
+        self.assertIn("steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'", content)
+        self.assertIn("python3 scripts/record_core_sync.py", content)
+        self.assertIn("--revalidate-existing-main", content)
+        self.assertIn("current-main-revalidation.json", content)
+        self.assertLess(
+            content.index("docker build --tag downloader-server:nextcloud-upstream-acceptance ."),
+            content.index("--revalidate-existing-main"),
+        )
+        self.assertLess(
+            content.index("--revalidate-existing-main"),
+            content.index('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY"'),
+        )
+        self.assertIn("if: steps.merge.outputs.reverify == 'true'", content)
+        self.assertIn("if: steps.merge.outputs.changed == 'true'", content)
 
     def test_no_unverified_or_unsafe_merges(self):
         content = WORKFLOW.read_text(encoding="utf-8")

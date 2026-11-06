@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from scripts.record_core_sync import (
-    CORE_OWNED_PATHS, accepted_sync_record, validate_record,
+    CORE_OWNED_PATHS, accepted_sync_record, accepted_main_revalidation_record,
+    validate_record, validate_revalidation_record,
 )
 
 
@@ -101,12 +102,63 @@ class CoreSyncEvidenceTests(unittest.TestCase):
         self.assertLess(content.index("git push origin HEAD:main"), content.index("scripts/record_core_sync.py"))
         self.assertLess(
             content.index("scripts/record_core_sync.py"),
-            content.index("gh workflow run appapi-docker-deploy-e2e.yml --ref main"),
+            content.index('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main'),
         )
         self.assertIn("EXPECTED_CORE_SHA", content)
         self.assertIn('cron: "17 3 * * *"', content)
         self.assertIn("expected_core_sha:", content)
         self.assertIn("core-upstream-sync", content)
+
+    def test_existing_main_revalidation_never_claims_two_parent_merge(self):
+        result = validate_revalidation_record(
+            CORE, MERGE, MERGE,
+            core_ancestor=True, core_files_equal=True,
+        )
+        self.assertEqual(result["source_commit"], CORE)
+        self.assertEqual(result["downstream_commit"], MERGE)
+        self.assertFalse(result["source_is_exact_second_parent"])
+        self.assertIn("NOT a new core merge", result["record_type"])
+        self.assertTrue(result["source_ancestry_verified"])
+        self.assertFalse(result["production_nextcloud_target_verified"])
+
+    def test_revalidation_rejects_wrong_target_source_or_backend(self):
+        for updates in (
+            {"remote_sha": PREVIOUS},
+            {"core_sha": "invalid"},
+            {"main_sha": "invalid"},
+            {"core_ancestor": False},
+            {"core_files_equal": False},
+        ):
+            with self.subTest(updates=updates):
+                payload = {
+                    "core_sha": CORE, "main_sha": MERGE,
+                    "remote_sha": MERGE,
+                    "core_ancestor": True, "core_files_equal": True,
+                }
+                payload.update(updates)
+                with self.assertRaises(ValueError):
+                    validate_revalidation_record(**payload)
+
+    def test_revalidation_reads_actual_git_source_tip_and_source_file_parity(self):
+        def run_git(*args):
+            if args[:2] == ("rev-parse", "upstream/main"):
+                return CORE
+            if args[:2] == ("rev-parse", "HEAD"):
+                return MERGE
+            if args[0] == "ls-remote":
+                return MERGE + "  refs/heads/main"
+            raise AssertionError(args)
+        def allowed(args, **kwargs):
+            obj = type("Result", (), {})()
+            obj.returncode = 0
+            return obj
+        with patch("scripts.record_core_sync.git", side_effect=run_git), patch(
+            "scripts.record_core_sync.subprocess.run", side_effect=allowed,
+        ) as runner:
+            actual = accepted_main_revalidation_record()
+        self.assertEqual(actual["downstream_commit"], MERGE)
+        self.assertEqual(runner.call_count, 2)
+        self.assertFalse(actual["source_is_exact_second_parent"])
 
     def test_core_parity_scope_is_explicit_and_no_private_target_claim(self):
         self.assertIn("BLUEPRINT.md", CORE_OWNED_PATHS)

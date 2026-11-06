@@ -15,6 +15,11 @@ on:
         description: "Optional exact 40-character core/main SHA; abort if core changed"
         required: false
         type: string
+      revalidate_current_main:
+        description: "Re-run complete accepted core and Nextcloud gates and dispatch AppAPI for an existing main"
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "17 3 * * *"
 
@@ -45,6 +50,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_CORE_SHA: ${{ inputs.expected_core_sha }}
+          REVALIDATE_CURRENT_MAIN: ${{ inputs.revalidate_current_main }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -66,6 +72,14 @@ jobs:
           if git merge-base --is-ancestor "$core_sha" HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Core main is already incorporated."
+            # Recheck a known-good existing main only on a workflow-file push
+            # or explicit manual revalidation. The daily schedule stays cheap.
+            if [[ "$GITHUB_EVENT_NAME" == "push" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]; then
+              echo "reverify=true" >> "$GITHUB_OUTPUT"
+              echo "Revalidating existing main before trusted AppAPI dispatch."
+            else
+              echo "reverify=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -86,9 +100,10 @@ jobs:
           fi
           git diff --exit-code upstream/main -- BLUEPRINT.md
           echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "reverify=false" >> "$GITHUB_OUTPUT"
 
       - name: Verify upstream Python tests in isolated core worktree
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
         env:
           DATA_DIR: /tmp/downloader-core-test-data
         run: |
@@ -100,7 +115,7 @@ jobs:
           (cd /tmp/downloader-core-acceptance && python -m pytest -q)
 
       - name: Verify merged core files and downstream Nextcloud behavior
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
         env:
           DATA_DIR: /tmp/downloader-nextcloud-test-data
         run: |
@@ -119,7 +134,7 @@ jobs:
           python3 scripts/run_downstream_acceptance.py
 
       - name: Verify merged production Docker image builds
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
         run: docker build --tag downloader-server:nextcloud-upstream-acceptance .
 
       - name: Commit tested merge to downstream main
@@ -156,8 +171,28 @@ jobs:
           if-no-files-found: error
           retention-days: 60
 
-      - name: Dispatch full AppAPI acceptance for the newly synchronized main
-        if: steps.merge.outputs.changed == 'true'
+      - name: Prove and archive revalidated existing main without inventing a new merge
+        if: steps.merge.outputs.reverify == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This runs ONLY after exact core/downstream tests and Docker passed.
+          # Current HEAD can be a regular squash commit, not a core merge.
+          python3 scripts/record_core_sync.py \
+            --revalidate-existing-main \
+            --output current-main-revalidation.json
+
+      - name: Upload accepted existing-main revalidation evidence
+        if: steps.merge.outputs.reverify == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-current-main-${{ github.run_id }}
+          path: current-main-revalidation.json
+          if-no-files-found: error
+          retention-days: 60
+
+      - name: Dispatch full AppAPI acceptance for the accepted main
+        if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -173,5 +208,12 @@ jobs:
           # workflow_dispatch is an explicitly permitted GitHub Actions event.
           # The AppAPI lifecycle test then runs on actual main and the
           # separate publisher requires its success plus main ancestry.
-          gh workflow run appapi-docker-deploy-e2e.yml --ref main
-          echo "Dispatched full real ExApp AppAPI acceptance on synchronized main"
+          if [[ "${GITHUB_REPOSITORY:-}" != "Neup123/downloader-server-nextcloud" ]]; then
+            echo "Refusing AppAPI dispatch outside the authorized Nextcloud repository" >&2
+            exit 1
+          fi
+          # A Git checkout with an upstream remote can make gh select core by
+          # default; always use the exact downstream repository explicitly.
+          gh workflow view appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Dispatched real ExApp AppAPI acceptance on verified Nextcloud main"

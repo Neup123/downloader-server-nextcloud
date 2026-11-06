@@ -84,6 +84,46 @@ but has `contents: read` and **never** commits or pushes. Passing the
 preview cannot replace the live sync run, and neither is production
 Nextcloud target/Deploy Daemon verification.
 
+### Recovering an accepted sync after a publisher handoff failure
+
+The regular daily no-change check is deliberately cheap: it does **not**
+re-run the Docker build, dispatch AppAPI, or publish an ExApp.
+
+If the core merge, both test suites, Docker acceptance and source-lineage
+evidence succeeded but a later dispatch failed, run the
+`Sync verified core upstream into Nextcloud main` workflow manually with
+`revalidate_current_main=true`. A main push **changing that workflow
+definition** uses the same recovery path automatically.
+
+Recovery does **not** invent another core merge. It verifies the fetched
+core revision is already a commit ancestor and its backend and egress
+files exactly match current downstream `main`, runs the complete core
+test suite, reviewed Nextcloud tests and the production Docker build,
+then archives a distinct `current-main-revalidation.json` artifact.
+The artifact explicitly states that today's `main` tip may be an
+ordinary squash commit and is *not* a two-parent core merge.
+
+Before sending a trusted release acceptance event, the workflow checks
+that remote `main` still equals the exact tested HEAD, validates that
+`GITHUB_REPOSITORY` is the Nextcloud repository and uses
+`gh workflow run --repo "$GITHUB_REPOSITORY"`. This explicit repository
+selection matters: the checkout has both `origin` and the upstream core
+remote, and an unqualified GitHub CLI invocation can resolve to core,
+where the Nextcloud AppAPI workflow does not exist.
+
+Any failure leaves AppAPI publication undispatched; a subsequent
+successful workflow_dispatch can resume the full gate without claiming
+an untested new source merge.
+
+For PRs, the disposable Nextcloud preflight uses a **ref + commit SHA**
+concurrency group and retains explicit container/volume cleanup. This
+prevents an older, slow or failing PR revision from blocking acceptance
+of a corrected revision, while still requiring every candidate SHA to
+pass its own real disposable-instance test.
+ These records are development CI evidence,
+**not** a real production target deployment or native digest-pinned
+AppAPI XML image.
+
 ## 3. Preferred integration: AppAPI ExApp
 
 The preferred integration is an AppAPI External App (ExApp). AppAPI manages the lifecycle of external containerized applications and their integration with Nextcloud users and UI.
