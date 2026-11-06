@@ -127,7 +127,9 @@ jobs:
           # those tests into Nextcloud's different branch-cleanup code.
           git restore --source=HEAD --staged --worktree README.md .github/workflows
           # No downstream edits to core-owned backend contracts are permitted.
-          git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md
+          # Host-level acceptance code is core-owned as well: it must be
+          # imported intact, never replaced with a downstream-only copy.
+          git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md
           python -m compileall -q app scripts tests nextcloud_exapp
           # The reviewed downstream module manifest excludes core-only tests,
           # including ones already imported into downstream Git ancestry.

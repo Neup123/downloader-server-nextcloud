@@ -19,6 +19,8 @@ DOWNSTREAM = frozenset({
 # test suite, then restore the Nextcloud CI directory before committing.
 CORE_TEST_ONLY = frozenset({
     ".github/workflows/live-nextcloud-e2e.yml",
+    ".github/workflows/egress-guard-e2e.yml",
+    ".github/workflows/manual-p2-site-webdav.yml",
     ".github/workflows/pinned-engine-updates.yml",
     ".github/workflows/safe-merged-branch-cleanup.yml",
 })
