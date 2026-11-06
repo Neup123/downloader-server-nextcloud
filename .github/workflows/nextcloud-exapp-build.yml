@@ -70,6 +70,8 @@ jobs:
           from nextcloud_exapp.proxy import ProxySettings
           assert (Path("/app/nextcloud_exapp/dist/index.html")).is_file()
           assert (Path("/app/nextcloud_exapp/dist/user.html")).is_file()
+          import os
+          assert os.access("/nc_app_downloader-server-nextcloud_data", os.W_OK), "AppAPI persistent volume mount not writable by ExApp UID"
           assert (Path("/app/nextcloud_exapp/dist/assets")).is_dir()
           assert ProxySettings.validate("https://example.org", "x"*48).origin == "https://example.org"
           print("ExApp assets and bridge import verified")
