@@ -60,7 +60,8 @@ jobs:
           git restore --source=HEAD --staged --worktree README.md .github/workflows
           git diff --exit-code upstream/main -- \
             app openapi.yaml requirements.txt Dockerfile \
-            Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md
+            Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh \
+            scripts/guarded_host_acceptance.py EGRESS_GUARD.md
 
       - name: Run all tests against exact upstream core main
         shell: bash
