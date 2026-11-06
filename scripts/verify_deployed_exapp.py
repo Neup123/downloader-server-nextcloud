@@ -59,7 +59,8 @@ def docker_field(args: list[str]) -> str:
     return result.stdout.strip()
 
 
-def reconciliation(manifest: bytes, container: str, expected_source: str) -> dict:
+def reconciliation(manifest: bytes, container: str, expected_source: str,
+                   expected_digest: str | None = None) -> dict:
     if not COMMIT.fullmatch(expected_source):
         raise ImageVerificationError("Expected source must be 40 lowercase hex digits")
     if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]{0,127}", container):
@@ -87,7 +88,15 @@ def reconciliation(manifest: bytes, container: str, expected_source: str) -> dic
     if len(refs) != 1 or not DIGEST.fullmatch(refs[0].split("@", 1)[1]):
         raise ImageVerificationError("No unique verifiable GHCR digest for manifest image")
 
+    if expected_digest is not None:
+        if (not expected_digest.startswith(IMAGE_REPO + "@")
+                or not DIGEST.fullmatch(expected_digest.split("@", 1)[1])):
+            raise ImageVerificationError("Expected publisher digest reference is invalid")
+        if refs[0] != expected_digest:
+            raise ImageVerificationError("Deployed GHCR digest differs from the published attestation")
+
     return {
+        "matches_expected_publisher_digest": expected_digest is not None,
         "manifest_version": version,
         "manifest_image_tag": image_tag,
         "deployed_image_digest": refs[0],
@@ -108,10 +117,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-source", required=True,
                         help="40-digit target commit SHA of the GitHub release")
     parser.add_argument("--container", default="nc_app_downloader-server-nextcloud")
+    parser.add_argument("--expected-digest",
+                        help="Optional immutable GHCR digest reference from the publisher attestation")
     args = parser.parse_args(argv)
     try:
         print(json.dumps(reconciliation(
-            args.manifest.read_bytes(), args.container, args.expected_source,
+            args.manifest.read_bytes(), args.container, args.expected_source, args.expected_digest,
         ), sort_keys=True, indent=2))
         return 0
     except (ImageVerificationError, OSError) as exc:
