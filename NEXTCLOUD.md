@@ -34,6 +34,39 @@ landed on `main`. The verified core source was imported into this repository\'s 
 
 Do not edit or duplicate core-owned files here unless a documented Nextcloud-specific delta requires it. Prefer AppAPI packaging metadata, Nextcloud integration code, and deployment configuration in clearly separated paths.
 
+## Verified upstream synchronization and test ownership
+
+The downstream repository imports verified core `main` through the shared Git
+ancestry. The live [sync workflow](.github/workflows/bootstrap-upstream.yml)
+runs weekly, when its workflow changes, or on manual dispatch. Before writing
+anything to Nextcloud `main`, it must:
+
+1. Fetch the current core `main` and merge with normal Git ancestry. Only
+   explicitly audited conflicts may be resolved automatically; unexpected
+   conflicts stop the run without publishing.
+2. Execute **all** core Python tests in a detached worktree at the exact
+   fetched core commit. That test suite may inspect core-only workflows.
+3. Restore Nextcloud's own README/workflow definitions. Verify core-owned
+   backend, OpenAPI, dependency and guarded-egress files are byte-identical
+   to the imported upstream revision.
+4. Run the **explicitly reviewed** Nextcloud-owned test manifest
+   (`DOWNSTREAM_TEST_MODULES` in
+   `scripts/run_downstream_acceptance.py`). Every declared module must
+   exist in the pre-merge Nextcloud HEAD and remain present after merge.
+   An upstream-owned test is never automatically included, **even if
+   earlier core imports have already committed it into downstream HEAD**.
+   Update the exact manifest in the same PR when adding a new Nextcloud
+   test module; do not use filename globs to infer ownership.
+5. Compile and build the merged production Docker image; only then commit
+   and push the normal two-parent merge.
+
+The separate [read-only merge preview](.github/workflows/verify-upstream-merge.yml)
+runs on changes to these safeguards. It reproduces a real core import
+against the PR tree, runs both test suites and the production image build,
+but has `contents: read` and **never** commits or pushes. Passing the
+preview cannot replace the live sync run, and neither is production
+Nextcloud target/Deploy Daemon verification.
+
 ## 3. Preferred integration: AppAPI ExApp
 
 The preferred integration is an AppAPI External App (ExApp). AppAPI manages the lifecycle of external containerized applications and their integration with Nextcloud users and UI.

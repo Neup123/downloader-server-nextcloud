@@ -20,15 +20,15 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("(cd /tmp/downloader-core-acceptance && python -m pytest -q)", content)
         self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
         self.assertIn("git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md", content)
-        self.assertIn("tests/test_audited_preflight_branch_cleanup.py", content)
-        self.assertNotIn("tests/test_audited_*.py", content)
-        self.assertIn("git worktree add --detach /tmp/downloader-core-acceptance upstream/main", content)
-        for pattern in (
-            "tests/test_nextcloud_*.py", "tests/test_appapi_*.py",
-            "tests/test_exapp_*.py", "tests/test_audited_preflight_branch_cleanup.py",
-            "tests/test_cleanup_*.py", "tests/test_target_*.py",
-        ):
-            self.assertIn(pattern, content)
+        self.assertIn("python3 scripts/run_downstream_acceptance.py", content)
+        # Only an explicit reviewed manifest can establish downstream test
+        # ownership; the core test may already be present in HEAD history.
+        selector = (ROOT / "scripts/run_downstream_acceptance.py").read_text()
+        self.assertIn('"HEAD", "--", "tests/"', selector)
+        self.assertIn("DOWNSTREAM_TEST_MODULES", selector)
+        self.assertIn('"tests/test_audited_preflight_branch_cleanup.py"', selector)
+        self.assertNotIn('"tests/test_audited_core_legacy_cleanup.py"', selector)
+        self.assertNotIn('"tests/test_audited_*.py"', selector)
         self.assertLess(
             content.index("git diff --exit-code upstream/main -- app"),
             content.index("git push origin HEAD:main"),

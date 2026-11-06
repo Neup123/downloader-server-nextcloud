@@ -2,8 +2,9 @@ name: Sync verified core upstream into Nextcloud main
 
 # Shared history is already established. Merge with normal ancestry and preserve
 # the downstream README, while keeping all core-owned source files upstream-led.
-# This workflow-file revision intentionally triggers the next verified import
-# of core main (including the guarded Docker/egress implementation).
+# This workflow revision triggers the next verified core import.
+# The isolated upstream worktree tests ALL core modules; the merged tree
+# executes the exact reviewed Nextcloud-owned module manifest.
 on:
   push:
     branches: [main]
@@ -95,10 +96,9 @@ jobs:
           # No downstream edits to core-owned backend contracts are permitted.
           git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md
           python -m compileall -q app scripts tests nextcloud_exapp
-          python -m pytest -q \
-            tests/test_appapi_*.py tests/test_audited_preflight_branch_cleanup.py \
-            tests/test_cleanup_*.py tests/test_exapp_*.py \
-            tests/test_nextcloud_*.py tests/test_target_*.py
+          # The reviewed downstream module manifest excludes core-only tests,
+          # including ones already imported into downstream Git ancestry.
+          python3 scripts/run_downstream_acceptance.py
 
       - name: Verify merged production Docker image builds
         if: steps.merge.outputs.changed == 'true'
