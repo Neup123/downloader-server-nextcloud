@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from nc_py_api.nextcloud import AsyncNextcloudApp
-from nc_py_api.ex_app.misc import persistent_storage
 
 from nextcloud_exapp.user import TERMINAL_STATES, delivery_notification
 
@@ -22,7 +21,12 @@ CoreGet = Callable[[str], Awaitable[dict]]
 class JobTracker:
     def __init__(self, path: Path | None = None):
         selected = os.environ.get("DOWNLOADER_TRACKING_DB")
-        self.path = path or (Path(selected) if selected else Path(persistent_storage()) / "download-notifications.sqlite")
+        # Avoid the nc_py_api persistent_storage helper: its default argument
+        # eagerly evaluates an unwritable /app/.cache path on non-root ExApps.
+        # AppAPI supplies an install-persistent volume via APP_PERSISTENT_STORAGE.
+        storage = os.environ.get("APP_PERSISTENT_STORAGE")
+        location = Path(storage) if storage else Path(os.environ.get("XDG_STATE_HOME", "/tmp")) / "downloader-exapp"
+        self.path = path or (Path(selected) if selected else location / "download-notifications.sqlite")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS jobs (
