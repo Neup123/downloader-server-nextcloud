@@ -143,6 +143,33 @@ class UserUnitTests(TestCase):
         self.assertEqual(subject, "Download complete")
 
 
+    def test_personal_presets_are_scoped_and_never_sent_as_core_global_ids(self):
+        from nextcloud_exapp.user import save_user_preset, read_user_presets, delete_user_preset
+        alice = UserContext("alice", FakeNc("alice"))
+        bob = UserContext("bob", FakeNc("bob"))
+        saved = asyncio.run(save_user_preset(alice, {
+            "name": "My format", "engine": "yt-dlp", "settings": {"format": "best"}
+        }))
+        self.assertEqual(len(asyncio.run(read_user_presets(alice))), 1)
+        self.assertEqual(asyncio.run(read_user_presets(bob)), [])
+        alice.nc.preferences_ex.saved["dav_app_password"] = "alice-password"
+        job = asyncio.run(job_submission(alice, {
+            "url": "https://example.test/media", "engine": "auto", "preset_id": saved["id"]
+        }))
+        self.assertIsNone(job["preset_id"])
+        self.assertEqual(job["engine"], "yt-dlp")
+        self.assertEqual(job["overrides"]["format"], "best")
+        bob.nc.preferences_ex.saved["dav_app_password"] = "bob-password"
+        with self.assertRaises(HTTPException) as failure:
+            asyncio.run(job_submission(bob, {
+                "url": "https://example.test/media", "preset_id": saved["id"]
+            }))
+        self.assertEqual(failure.exception.status_code, 404)
+        result = asyncio.run(delete_user_preset(alice, saved["id"]))
+        self.assertTrue(result["deleted"])
+        self.assertEqual(asyncio.run(read_user_presets(alice)), [])
+
+
 class TrackingTests(TestCase):
     def test_pending_survives_restart_notifies_only_owner_and_retry_resets(self):
         async def run():

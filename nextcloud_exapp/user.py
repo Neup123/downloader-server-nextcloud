@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from uuid import uuid4
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
@@ -136,6 +137,65 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
     return await read_user_preferences(context)
 
 
+
+async def read_user_presets(context: UserContext) -> list[dict[str, Any]]:
+    """Each user's presets live in Nextcloud preferences, never core's global table."""
+    source = await context.nc.preferences_ex.get_value("user_presets", "[]")
+    try:
+        items = json.loads(source or "[]")
+    except (ValueError, TypeError):
+        items = []
+    if not isinstance(items, list):
+        return []
+    return [
+        item for item in items if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("name"), str)
+        and item.get("engine") in ENGINES
+        and isinstance(item.get("settings"), dict)
+    ][:100]
+
+
+async def save_user_preset(context: UserContext, body: dict[str, Any], identifier: str | None = None) -> dict[str, Any]:
+    if not isinstance(body, dict) or set(body) - {"name", "engine", "settings", "description"}:
+        raise HTTPException(status_code=422, detail="Invalid preset")
+    name = body.get("name")
+    engine = body.get("engine")
+    settings = body.get("settings")
+    description = body.get("description", "")
+    if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
+            or engine not in ENGINES or not isinstance(settings, dict)
+            or len(json.dumps(settings)) > 16000 or not isinstance(description, str)
+            or len(description) > 1000):
+        raise HTTPException(status_code=422, detail="Invalid per-user preset")
+    items = await read_user_presets(context)
+    if identifier is not None and not any(item["id"] == identifier for item in items):
+        raise HTTPException(status_code=404, detail="Preset not found")
+    if identifier is None:
+        if len(items) >= 100:
+            raise HTTPException(status_code=422, detail="Maximum 100 personal presets")
+        identifier = str(uuid4())
+    item = {"id": identifier, "name": name.strip(), "engine": engine,
+            "settings": settings, "description": description}
+    items = [old for old in items if old["id"] != identifier] + [item]
+    if len(json.dumps(items)) > 100000:
+        raise HTTPException(status_code=422, detail="Personal preset library is too large")
+    await context.nc.preferences_ex.set_value("user_presets", json.dumps(items, separators=(",", ":")))
+    return item
+
+
+async def delete_user_preset(context: UserContext, identifier: str) -> dict[str, bool]:
+    items = await read_user_presets(context)
+    if not any(item["id"] == identifier for item in items):
+        raise HTTPException(status_code=404, detail="Preset not found")
+    await context.nc.preferences_ex.set_value(
+        "user_presets", json.dumps([item for item in items if item["id"] != identifier], separators=(",", ":"))
+    )
+    if await context.nc.preferences_ex.get_value("default_preset", "") == identifier:
+        await context.nc.preferences_ex.set_value("default_preset", "")
+    return {"deleted": True}
+
+
 async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str, Any]:
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
@@ -151,15 +211,24 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
     if not password:
         raise HTTPException(status_code=409, detail="Connect your Nextcloud Files app password in personal settings first")
     folder = validate_folder(data.get("folder", prefs["destination_folder"]))
-    default_preset = prefs["default_preset"]
     engine = data.get("engine", "auto")
     if engine not in ENGINES and engine != "auto":
         raise HTTPException(status_code=422, detail="Unsupported engine")
+    preset_id = data.get("preset_id") or prefs["default_preset"]
+    selected = None
+    if preset_id:
+        selected = next((preset for preset in await read_user_presets(context) if preset["id"] == preset_id), None)
+        if selected is None:
+            raise HTTPException(status_code=404, detail="Your preset was not found")
+        if engine != "auto" and engine != selected["engine"]:
+            raise HTTPException(status_code=422, detail="Preset engine does not match selected engine")
+        if engine == "auto":
+            engine = selected["engine"]
     options = data.get("overrides", {})
     if not isinstance(options, dict) or len(json.dumps(options)) > 16000:
         raise HTTPException(status_code=422, detail="Invalid engine overrides")
     chosen = prefs["engine_settings"].get(engine, {})
-    overrides = {**chosen, **options}
+    overrides = {**(selected["settings"] if selected else {}), **chosen, **options}
     # Replace user-visible cookie filenames with the own user's opaque core key.
     for option in ("cookies_file",):
         if overrides.get(option):
@@ -182,7 +251,7 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
     return {
         "url": source,
         "engine": engine,
-        "preset_id": data.get("preset_id") or default_preset or None,
+        "preset_id": None,  # Never reference another user's core/global preset.
         "overrides": overrides,
         "owner_id": context.user_id,
         "delivery": {
