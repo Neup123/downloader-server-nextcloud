@@ -2,20 +2,20 @@
 
 ## Release images
 
-- Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.2.0
-- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.2.0
-- Native UI-only PHP bridge: downloader-bridge-0.2.0.zip attached to the Nextcloud v0.2.0 GitHub Release.
+- Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.0
+- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.3.0
+- Native UI-only PHP bridge: downloader-bridge-0.3.0.zip attached to the Nextcloud v0.3.0 GitHub Release.
 
 The v0.1.0 release remains the administrator-only baseline and cannot accept
-per-user job submissions. **Both 0.2.0 service images are mandatory** for the
+per-user job submissions. **Both 0.3.0 service images are mandatory** for the
 per-user UI. Never write directly into Nextcloud's data directory.
 
 ## Step 1 — verify connectivity and published tags
 
 On the Docker host, pull the images:
 
-    docker pull ghcr.io/neup123/media-downloader-server:0.2.0
-    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.2.0
+    docker pull ghcr.io/neup123/media-downloader-server:0.3.0
+    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.3.0
 
 For private GHCR packages give the AppAPI Deploy Daemon a read-only registry
 credential, or make the package public. Do not reuse the downloader API token
@@ -41,16 +41,16 @@ Docker host. Create .env with APP_API_TOKEN and APP_ENCRYPTION_KEY and keep the
 existing keys and persistent data volume when upgrading from 0.1.0.
 
     docker compose -f compose.egress.yaml build egress-guard
-    DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.2.0 docker compose -f compose.egress.yaml up -d --no-build
+    DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.0 docker compose -f compose.egress.yaml up -d --no-build
 
 The core must be reachable from the ExApp network at a known HTTPS URL, or
 at internal HTTP with explicit DOWNLOADER_ALLOW_TRUSTED_HTTP=true. It must
 also be able to reach the Nextcloud WebDAV URL reported to the ExApp. Do not
 expose APP_API_TOKEN to end users or to any JavaScript.
 
-## Step 3 — register the 0.2.0 ExApp
+## Step 3 — register the 0.3.0 ExApp
 
-Download the appinfo/info.xml attached to the tagged Nextcloud v0.2.0
+Download the appinfo/info.xml attached to the tagged Nextcloud v0.3.0
 release. In the Nextcloud AppAPI administrator page, select the tested
 Deploy Daemon and register the ExApp using that manifest. Supply environment
 variables on the server only:
@@ -90,7 +90,7 @@ core APP_API_TOKEN. The defaults are private and user-scoped.
 
 ## Step 5 — install native Files/header UI integration
 
-Extract downloader-bridge-0.2.0.zip under the instance's custom_apps
+Extract downloader-bridge-0.3.0.zip under the instance's custom_apps
 directory, producing custom_apps/downloader_bridge/appinfo/info.xml and
 custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
@@ -124,7 +124,7 @@ on the operator's actual Nextcloud deployment.
 
 ## Limits
 
-The Nextcloud 0.2.0 scope is per-user jobs, personal settings, notifications,
+The Nextcloud 0.3.0 scope is per-user jobs, personal settings, notifications,
 Files/+New/Viewer entry points and progress UI. The provenance tab, Dashboard
 widget, global search and Talk integration are planned separately, in that
 order. The Viewer cannot infer a source URL from arbitrary existing private
