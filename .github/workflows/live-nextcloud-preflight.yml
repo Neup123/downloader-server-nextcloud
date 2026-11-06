@@ -100,6 +100,27 @@ jobs:
             --username admin \
             --allow-http --write-test
 
+      - name: Report sanitized disposable startup diagnostics only on failure
+        if: failure()
+        shell: bash
+        run: |
+          # The disposable Nextcloud initialization can stall before status.php
+          # reports ready. Capture live container state BEFORE teardown, without
+          # dumping Docker inspect environment variables or test credentials.
+          set +e
+          docker inspect downloader-preflight-nextcloud \
+            --format 'state={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' \
+            2>/dev/null || echo "Disposable container unavailable for inspection"
+          docker logs --tail 200 downloader-preflight-nextcloud 2>&1 | python3 -c '
+          import os,re,sys
+          log=sys.stdin.read()[-30000:]
+          secret=os.environ.get("NEXTCLOUD_APP_PASSWORD", "")
+          if secret:
+              log=log.replace(secret,"[REDACTED]")
+          log=re.sub(r"(?i)(password|token|authorization)([=:]\\s*)[^\\s,;]+",r"\\1\\2[REDACTED]",log)
+          print(log)
+          '
+
       - name: Remove disposable Nextcloud container and volumes
         if: always()
         shell: bash
