@@ -9,6 +9,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from nc_py_api import NextcloudException
 from starlette.requests import Request
 
 from nextcloud_exapp.user import (
@@ -193,6 +194,79 @@ class UserUnitTests(TestCase):
         payload = asyncio.run(job_submission(ctx, {"url": "https://example.test/a"}))
         self.assertEqual(payload["delivery"]["folder"], "Downloads")
         self.assertEqual(nc.files.created, ["/Downloads"])
+
+    def test_first_use_default_folder_handles_real_nc_py_api_dav_404(self):
+        """nc_py_api raises a 404 on PROPFIND; it never returns None."""
+        class WebDAVFiles(Files):
+            async def by_path(self, name):
+                if name not in self.paths:
+                    raise NextcloudException(404, reason="Not Found")
+                return SimpleNamespace(is_dir=True)
+        nc = FakeNc("alice")
+        nc.files = WebDAVFiles()
+        nc.preferences_ex.saved["dav_app_password"] = "secret"
+        job = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "https://example.test/dummy.pdf",
+        }))
+        self.assertEqual(job["delivery"]["folder"], "Downloads")
+        self.assertEqual(job["delivery"]["username"], "alice")
+        self.assertEqual(nc.files.created, ["/Downloads"])
+        # A second submission reuses the existing folder without recreating.
+        asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "https://example.test/dummy.pdf",
+        }))
+        self.assertEqual(nc.files.created, ["/Downloads"])
+
+    def test_missing_selected_folder_never_autocreated_even_on_dav_404(self):
+        class MissingFiles(Files):
+            async def by_path(self, name):
+                raise NextcloudException(404, reason="Not Found")
+        nc = FakeNc("alice")
+        nc.files = MissingFiles()
+        nc.preferences_ex.saved["dav_app_password"] = "secret"
+        for data in ({"folder": "Downloads"}, {"folder": "Private"}):
+            with self.subTest(data=data), self.assertRaises(HTTPException) as e:
+                asyncio.run(job_submission(UserContext("alice", nc), {
+                    "url": "https://example.test/dummy.pdf", **data,
+                }))
+            self.assertEqual(e.exception.status_code, 409)
+            self.assertIn("missing", e.exception.detail)
+        self.assertEqual(nc.files.created, [])
+
+    def test_unauthorized_and_server_dav_errors_do_not_create_folder(self):
+        class BrokenFiles(Files):
+            error = 403
+            async def by_path(self, name):
+                raise NextcloudException(self.error, reason="DAV failed")
+        nc = FakeNc("alice")
+        nc.files = BrokenFiles()
+        nc.preferences_ex.saved["dav_app_password"] = "secret"
+        for status in (401, 403, 429, 500, 503):
+            with self.subTest(status=status):
+                nc.files.error = status
+                with self.assertRaises(HTTPException) as e:
+                    asyncio.run(job_submission(UserContext("alice", nc), {
+                        "url": "https://example.test/dummy.pdf",
+                    }))
+                self.assertEqual(e.exception.status_code, 409)
+                self.assertIn("Cannot open", e.exception.detail)
+        self.assertEqual(nc.files.created, [])
+
+    def test_first_use_mkdir_failure_has_actionable_message(self):
+        class UnwritableFiles(Files):
+            async def by_path(self, name):
+                raise NextcloudException(404)
+            async def makedirs(self, name, exist_ok=False):
+                raise NextcloudException(403, reason="Forbidden")
+        nc = FakeNc("alice")
+        nc.files = UnwritableFiles()
+        nc.preferences_ex.saved["dav_app_password"] = "secret"
+        with self.assertRaises(HTTPException) as e:
+            asyncio.run(job_submission(UserContext("alice", nc), {
+                "url": "https://example.test/dummy.pdf",
+            }))
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIn("Could not create", e.exception.detail)
 
     def test_cookie_names_scoped_to_owner(self):
         name = scoped_cookie_filename("alice", "site.txt")
