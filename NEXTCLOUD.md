@@ -113,7 +113,14 @@ where the Nextcloud AppAPI workflow does not exist.
 
 Any failure leaves AppAPI publication undispatched; a subsequent
 successful workflow_dispatch can resume the full gate without claiming
-an untested new source merge. These records are development CI evidence,
+an untested new source merge.
+
+For PRs, the disposable Nextcloud preflight uses a **ref + commit SHA**
+concurrency group and retains explicit container/volume cleanup. This
+prevents an older, slow or failing PR revision from blocking acceptance
+of a corrected revision, while still requiring every candidate SHA to
+pass its own real disposable-instance test.
+ These records are development CI evidence,
 **not** a real production target deployment or native digest-pinned
 AppAPI XML image.
 
