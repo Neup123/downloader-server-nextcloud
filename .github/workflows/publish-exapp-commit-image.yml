@@ -49,6 +49,23 @@ jobs:
           tag="sha-$SOURCE_SHA"
           echo "IMAGE_TAG=$tag" >> "$GITHUB_ENV"
 
+      - name: Validate pinned OCI base images and full Python package lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/exapp_build_inputs.py \
+            --source-sha "$SOURCE_SHA" \
+            --output exapp-release/build-inputs.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          record = json.loads(Path("exapp-release/build-inputs.json").read_text())
+          assert record["base_images_digest_pinned"]
+          assert record["python_versions_fully_pinned"]
+          assert record["python_dependency_count"] >= 25
+          assert not record["python_wheel_hashes_verified"]
+          PY
+
       - name: Build and inspect image from the exact accepted source revision
         shell: bash
         run: |
@@ -56,6 +73,8 @@ jobs:
           docker build --pull \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "io.github.neup123.exapp.python-lock-sha256=$(sha256sum nextcloud_exapp/requirements.lock | cut -d' ' -f1)" \
+            --label "io.github.neup123.exapp.npm-lock-sha256=$(sha256sum web/package-lock.json | cut -d' ' -f1)" \
             -f nextcloud_exapp/Dockerfile \
             -t "$IMAGE_REPO:$IMAGE_TAG" .
           docker run --rm --entrypoint python "$IMAGE_REPO:$IMAGE_TAG" -c '
@@ -89,6 +108,8 @@ jobs:
           set -euo pipefail
           docker pull "$IMAGE_REPO:$IMAGE_TAG"
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$IMAGE_TAG")" = "$SOURCE_SHA"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.github.neup123.exapp.python-lock-sha256"}}' "$IMAGE_REPO:$IMAGE_TAG")" = "$(sha256sum nextcloud_exapp/requirements.lock | cut -d' ' -f1)"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.github.neup123.exapp.npm-lock-sha256"}}' "$IMAGE_REPO:$IMAGE_TAG")" = "$(sha256sum web/package-lock.json | cut -d' ' -f1)"
           digest_ref="$(docker image inspect "$IMAGE_REPO:$IMAGE_TAG" --format '{{json .RepoDigests}}' \
             | python3 -c 'import json,os,sys; refs=json.load(sys.stdin); prefix=os.environ["IMAGE_REPO"]+"@sha256:"; matches=[r for r in refs if r.startswith(prefix)]; assert len(matches)==1, "No unique GHCR repo digest"; print(matches[0])')"
           digest="${digest_ref#"$IMAGE_REPO@"}"
@@ -117,6 +138,12 @@ jobs:
           assert record["container_image_digest"] == os.environ["IMAGE_REPO"] + "@" + os.environ["PUBLISHED_DIGEST"]
           assert record["source_commit"] == __import__("os").environ["SOURCE_SHA"]
           assert record["appapi_manifest_digest_pinned"] is False
+          build = json.loads(Path("exapp-release/build-inputs.json").read_text())
+          assert build["source_commit"] == os.environ["SOURCE_SHA"]
+          assert build["python_lock_sha256"] == hashlib.sha256(Path("nextcloud_exapp/requirements.lock").read_bytes()).hexdigest()
+          assert build["npm_lock_sha256"] == hashlib.sha256(Path("web/package-lock.json").read_bytes()).hexdigest()
+          assert build["base_images_digest_pinned"] is True
+          assert build["python_wheel_hashes_verified"] is False
           print("Release manifest checksum and OCI digest provenance recorded")
           PY
 
