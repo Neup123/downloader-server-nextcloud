@@ -43,7 +43,7 @@ export default function UserApp() {
   const [me, setMe] = useState('');
   const [message, setMessage] = useState('');
   const [jobs, setJobs] = useState<Download[]>([]);
-  const [selected, setSelected] = useState<string>('');
+  const [selected, setSelected] = useState<string>(() => new URLSearchParams(window.location.search).get('job') || '');
   const [url, setUrl] = useState(() => new URLSearchParams(window.location.search).get('url') || '');
   const [engine, setEngine] = useState<Engine>('auto');
   const [presetId, setPresetId] = useState('');

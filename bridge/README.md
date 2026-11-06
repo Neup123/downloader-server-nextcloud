@@ -39,3 +39,15 @@ The widget is server-side hidden for users without individual or group entitleme
 through the standard Nextcloud app configuration. JavaScript fetches each user's
 own jobs through the signed ExApp, shows progress, cancel/retry and recent history.
 No download logic or file bytes are handled by this bridge.
+
+
+## Unified search
+
+Native Nextcloud Search registers a **Downloads** category containing only the
+current entitled user's job-history metadata (source domain/path, engine, status
+and delivered filenames). The ExApp writes a bounded, sanitized index into
+Nextcloud's own per-user preferences. The UI bridge reads only that user's
+preferences; it does not contact the downloader core or handle any file bytes.
+Nextcloud's built-in **Files** search continues to find actual delivered files.
+Search index entries update at submission, history refresh and terminal state.
+Existing historical jobs become indexed when the user first opens Downloader.
