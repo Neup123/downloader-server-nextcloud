@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
-type Preset = { id: string; name: string; engine: Engine };
+type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string };
 type Download = {
   id: string; url: string; owner_id: string; engine: string; status: string;
   progress: { percent?: number; state?: string; speed?: string };
@@ -47,6 +47,10 @@ export default function UserApp() {
   const [url, setUrl] = useState(() => new URLSearchParams(window.location.search).get('url') || '');
   const [engine, setEngine] = useState<Engine>('auto');
   const [presetId, setPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [presetEngine, setPresetEngine] = useState<Engine>('yt-dlp');
+  const [presetJson, setPresetJson] = useState('{}');
+  const [editingPreset, setEditingPreset] = useState('');
   const [folder, setFolder] = useState(() => new URLSearchParams(window.location.search).get('folder') || '');
   const [presets, setPresets] = useState<Preset[]>([]);
   const [personal, setPersonal] = useState<Personal>({
@@ -172,6 +176,35 @@ export default function UserApp() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not delete cookies'); }
   }
 
+
+  async function savePreset(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const settings = JSON.parse(presetJson);
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        throw new Error('Preset settings must be an object');
+      }
+      const url = '/presets' + (editingPreset ? '/' + encodeURIComponent(editingPreset) : '');
+      await request<Preset>(url, json(editingPreset ? 'PUT' : 'POST',
+        {name: presetName, engine: presetEngine, settings}));
+      setPresets(await request<Preset[]>('/presets'));
+      setEditingPreset(''); setPresetName(''); setPresetJson('{}');
+      setMessage('Your preset has been saved.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save preset');
+    }
+  }
+
+  async function deletePreset(id: string) {
+    try {
+      await request('/presets/' + encodeURIComponent(id), {method:'DELETE'});
+      setPresets(await request<Preset[]>('/presets'));
+      setMessage('Your preset was deleted.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete preset');
+    }
+  }
+
   return <div className="shell user-downloader">
     <header className="topbar">
       <div className="brandmark">D</div>
@@ -257,6 +290,27 @@ export default function UserApp() {
     </section>}
 
     {tabs === 'engines' && <div className="settings-layout">
+      <section className="panel">
+        <h2>My presets</h2>
+        <p className="muted">Presets are private to your Nextcloud account and never modify the shared downloader service.</p>
+        <form onSubmit={event => void savePreset(event)}>
+          <label>Name<input required maxLength={120} value={presetName} onChange={event => setPresetName(event.target.value)} /></label>
+          <label>Engine<select value={presetEngine} onChange={event => setPresetEngine(event.target.value as Engine)}>
+            {TYPES.filter(type => type !== 'auto').map(type => <option key={type} value={type}>{type}</option>)}
+          </select></label>
+          <label>Preset settings JSON<textarea rows={6} value={presetJson} onChange={event => setPresetJson(event.target.value)} /></label>
+          <button className="primary">{editingPreset ? 'Update my preset' : 'Save my preset'}</button>
+        </form>
+        {presets.map(preset => <div className="output-row" key={preset.id}>
+          <strong>{preset.name} ({preset.engine})</strong>
+          <button className="small secondary" onClick={() => {
+            setEditingPreset(preset.id); setPresetName(preset.name); setPresetEngine(preset.engine);
+            setPresetJson(JSON.stringify(preset.settings, null, 2));
+          }}>Edit</button>
+          <button className="small danger" onClick={() => void deletePreset(preset.id)}>Delete</button>
+        </div>)}
+      </section>
+
       <section className="panel">
         <h2>My engine options</h2>
         <p className="muted">Set engine-specific job overrides as JSON. These affect only your own new jobs and do not change service-wide settings.</p>

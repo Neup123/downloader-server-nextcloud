@@ -20,7 +20,8 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import (
     UserContext, require_user, signed_user, entitlement, read_user_preferences,
-    write_user_preferences, job_submission, own_job, scoped_cookie_filename,
+    write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
+    job_submission, own_job, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
 from nextcloud_exapp.tracking import JobTracker
@@ -234,7 +235,23 @@ async def user_engines(context: UserContext = Depends(require_user)):
 
 @APP.get("/user/api/presets")
 async def user_presets(context: UserContext = Depends(require_user)):
-    return await core_json("GET", "presets")
+    return await read_user_presets(context)
+
+
+@APP.post("/user/api/presets", status_code=201)
+async def create_user_preset(request: Request, context: UserContext = Depends(require_user)):
+    return await save_user_preset(context, await request.json())
+
+
+@APP.put("/user/api/presets/{preset_id}")
+async def update_user_preset(preset_id: str, request: Request,
+                             context: UserContext = Depends(require_user)):
+    return await save_user_preset(context, await request.json(), identifier=preset_id)
+
+
+@APP.delete("/user/api/presets/{preset_id}")
+async def remove_user_preset(preset_id: str, context: UserContext = Depends(require_user)):
+    return await delete_user_preset(context, preset_id)
 
 
 @APP.get("/user/api/jobs")

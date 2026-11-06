@@ -98,3 +98,8 @@ See [NEXTCLOUD.md](NEXTCLOUD.md) for the remaining deployment gates.
 ## Install v0.1.0
 
 Follow [NEXTCLOUD_INSTALL.md](NEXTCLOUD_INSTALL.md) for the versioned GHCR/AppAPI path and real-target verification. The v0.1.0 baseline is still admin-only; per-user UI integration is planned separately.
+
+
+## Per-user Nextcloud 0.2.0
+
+After the administrator-only v0.1.0 baseline, the per-user Nextcloud version requires BOTH `ghcr.io/neup123/media-downloader-server:0.2.0` and `ghcr.io/neup123/downloader-server-nextcloud:0.2.0`. Do not mix a 0.2 ExApp with the 0.1 standalone core. The UI-only native PHP bridge is packaged as `downloader-bridge-0.2.0.zip` on the Nextcloud v0.2.0 GitHub Release. Read [NEXTCLOUD_PER_USER_INSTALL.md](NEXTCLOUD_PER_USER_INSTALL.md) for installation and verification.

@@ -150,13 +150,17 @@ jobs:
           print("Release manifest checksum and OCI digest provenance recorded")
           PY
 
-      - name: Publish the first pullable 0.1.0 AppAPI image and GitHub release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Publish the pullable 0.2.0 per-user AppAPI image and UI bridge
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="0.1.0"
+          version="0.2.0"
           test "$(git rev-parse origin/main)" = "$SOURCE_SHA" || {
             echo "A newer main commit exists; do not release the older acceptance commit."
             exit 0
@@ -164,8 +168,8 @@ jobs:
           python3 - <<'PY'
           from xml.etree import ElementTree as ET
           root = ET.parse("appinfo/info.xml").getroot()
-          assert root.findtext("version") == "0.1.0"
-          assert root.findtext("./external-app/docker-install/image-tag") == "0.1.0"
+          assert root.findtext("version") == "0.2.0"
+          assert root.findtext("./external-app/docker-install/image-tag") == "0.2.0"
           PY
           if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Versioned release already exists; refusing to overwrite it."
@@ -181,10 +185,16 @@ jobs:
             docker pull "$IMAGE_REPO:$version"
             test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$version")" = "$SOURCE_SHA"
           fi
+          # Package native UI hooks with the versioned ExApp release.
+          (cd bridge && npm install --no-audit --no-fund && npm test && npm run build)
+          mkdir -p bundle/downloader_bridge
+          cp -a bridge/appinfo bridge/lib bridge/js bundle/downloader_bridge/
+          cp bridge/README.md bundle/downloader_bridge/
+          (cd bundle && zip -q -r ../downloader-bridge-0.2.0.zip downloader_bridge)
           gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
             --title "Downloader Server Nextcloud $version" \
-            appinfo/info.xml \
-            --notes "AppAPI ExApp image: \`$IMAGE_REPO:$version\`. The attached appinfo/info.xml refers to this pullable GHCR tag. Follow NEXTCLOUD_INSTALL.md for target-instance registration."
+            appinfo/info.xml downloader-bridge-0.2.0.zip \
+            --notes "AppAPI ExApp image: \`$IMAGE_REPO:$version\`. The attached appinfo/info.xml refers to this pullable GHCR tag. Follow NEXTCLOUD_PER_USER_INSTALL.md and use the attached bridge ZIP for native Files/Viewer/header UI."
 
       - uses: actions/upload-artifact@v4
         with:

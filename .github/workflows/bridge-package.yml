@@ -1,0 +1,49 @@
+name: Build Nextcloud UI-only PHP bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-package.yml"
+  pull_request:
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build supported Nextcloud Files UI integration
+        working-directory: bridge
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+          test -s js/bridge.js
+      - name: Check native PHP syntax
+        run: |
+          php -l bridge/lib/AppInfo/Application.php
+          php -l bridge/lib/Listener/AssetsListener.php
+      - name: Create installable native Nextcloud app
+        run: |
+          mkdir -p package/downloader_bridge
+          cp -a bridge/appinfo bridge/lib bridge/js package/downloader_bridge/
+          cp bridge/README.md package/downloader_bridge/
+          cd package
+          zip -q -r ../downloader-bridge-0.2.0.zip downloader_bridge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: downloader-bridge-nc35
+          path: downloader-bridge-0.2.0.zip
+          retention-days: 30
