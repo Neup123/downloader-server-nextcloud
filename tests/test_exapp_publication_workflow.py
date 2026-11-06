@@ -62,7 +62,10 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.head_branch == 'main'", publisher)
         self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", publisher)
         self.assertIn("git merge-base --is-ancestor", publisher)
-        self.assertIn("gh workflow run appapi-docker-deploy-e2e.yml --ref main", sync)
+        self.assertIn('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main', sync)
+        self.assertIn('gh workflow view appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY"', sync)
+        self.assertIn('if [[ "${GITHUB_REPOSITORY:-}" != "Neup123/downloader-server-nextcloud" ]]', sync)
+        self.assertNotIn("gh workflow run appapi-docker-deploy-e2e.yml --ref main", sync)
         self.assertIn("git ls-remote origin refs/heads/main", sync)
         self.assertNotIn("pull_request:", publisher)
 
