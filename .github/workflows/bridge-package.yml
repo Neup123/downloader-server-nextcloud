@@ -31,10 +31,12 @@ jobs:
           npm test
           npm run build
           test -s js/bridge.js
+          test -s js/dashboard.js
       - name: Check native PHP syntax
         run: |
           php -l bridge/lib/AppInfo/Application.php
           php -l bridge/lib/Listener/AssetsListener.php
+          php -l bridge/lib/Dashboard/DownloadsWidget.php
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge

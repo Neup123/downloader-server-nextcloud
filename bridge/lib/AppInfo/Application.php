@@ -9,6 +9,7 @@ use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCA\DownloaderBridge\Listener\AssetsListener;
+use OCA\DownloaderBridge\Dashboard\DownloadsWidget;
 
 /** UI integration only: never run engines or perform file deliveries in PHP. */
 final class Application extends App implements IBootstrap {
@@ -20,6 +21,7 @@ final class Application extends App implements IBootstrap {
 
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(BeforeTemplateRenderedEvent::class, AssetsListener::class);
+        $context->registerDashboardWidget(DownloadsWidget::class);
     }
 
     public function boot(IBootContext $context): void {

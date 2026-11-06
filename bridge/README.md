@@ -30,3 +30,12 @@ It is a separate app ID from the ExApp downloader-server-nextcloud.
 The bundled @nextcloud/files 4.x JavaScript dependency is AGPL; accordingly
 the native UI bridge is distributed under AGPL-3.0-or-later. The standalone
 downloader retains its separate MIT licensing.
+
+
+## Dashboard widget
+
+The UI-only PHP bridge registers a native My downloads widget in Nextcloud Dashboard.
+The widget is server-side hidden for users without individual or group entitlement
+through the standard Nextcloud app configuration. JavaScript fetches each user's
+own jobs through the signed ExApp, shows progress, cancel/retry and recent history.
+No download logic or file bytes are handled by this bridge.

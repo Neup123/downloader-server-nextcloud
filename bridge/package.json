@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Nextcloud standard UI hooks only",
   "scripts": {
-    "build": "esbuild src/bridge.ts --bundle --minify --format=iife --platform=browser --target=es2022 --outfile=js/bridge.js",
+    "build": "esbuild src/bridge.ts --bundle --minify --format=iife --platform=browser --target=es2022 --outfile=js/bridge.js && esbuild src/dashboard.ts --bundle --minify --format=iife --platform=browser --target=es2022 --outfile=js/dashboard.js",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
