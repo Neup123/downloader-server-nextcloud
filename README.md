@@ -1,3 +1,8 @@
+
+## Nextcloud External Sites fallback
+
+See [guarded standalone core and official External Sites installation](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md). This is administrator-scoped, not AppAPI SSO.
+
 # Downloader Server — Nextcloud Adaptation
 
 This repository contains the Nextcloud-specific integration for Downloader Server. The core downloader service, web UI, REST API, engine adapters, job manager, tests, and engine update automation are maintained in the separate core repository:
