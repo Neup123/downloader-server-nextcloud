@@ -49,12 +49,14 @@ anything to Nextcloud `main`, it must:
 3. Restore Nextcloud's own README/workflow definitions. Verify core-owned
    backend, OpenAPI, dependency and guarded-egress files are byte-identical
    to the imported upstream revision.
-4. Run the downstream acceptance tests identified from the **pre-merge
-   Nextcloud HEAD** Git tree via
-   `scripts/run_downstream_acceptance.py`. This is intentional: newly
-   imported core tests do not automatically become Nextcloud-owned, and
-   the downstream's cleanup policy intentionally differs from core's.
-   An existing downstream test missing after merge makes the run fail.
+4. Run the **explicitly reviewed** Nextcloud-owned test manifest
+   (`DOWNSTREAM_TEST_MODULES` in
+   `scripts/run_downstream_acceptance.py`). Every declared module must
+   exist in the pre-merge Nextcloud HEAD and remain present after merge.
+   An upstream-owned test is never automatically included, **even if
+   earlier core imports have already committed it into downstream HEAD**.
+   Update the exact manifest in the same PR when adding a new Nextcloud
+   test module; do not use filename globs to infer ownership.
 5. Compile and build the merged production Docker image; only then commit
    and push the normal two-parent merge.
 
