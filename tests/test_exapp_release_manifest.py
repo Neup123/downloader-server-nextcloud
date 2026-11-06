@@ -54,7 +54,7 @@ class ExAppReleaseManifestTests(unittest.TestCase):
     def test_wrong_image_and_missing_admin_guards_are_rejected(self):
         for changed in (
             TEMPLATE.replace(b"neup123/downloader-server-nextcloud", b"some-other-image"),
-            TEMPLATE.replace(b"<image-tag>0.4.0</image-tag>", b"<image-tag>latest</image-tag>"),
+            TEMPLATE.replace(b"<image-tag>0.5.0</image-tag>", b"<image-tag>latest</image-tag>"),
             TEMPLATE.replace(b"<access_level>ADMIN</access_level>", b"<access_level>USER</access_level>", 1),
             TEMPLATE.replace(b'max-version="35"', b'max-version="99"'),
         ):
