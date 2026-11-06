@@ -1,49 +1,57 @@
-"""Run only Nextcloud-owned acceptance tests during a shared-history core merge.
+"""Run explicitly reviewed Nextcloud-owned test modules during core imports.
 
-The core's COMPLETE test suite runs first in an isolated upstream/main worktree.
-The merged worktree includes new core-only tests; do not select those with
-prefix globs because some deliberately refer to core-only cleanup/workflows.
+The core's COMPLETE test suite is tested in the exact upstream/main worktree.
+Upstream-only tests can also already exist in downstream Git history, so neither
+filename prefix globs nor the pre-merge HEAD inventory alone establish ownership.
 
-The unmerged HEAD tree identifies the reviewed downstream test inventory.
-Missing or removed tests cause a failure rather than silently lowering coverage.
+Add each new *downstream* test module to this exact list in the same PR.
+The selector verifies every declared module exists in HEAD and the merged tree;
+missing coverage fails closed rather than silently skipping tests.
 """
 from __future__ import annotations
 
-import fnmatch
 from pathlib import Path
 import subprocess
 import sys
 
 
-DOWNSTREAM_PATTERNS = (
-    "tests/test_appapi_*.py",
-    "tests/test_audited_*.py",
-    "tests/test_cleanup_*.py",
-    "tests/test_exapp_*.py",
-    "tests/test_nextcloud_*.py",
-    "tests/test_target_*.py",
-)
+DOWNSTREAM_TEST_MODULES = frozenset({
+    "tests/test_appapi_deploy_workflow.py",
+    "tests/test_appapi_readiness.py",
+    "tests/test_audited_preflight_branch_cleanup.py",
+    "tests/test_cleanup_equivalent_branches.py",
+    "tests/test_cleanup_merged_branches.py",
+    "tests/test_exapp_build_inputs.py",
+    "tests/test_exapp_publication_workflow.py",
+    "tests/test_exapp_release_manifest.py",
+    "tests/test_nextcloud_bridge_config.py",
+    "tests/test_nextcloud_merge_preview_workflow.py",
+    "tests/test_nextcloud_preflight.py",
+    "tests/test_nextcloud_test_inventory.py",
+    "tests/test_nextcloud_upstream_conflicts.py",
+    "tests/test_nextcloud_upstream_sync.py",
+    "tests/test_target_readiness.py",
+})
 
 
 def plan_tests(head_files: set[str], merged_files: set[str]) -> list[str]:
-    """Select exact reviewed HEAD tests; never import newly merged core tests."""
-    if not head_files:
-        raise RuntimeError("Downstream HEAD has no test inventory")
-    selected: set[str] = set()
-    for pattern in DOWNSTREAM_PATTERNS:
-        owned = {path for path in head_files if fnmatch.fnmatchcase(path, pattern)}
-        if not owned:
-            raise RuntimeError(f"No downstream tests match required group: {pattern}")
-        selected.update(owned)
-    missing = sorted(selected - merged_files)
-    if missing:
-        raise RuntimeError("Downstream test removed by upstream merge: " + ", ".join(missing))
-    if any(
-        not path.startswith("tests/") or "/" in path[len("tests/"):]
-        for path in selected
-    ):
-        raise RuntimeError("Downstream test inventory contains an invalid path")
-    return sorted(selected)
+    """Execute only declared downstream tests, rejecting missing or unsafe paths."""
+    if not DOWNSTREAM_TEST_MODULES:
+        raise RuntimeError("No reviewed downstream tests declared")
+    for path in DOWNSTREAM_TEST_MODULES:
+        if (
+            not path.startswith("tests/test_")
+            or not path.endswith(".py")
+            or "/" in path[len("tests/"):]
+        ):
+            raise RuntimeError("Unsafe or non-test downstream test path")
+    missing_head = sorted(DOWNSTREAM_TEST_MODULES - head_files)
+    if missing_head:
+        raise RuntimeError("Declared downstream test missing from HEAD: " + ", ".join(missing_head))
+    missing_merged = sorted(DOWNSTREAM_TEST_MODULES - merged_files)
+    if missing_merged:
+        raise RuntimeError("Downstream test removed by upstream merge: " + ", ".join(missing_merged))
+    return sorted(DOWNSTREAM_TEST_MODULES)
 
 
 def tracked_head_files() -> set[str]:
@@ -60,11 +68,11 @@ def tracked_head_files() -> set[str]:
 def main() -> int:
     committed = tracked_head_files()
     merged = {
-        path for path in committed
+        path for path in DOWNSTREAM_TEST_MODULES
         if Path(path).is_file() and not Path(path).is_symlink()
     }
     files = plan_tests(committed, merged)
-    print(f"Running {len(files)} reviewed Nextcloud-owned test modules", flush=True)
+    print(f"Running {len(files)} explicitly reviewed Nextcloud test modules", flush=True)
     return subprocess.call([sys.executable, "-m", "pytest", "-q", *files])
 
 
