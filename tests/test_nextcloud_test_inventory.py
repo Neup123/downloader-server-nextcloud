@@ -54,7 +54,7 @@ class DownstreamAcceptanceInventoryTests(unittest.TestCase):
                     plan_tests(reduced, reduced)
 
     def test_acceptance_inventory_rejects_nested_non_reviewed_path(self):
-        committed = OWNED | {"tests/subdir/test_appapi_nested.py"}
+        committed = OWNED | {"tests/test_appapi_nested/file.py"}
         with self.assertRaisesRegex(RuntimeError, "invalid path"):
             plan_tests(committed, committed)
 
