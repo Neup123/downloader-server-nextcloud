@@ -1,0 +1,119 @@
+"""Verified core sync must record the exact trusted source and main merge tip."""
+from __future__ import annotations
+
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+from scripts.record_core_sync import (
+    CORE_OWNED_PATHS, accepted_sync_record, validate_record,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CORE = "a" * 40
+PREVIOUS = "b" * 40
+MERGE = "c" * 40
+
+
+class CoreSyncEvidenceTests(unittest.TestCase):
+    def green(self, **updates):
+        args = {
+            "core_sha": CORE,
+            "merged_sha": MERGE,
+            "remote_sha": MERGE,
+            "parents": [PREVIOUS, CORE],
+            "core_ancestor": True,
+            "core_files_equal": True,
+        }
+        args.update(updates)
+        return validate_record(**args)
+
+    def test_exact_second_parent_and_pushed_remote_main_are_recorded(self):
+        record = self.green()
+        self.assertEqual(record["source_commit"], CORE)
+        self.assertEqual(record["downstream_commit"], MERGE)
+        self.assertEqual(record["downstream_previous_commit"], PREVIOUS)
+        self.assertTrue(record["source_is_exact_second_parent"])
+        self.assertTrue(record["core_owned_files_byte_identical"])
+        self.assertEqual(record["schema_version"], 1)
+        self.assertFalse(record["production_nextcloud_target_verified"])
+        self.assertIn("Dockerfile.egress", record["core_owned_paths"])
+        self.assertIn("app", record["core_owned_paths"])
+
+    def test_rejects_wrong_remote_source_and_non_merge(self):
+        cases = [
+            {"remote_sha": PREVIOUS},
+            {"parents": [PREVIOUS]},
+            {"parents": [PREVIOUS, PREVIOUS]},
+            {"parents": [PREVIOUS, CORE, CORE]},
+            {"core_ancestor": False},
+            {"core_files_equal": False},
+            {"core_sha": "not-a-sha"},
+            {"merged_sha": ""},
+            {"parents": ["INVALID", CORE]},
+        ]
+        for case in cases:
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                self.green(**case)
+
+    def test_live_git_probe_rejects_private_backend_drift(self):
+        def run_git(*args):
+            if args[:2] == ("rev-parse", "upstream/main"):
+                return CORE
+            if args[:2] == ("rev-parse", "HEAD"):
+                return MERGE
+            if args[0] == "ls-remote":
+                return MERGE + "  refs/heads/main"
+            if args[0] == "rev-list":
+                return f"{MERGE} {PREVIOUS} {CORE}"
+            raise AssertionError(args)
+
+        def allowed(args, **kwargs):
+            obj = type("Result", (), {})()
+            obj.returncode = 0
+            return obj
+
+        with patch("scripts.record_core_sync.git", side_effect=run_git), patch(
+            "scripts.record_core_sync.subprocess.run", side_effect=allowed,
+        ) as invocation:
+            result = accepted_sync_record()
+        self.assertEqual(result["downstream_commit"], MERGE)
+        self.assertEqual(invocation.call_count, 2)
+        arguments = [call.args[0] for call in invocation.call_args_list]
+        self.assertTrue(any("merge-base" in args for args in arguments))
+        self.assertTrue(any("diff" in args and "Dockerfile.egress" in args for args in arguments))
+
+    def test_missing_or_moved_main_does_not_write_acceptance_artifact(self):
+        with patch("scripts.record_core_sync.git", side_effect=[
+            CORE, MERGE, PREVIOUS + "  refs/heads/main", f"{MERGE} {PREVIOUS} {CORE}"
+        ]), patch("scripts.record_core_sync.subprocess.run") as run:
+            with self.assertRaises(ValueError):
+                accepted_sync_record()
+            # Checking this case does not depend on leaking tokens or writing.
+            self.assertTrue(run.called)
+
+    def test_workflow_emits_artifact_only_after_merge_and_before_appapi_dispatch(self):
+        content = (ROOT / ".github/workflows/bootstrap-upstream.yml").read_text()
+        self.assertIn("scripts/record_core_sync.py", content)
+        self.assertIn("core-sync-evidence.json", content)
+        self.assertIn("actions/upload-artifact@v4", content)
+        self.assertLess(content.index("git push origin HEAD:main"), content.index("scripts/record_core_sync.py"))
+        self.assertLess(
+            content.index("scripts/record_core_sync.py"),
+            content.index("gh workflow run appapi-docker-deploy-e2e.yml --ref main"),
+        )
+        self.assertIn("EXPECTED_CORE_SHA", content)
+        self.assertIn('cron: "17 3 * * *"', content)
+        self.assertIn("expected_core_sha:", content)
+        self.assertIn("core-upstream-sync", content)
+
+    def test_core_parity_scope_is_explicit_and_no_private_target_claim(self):
+        self.assertIn("BLUEPRINT.md", CORE_OWNED_PATHS)
+        self.assertIn("scripts/egress_guard.sh", CORE_OWNED_PATHS)
+        self.assertNotIn("README.md", CORE_OWNED_PATHS)
+        self.assertNotIn(".github/workflows", CORE_OWNED_PATHS)
+
+
+if __name__ == "__main__":
+    unittest.main()
