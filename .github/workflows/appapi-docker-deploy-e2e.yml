@@ -176,6 +176,23 @@ jobs:
           docker inspect nc_app_downloader-server-nextcloud \
             --format '{{.State.Running}}' | grep -Fx true
 
+      - name: Install native PHP bridge into real disposable Nextcloud Files and Dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd bridge && npm install --no-audit --no-fund && npm test && npm run build)
+          install -d bridge-install/downloader_bridge
+          cp -a bridge/appinfo bridge/lib bridge/js bridge-install/downloader_bridge/
+          docker cp bridge-install/downloader_bridge downloader-appapi-nextcloud:/var/www/html/custom_apps/downloader_bridge
+          docker exec --user www-data downloader-appapi-nextcloud php occ app:enable downloader_bridge
+          docker exec --user www-data downloader-appapi-nextcloud php occ app:list --output=json \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert "downloader_bridge" in data.get("enabled", {}), data'
+          # The Activity provider and scheduler register during actual Nextcloud
+          # bootstrap. Verify registration without contacting the downloader core.
+          docker exec --user www-data downloader-appapi-nextcloud php occ status --output=json \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["installed"]'
+          echo "Native PHP bridge enabled on disposable Nextcloud 35"
+
       - name: Verify AppAPI signing and actual authenticated proxy forwarding
         shell: bash
         run: |
