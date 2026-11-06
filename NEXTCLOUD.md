@@ -163,6 +163,8 @@ Relevant documentation:
 - AppAPI / ExApps: https://docs.nextcloud.com/server/stable/admin_manual/exapps_management/AppAPIAndExternalApps.html
 - WebDAV operations: https://github.com/nextcloud/documentation/blob/master/developer_manual/client_apis/WebDAV/basic.rst
 
+For the actual standalone Compose + External Sites deployment steps, see [NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md). This fallback is reduced-scope and must not be confused with signed AppAPI per-user integration.
+
 ## 5. Fallback order
 
 1. AppAPI ExApp, when the target supports it and a Deploy Daemon is configured and tested.
