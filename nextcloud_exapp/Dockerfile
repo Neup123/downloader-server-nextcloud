@@ -1,12 +1,12 @@
 # Thin Nextcloud ExApp: the core downloader runs in its own container.
-FROM node:22-alpine AS web-build
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web-build
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm test && npm run build -- --mode nextcloud
 
-FROM python:3.13-slim-trixie AS runtime
+FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_HOST=0.0.0.0 \
@@ -16,8 +16,8 @@ RUN groupadd --system --gid 10001 exapp \
     && useradd --system --uid 10001 --gid exapp --home-dir /app exapp \
     && mkdir -p /app/nextcloud_exapp
 WORKDIR /app
-COPY nextcloud_exapp/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY nextcloud_exapp/requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir --only-binary=:all: -r /app/requirements.lock
 COPY nextcloud_exapp/*.py /app/nextcloud_exapp/
 COPY --from=web-build /web/dist/ /app/nextcloud_exapp/dist/
 USER exapp
