@@ -2,9 +2,9 @@ name: Sync verified core upstream into Nextcloud main
 
 # Shared history is already established. Merge with normal ancestry and preserve
 # the downstream README, while keeping all core-owned source files upstream-led.
-# This workflow-file revision triggers the next verified import of core main.
-# The upstream worktree runs ALL core tests; the merged tree runs the reviewed
-# downstream test inventory as it existed immediately before this merge.
+# This workflow revision triggers the next verified core import.
+# The isolated upstream worktree tests ALL core modules; the merged tree
+# executes the exact reviewed Nextcloud-owned module manifest.
 on:
   push:
     branches: [main]
@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: core-upstream-sync
@@ -88,13 +89,15 @@ jobs:
           set -euo pipefail
           # Keep Nextcloud's own release and cleanup policies. The resolver
           # temporarily used core workflow files only to settle Git conflicts.
+          # Core-only audit tests (such as test_audited_core_legacy_cleanup.py)
+          # run above in the isolated upstream worktree. Never glob-import
+          # those tests into Nextcloud's different branch-cleanup code.
           git restore --source=HEAD --staged --worktree README.md .github/workflows
           # No downstream edits to core-owned backend contracts are permitted.
           git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md
           python -m compileall -q app scripts tests nextcloud_exapp
-          # Select tests from the original downstream HEAD inventory. Newly
-          # merged core-only tests have already passed in the core worktree;
-          # never run them against Nextcloud-specific cleanup/workflow code.
+          # The reviewed downstream module manifest excludes core-only tests,
+          # including ones already imported into downstream Git ancestry.
           python3 scripts/run_downstream_acceptance.py
 
       - name: Verify merged production Docker image builds
@@ -116,3 +119,23 @@ jobs:
           fi
           git commit -m "Merge accepted core main into Nextcloud integration"
           git push origin HEAD:main
+
+      - name: Dispatch full AppAPI acceptance for the newly synchronized main
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          accepted_sha="$(git rev-parse HEAD)"
+          actual_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$actual_main" != "$accepted_sha" ]]; then
+            echo "Main moved since synchronized merge; refusing stale dispatch" >&2
+            exit 1
+          fi
+          # A push made with GITHUB_TOKEN does not start normal push workflows.
+          # workflow_dispatch is an explicitly permitted GitHub Actions event.
+          # The AppAPI lifecycle test then runs on actual main and the
+          # separate publisher requires its success plus main ancestry.
+          gh workflow run appapi-docker-deploy-e2e.yml --ref main
+          echo "Dispatched full real ExApp AppAPI acceptance on synchronized main"
