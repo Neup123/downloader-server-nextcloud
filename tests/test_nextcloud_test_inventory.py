@@ -52,7 +52,7 @@ class DownstreamAcceptanceInventoryTests(unittest.TestCase):
                 plan_tests({invalid}, {invalid})
 
     def test_git_tree_lookup_is_explicitly_based_on_downstream_head(self):
-        result = b"tests/test_nextcloud_sample.py\\0tests/test_exapp_probe.py\\0"
+        result = b"tests/test_nextcloud_sample.py" + bytes([0]) + b"tests/test_exapp_probe.py" + bytes([0])
         with patch(
             "scripts.run_downstream_acceptance.subprocess.check_output",
             return_value=result,
