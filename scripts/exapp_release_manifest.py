@@ -50,6 +50,10 @@ def render_release(
             and r.findtext("access_level") != "ADMIN")
         or ((r.findtext("url") or "").startswith("^/user/")
             and r.findtext("access_level") != "USER")
+        or ((r.findtext("url") or "") in ("^/$", "^/api-reference$")
+            and r.findtext("access_level") != "ADMIN")
+        or ((r.findtext("url") or "") == "^/assets/.*$"
+            and r.findtext("access_level") != "USER")
         for r in routes
     ):
         raise ValueError("Nextcloud routes must keep admin and per-user APIs isolated")
