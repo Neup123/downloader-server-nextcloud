@@ -10,8 +10,13 @@ on:
     branches: [main]
     paths: [".github/workflows/bootstrap-upstream.yml"]
   workflow_dispatch:
+    inputs:
+      expected_core_sha:
+        description: "Optional exact 40-character core/main SHA; abort if core changed"
+        required: false
+        type: string
   schedule:
-    - cron: "17 3 * * 1"
+    - cron: "17 3 * * *"
 
 permissions:
   contents: write
@@ -38,6 +43,8 @@ jobs:
       - name: Merge current core main with established shared history
         id: merge
         shell: bash
+        env:
+          EXPECTED_CORE_SHA: ${{ inputs.expected_core_sha }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -45,6 +52,17 @@ jobs:
           git remote add upstream https://github.com/Neup123/Media-Downloader-server.git
           git fetch --no-tags upstream main
           core_sha="$(git rev-parse upstream/main)"
+          # Never interpolate manual input directly into bash source.
+          if [[ -n "$EXPECTED_CORE_SHA" ]]; then
+            if [[ ! "$EXPECTED_CORE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Expected upstream SHA must be exactly 40 lowercase hex characters" >&2
+              exit 1
+            fi
+            if [[ "$core_sha" != "$EXPECTED_CORE_SHA" ]]; then
+              echo "Core main changed since requested SHA; aborting without merge" >&2
+              exit 1
+            fi
+          fi
           if git merge-base --is-ancestor "$core_sha" HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Core main is already incorporated."
@@ -119,6 +137,24 @@ jobs:
           fi
           git commit -m "Merge accepted core main into Nextcloud integration"
           git push origin HEAD:main
+
+      - name: Validate and archive the exact verified core-to-main merge provenance
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This runs AFTER the full core/downstream test suites, Docker build
+          # and successful merge push; an unpushed or drifted main fails closed.
+          python3 scripts/record_core_sync.py --output core-sync-evidence.json
+
+      - name: Upload accepted core-sync provenance evidence
+        if: steps.merge.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-core-sync-${{ github.run_id }}
+          path: core-sync-evidence.json
+          if-no-files-found: error
+          retention-days: 60
 
       - name: Dispatch full AppAPI acceptance for the newly synchronized main
         if: steps.merge.outputs.changed == 'true'
