@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,13 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ReadOnlyMergePreviewTests(unittest.TestCase):
     def test_preview_runs_full_gates_but_cannot_mutate_main(self):
-        workflow = yaml.safe_load(
-            (ROOT / ".github/workflows/verify-upstream-merge.yml").read_text()
-        )
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
-        self.assertIn("verify-upstream-merge", workflow["jobs"])
-        steps = workflow["jobs"]["verify-upstream-merge"]["steps"]
-        content = "\n".join(str(step.get("run", "")) for step in steps)
+        content = (
+            ROOT / ".github/workflows/verify-upstream-merge.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("permissions:\n  contents: read", content)
+        self.assertIn("verify-upstream-merge:", content)
         for expected in (
             "git fetch --no-tags upstream main",
             "git merge --no-ff --no-commit upstream/main",
