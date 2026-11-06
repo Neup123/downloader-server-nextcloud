@@ -67,6 +67,47 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
         self.assertNotEqual(self.compose(token="").returncode, 0)
         self.assertNotEqual(self.compose(key="").returncode, 0)
 
+    def test_optional_exapp_network_overlay_reuses_guarded_core(self):
+        env = os.environ.copy()
+        env.update({
+            "APP_API_TOKEN": "test-token-012345678901234567890123456789",
+            "APP_ENCRYPTION_KEY": "test-only",
+            "NEXTCLOUD_DOCKER_NETWORK": "actual-nextcloud-network",
+            "DOWNLOADER_IMAGE": "ghcr.io/neup123/media-downloader-server:0.3.0",
+        })
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(ROOT / "compose.egress.yaml"),
+             "-f", str(ROOT / "compose.nextcloud-network.yaml"),
+             "config", "--format", "json"],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        model = json.loads(result.stdout)
+        self.assertEqual(model["networks"]["nextcloud-integration"]["name"],
+                         "actual-nextcloud-network")
+        self.assertTrue(model["networks"]["nextcloud-integration"]["external"])
+        guard = model["services"]["egress-guard"]
+        self.assertIn("downloader-core",
+                      guard["networks"]["nextcloud-integration"]["aliases"])
+        core = model["services"]["downloader-server"]
+        self.assertEqual(core["network_mode"], "service:egress-guard")
+        self.assertNotIn("networks", core)
+        self.assertNotIn("ports", core)
+        self.assertEqual(core["environment"]["ALLOW_PRIVATE_TARGETS"], "false")
+        self.assertEqual(core["environment"]["ALLOW_PRIVATE_WEBDAV_TARGETS"], "false")
+        self.assertEqual(model["volumes"]["downloader-data"]["name"],
+                         "downloader-server-egress-data")
+
+    def test_network_overlay_requires_existing_network_name(self):
+        env = os.environ.copy()
+        env.update({"APP_API_TOKEN": "test", "NEXTCLOUD_DOCKER_NETWORK": ""})
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(ROOT / "compose.egress.yaml"),
+             "-f", str(ROOT / "compose.nextcloud-network.yaml"), "config"],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
     def test_documented_fallback_does_not_claim_per_user_sso(self):
         doc = (ROOT / "NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md").read_text()
         self.assertIn("External Sites", doc)
