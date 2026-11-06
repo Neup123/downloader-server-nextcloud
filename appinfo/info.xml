@@ -4,7 +4,7 @@
     <name>Downloader Server</name>
     <summary>Per-user download jobs delivered to your Nextcloud Files</summary>
     <description>Nextcloud AppAPI gateway to the separately deployed Downloader Server. It does not run downloads inside Nextcloud.</description>
-    <version>0.5.1</version>
+    <version>0.5.2</version>
     <licence>MIT</licence>
     <author>Neup123</author>
     <namespace>DownloaderServer</namespace>
@@ -18,7 +18,7 @@
         <docker-install>
             <registry>ghcr.io</registry>
             <image>neup123/downloader-server-nextcloud</image>
-            <image-tag>0.5.1</image-tag>
+            <image-tag>0.5.2</image-tag>
         </docker-install>
         <environment-variables>
             <variable>

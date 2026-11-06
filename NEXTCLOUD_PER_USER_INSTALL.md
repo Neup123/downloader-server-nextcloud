@@ -5,22 +5,22 @@ If the target cannot deploy AppAPI ExApps, use the separately tested [official E
 
 ## Release images
 
-- Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.0
-- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.1
-- Native UI-only PHP bridge: downloader-bridge-0.5.1.zip attached to the Nextcloud v0.5.1 GitHub Release.
+- Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.1
+- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.2
+- Native UI-only PHP bridge: downloader-bridge-0.5.2.zip attached to the Nextcloud v0.5.2 GitHub Release.
 
-The v0.5.1 release additionally enforces administrator permissions inside the ExApp backend; use it instead of v0.5.0 for new deployments.
+The v0.5.2 release additionally enforces administrator permissions inside the ExApp backend; use it instead of v0.5.0 for new deployments.
 
 The v0.1.0 release remains the administrator-only baseline and cannot accept
-per-user job submissions. **Core 0.3.0 and ExApp 0.5.1 are required** for the
+per-user job submissions. **Core 0.3.1 and ExApp 0.5.2 are required** for the
 per-user UI. Never write directly into Nextcloud's data directory.
 
 ## Step 1 — verify connectivity and published tags
 
 On the Docker host, pull the images:
 
-    docker pull ghcr.io/neup123/media-downloader-server:0.3.0
-    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.1
+    docker pull ghcr.io/neup123/media-downloader-server:0.3.1
+    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.2
 
 For private GHCR packages give the AppAPI Deploy Daemon a read-only registry
 credential, or make the package public. Do not reuse the downloader API token
@@ -46,7 +46,7 @@ Docker host. Create .env with APP_API_TOKEN and APP_ENCRYPTION_KEY and keep the
 existing keys and persistent data volume when upgrading from 0.1.0.
 
     docker compose -f compose.egress.yaml build egress-guard
-    DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.0 docker compose -f compose.egress.yaml up -d --no-build
+    DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.1 docker compose -f compose.egress.yaml up -d --no-build
 
 The core must be reachable from the ExApp network at a known HTTPS URL, or
 at internal HTTP with explicit DOWNLOADER_ALLOW_TRUSTED_HTTP=true. It must
@@ -70,7 +70,7 @@ volume, supply the overlay as a second `-f` file:
 
 ```sh
 export NEXTCLOUD_DOCKER_NETWORK=THE_EXISTING_NEXTCLOUD_NETWORK
-export DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.0
+export DOWNLOADER_IMAGE=ghcr.io/neup123/media-downloader-server:0.3.1
 docker compose -f compose.egress.yaml -f /path/to/downloader-server-nextcloud/compose.nextcloud-network.yaml config --quiet
 docker compose -f compose.egress.yaml -f /path/to/downloader-server-nextcloud/compose.nextcloud-network.yaml up -d --no-build --wait
 ```
@@ -92,9 +92,9 @@ use the reachable public HTTPS `DOWNLOADER_WEBDAV_ORIGIN` setting described
 below. If the host cannot route to that HTTPS origin, do **not** disable
 the egress policy: the real-install test must report the blocker.
 
-## Step 3 — register the 0.5.1 ExApp
+## Step 3 — register the 0.5.2 ExApp
 
-Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.1
+Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.2
 release. In the Nextcloud AppAPI administrator page, select the tested
 Deploy Daemon and register the ExApp using that manifest. Supply environment
 variables on the server only:
@@ -143,7 +143,7 @@ python3 scripts/verify_deployed_exapp.py \
   --expected-source 10d050fb08e8124cba2e702f0e484ce25b105954
 ```
 
-The SHA above is the **v0.5.1 release target**; use the corresponding exact
+The SHA above is the **v0.5.2 release target**; use the corresponding exact
 release target SHA for any later version. For stronger independent attestation,
 take `container_image_digest` from the matching source-SHA publisher
 workflow's `image-provenance.json` artifact and add
@@ -172,7 +172,7 @@ core APP_API_TOKEN. The defaults are private and user-scoped.
 
 ## Step 5 — install native Files/header UI integration
 
-Extract downloader-bridge-0.5.1.zip under the instance's custom_apps
+Extract downloader-bridge-0.5.2.zip under the instance's custom_apps
 directory, producing custom_apps/downloader_bridge/appinfo/info.xml and
 custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
@@ -206,9 +206,9 @@ on the operator's actual Nextcloud deployment.
 
 ## Limits
 
-The Nextcloud 0.5.1 integration includes per-user jobs, personal settings,
+The Nextcloud 0.5.2 integration includes per-user jobs, personal settings,
 Files/+New/Viewer and progress UI, failure notifications, provenance details,
-Dashboard, unified search, and native Activity entries. The standalone core remains version 0.3.0.
+Dashboard, unified search, and native Activity entries. The standalone core remains version 0.3.1.
 Nextcloud's background jobs must be enabled for Activity events.
 Talk link integration is deliberately deferred until a production instance is verified.
 Files without stored provenance cannot be re-downloaded without supplying their source URL.
