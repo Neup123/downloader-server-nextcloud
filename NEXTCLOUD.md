@@ -38,7 +38,7 @@ Do not edit or duplicate core-owned files here unless a documented Nextcloud-spe
 
 The downstream repository imports verified core `main` through the shared Git
 ancestry. The live [sync workflow](.github/workflows/bootstrap-upstream.yml)
-runs weekly, when its workflow changes, or on manual dispatch. Before writing
+runs daily at 03:17 UTC, when its workflow changes, or on manual dispatch. Before writing
 anything to Nextcloud `main`, it must:
 
 1. Fetch the current core `main` and merge with normal Git ancestry. Only
@@ -59,6 +59,23 @@ anything to Nextcloud `main`, it must:
    test module; do not use filename globs to infer ownership.
 5. Compile and build the merged production Docker image; only then commit
    and push the normal two-parent merge.
+6. **After** the tested push to `main`, run
+   `scripts/record_core_sync.py`. It must verify that the exact fetched
+   core commit is the merge's second parent and an ancestor, the remote
+   `main` tip equals the tested merge, and the core-owned API, Docker and
+   guarded-egress files have no byte differences. The workflow archives
+   `core-sync-evidence.json` with both immutable SHAs and acceptance-gate
+   results before requesting the main AppAPI lifecycle test.
+
+Manual `workflow_dispatch` supports an optional `expected_core_sha`
+(40 lowercase hexadecimal characters). If supplied, the fetched core/main
+must match exactly; otherwise the run aborts without any merge or publish.
+No change in upstream means no merge, Docker acceptance or ExApp publication.
+
+This JSON evidence proves **source lineage and acceptance gates**, not
+reproducible dependency wheels, a native AppAPI image digest pin, nor
+deployment on a real operator-owned Nextcloud instance.
+
 
 The separate [read-only merge preview](.github/workflows/verify-upstream-merge.yml)
 runs on changes to these safeguards. It reproduces a real core import

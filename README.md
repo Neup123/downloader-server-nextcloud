@@ -13,6 +13,7 @@ This repository must stay thin. It must not contain downloader logic or duplicat
 - [NEXTCLOUD.md](NEXTCLOUD.md) defines the integration boundary, AppAPI/ExApp deployment path, fallbacks, WebDAV delivery, and target-instance checks.
 - Core `main` Git ancestry was already imported in merge commit [`0044d368`](https://github.com/Neup123/downloader-server-nextcloud/commit/0044d3686fed9167a9268872c9b1935740e2b74a). Future local clones should add the `upstream` remote normally; do not repeat the unrelated-histories bootstrap.
 - The **real target** Nextcloud version, AppAPI state, Deploy Daemon registration, reverse proxy, and WebDAV authentication remain unverified. Disposable CI uses Nextcloud 35.0.2 and has demonstrated both WebDAV readback and a real AppAPI Docker ExApp install/enable/disable/unregister sequence.
+- Accepted core changes are checked daily by the [verified core sync workflow](.github/workflows/bootstrap-upstream.yml). Successful imports archive `core-sync-evidence.json` with the exact core parent, downstream merge SHA, core-file parity and test/build gates. This proves source integration, not target deployment.
 - The core `main` includes the [guarded Linux Compose egress configuration](https://github.com/Neup123/Media-Downloader-server/blob/main/EGRESS_GUARD.md), with green Linux CI for private-network and metadata-IP rejection; Docker Desktop/target egress acceptance and live P2 engine acceptance are still incomplete. Do not expose jobs to untrusted submitters.
 
 ## Verified disposable AppAPI infrastructure

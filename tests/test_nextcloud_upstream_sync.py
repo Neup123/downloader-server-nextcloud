@@ -10,9 +10,12 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
     def test_periodic_and_manual_sync_are_available(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", content)
-        self.assertIn('cron: "17 3 * * 1"', content)
+        self.assertIn('cron: "17 3 * * *"', content)
         self.assertIn("group: core-upstream-sync", content)
         self.assertIn("cancel-in-progress: false", content)
+        self.assertIn("expected_core_sha:", content)
+        self.assertIn("EXPECTED_CORE_SHA: ${{ inputs.expected_core_sha }}", content)
+        self.assertIn('if [[ "$core_sha" != "$EXPECTED_CORE_SHA" ]]', content)
 
     def test_core_tests_use_exact_upstream_worktree_and_downstream_own_workflows(self):
         content = WORKFLOW.read_text(encoding="utf-8")

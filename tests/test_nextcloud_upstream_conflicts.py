@@ -16,11 +16,13 @@ class ResolverPolicyTests(unittest.TestCase):
         self.assertEqual(result.keys(), set(paths))
         self.assertTrue(all(result[p] == "ours" for p in DOWNSTREAM))
         self.assertTrue(all(result[p] == "theirs" for p in CORE_TEST_ONLY))
+        self.assertIn(".github/workflows/pinned-engine-updates.yml", CORE_TEST_ONLY)
+        self.assertNotIn(".github/workflows/pinned-engine-updates-copy.yml", CORE_TEST_ONLY)
 
     def test_unknown_conflicts_are_rejected_without_partial_resolution(self):
         for path in (
             "app/main.py",
-            ".github/workflows/pinned-engine-updates.yml",
+            ".github/workflows/pinned-engine-updates-copy.yml",
             "scripts/cleanup_merged_branches.py.bak",
             "../README.md",
             "README.md/extra",
