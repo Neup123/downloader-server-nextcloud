@@ -20,12 +20,17 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("(cd /tmp/downloader-core-acceptance && python -m pytest -q)", content)
         self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
         self.assertIn("git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md", content)
+        self.assertIn("python3 scripts/run_downstream_acceptance.py", content)
+        # The reviewed HEAD tree, not the uncommitted merged tree, defines
+        # downstream ownership. Imported core-only tests run in upstream CI.
+        selector = (ROOT / "scripts/run_downstream_acceptance.py").read_text()
+        self.assertIn('"HEAD", "--", "tests/"', selector)
         for pattern in (
             "tests/test_nextcloud_*.py", "tests/test_appapi_*.py",
             "tests/test_exapp_*.py", "tests/test_audited_*.py",
             "tests/test_cleanup_*.py", "tests/test_target_*.py",
         ):
-            self.assertIn(pattern, content)
+            self.assertIn(pattern, selector)
         self.assertLess(
             content.index("git diff --exit-code upstream/main -- app"),
             content.index("git push origin HEAD:main"),
