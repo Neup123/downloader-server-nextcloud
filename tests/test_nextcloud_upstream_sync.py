@@ -25,12 +25,10 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         # downstream ownership. Imported core-only tests run in upstream CI.
         selector = (ROOT / "scripts/run_downstream_acceptance.py").read_text()
         self.assertIn('"HEAD", "--", "tests/"', selector)
-        for pattern in (
-            "tests/test_nextcloud_*.py", "tests/test_appapi_*.py",
-            "tests/test_exapp_*.py", "tests/test_audited_*.py",
-            "tests/test_cleanup_*.py", "tests/test_target_*.py",
-        ):
-            self.assertIn(pattern, selector)
+        self.assertIn("DOWNSTREAM_TEST_MODULES", selector)
+        self.assertIn('"tests/test_audited_preflight_branch_cleanup.py"', selector)
+        self.assertNotIn('"tests/test_audited_core_legacy_cleanup.py"', selector)
+        self.assertNotIn('"tests/test_audited_*.py"', selector)
         self.assertLess(
             content.index("git diff --exit-code upstream/main -- app"),
             content.index("git push origin HEAD:main"),
