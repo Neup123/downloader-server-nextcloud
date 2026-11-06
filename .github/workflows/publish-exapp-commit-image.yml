@@ -154,13 +154,13 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Publish the pullable 0.3.0 per-user AppAPI image and UI bridge
+      - name: Publish the pullable 0.4.0 per-user AppAPI image and UI bridge
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="0.3.0"
+          version="0.4.0"
           test "$(git rev-parse origin/main)" = "$SOURCE_SHA" || {
             echo "A newer main commit exists; do not release the older acceptance commit."
             exit 0
@@ -168,8 +168,8 @@ jobs:
           python3 - <<'PY'
           from xml.etree import ElementTree as ET
           root = ET.parse("appinfo/info.xml").getroot()
-          assert root.findtext("version") == "0.3.0"
-          assert root.findtext("./external-app/docker-install/image-tag") == "0.3.0"
+          assert root.findtext("version") == "0.4.0"
+          assert root.findtext("./external-app/docker-install/image-tag") == "0.4.0"
           PY
           if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Versioned release already exists; refusing to overwrite it."
@@ -190,10 +190,10 @@ jobs:
           mkdir -p bundle/downloader_bridge
           cp -a bridge/appinfo bridge/lib bridge/js bundle/downloader_bridge/
           cp bridge/README.md bundle/downloader_bridge/
-          (cd bundle && zip -q -r ../downloader-bridge-0.3.0.zip downloader_bridge)
+          (cd bundle && zip -q -r ../downloader-bridge-0.4.0.zip downloader_bridge)
           gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
             --title "Downloader Server Nextcloud $version" \
-            appinfo/info.xml downloader-bridge-0.3.0.zip \
+            appinfo/info.xml downloader-bridge-0.4.0.zip \
             --notes "AppAPI ExApp image: \`$IMAGE_REPO:$version\`. The attached appinfo/info.xml refers to this pullable GHCR tag. Follow NEXTCLOUD_PER_USER_INSTALL.md and use the attached bridge ZIP for native Files/Viewer/header UI."
 
       - uses: actions/upload-artifact@v4

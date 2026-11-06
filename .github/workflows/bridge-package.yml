@@ -44,9 +44,9 @@ jobs:
           cp -a bridge/appinfo bridge/lib bridge/js package/downloader_bridge/
           cp bridge/README.md package/downloader_bridge/
           cd package
-          zip -q -r ../downloader-bridge-0.3.0.zip downloader_bridge
+          zip -q -r ../downloader-bridge-0.4.0.zip downloader_bridge
       - uses: actions/upload-artifact@v4
         with:
           name: downloader-bridge-nc35
-          path: downloader-bridge-0.3.0.zip
+          path: downloader-bridge-0.4.0.zip
           retention-days: 30
