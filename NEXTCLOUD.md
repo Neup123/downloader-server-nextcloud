@@ -84,12 +84,12 @@ Keep the integration thin so Nextcloud major upgrades cannot break the core down
 ## 6. Current status and blockers
 
 - Repository initialized with the shared core overview.
-- Disposable AppAPI Docker deployment CI has been added and passed using the official example ExApp. Downloader Server's own ExApp packaging is still under development.
+- Disposable AppAPI Docker CI has passed using both the official example ExApp and the real, administrator-only Downloader Server ExApp (signed proxy, lifecycle and removal). The ExApp package is implemented; production target readiness is still unverified.
 - The actual target Nextcloud instance has not been inspected in this build session.
 - AppAPI/Deploy Daemon feasibility is therefore **unverified**.
 - Shared upstream Git ancestry was established by merge commit `0044d368`; the accepted core `main` was synchronized into this Nextcloud `main` by normal two-parent merge `c8f81a2`, after combined Python and production Docker acceptance.
 
-Develop and test ExApp packaging against disposable CI independently of production. Do not claim the **real target** is supported or deploy to production until the target-instance checks in Section 3 succeed.
+ExApp development packaging and disposable installation are implemented. Do not claim the **real target** is supported or deploy to production until its administrator Test Deploy and WebDAV credentials/access checks in Section 3 succeed.
 
 
 ## WebDAV target-instance preflight (safe before selecting an integration method)
@@ -254,3 +254,41 @@ administrator operation on the actual Nextcloud instance.
 ## Disposable real AppAPI Docker-install acceptance
 
 `.github/workflows/appapi-docker-deploy-e2e.yml` verifies more than the read-only AppAPI readiness probe. It starts a fresh Nextcloud 35.0.2 instance and an isolated Docker Socket Proxy, registers a real `docker-install` Deploy Daemon, installs Nextcloud's official Python skeleton ExApp from a source-pinned manifest, verifies that the ExApp container is running, and exercises enable/disable/unregister. The initial runs on `main` passed. This proves the **CI deployment pipeline**, not this project's Downloader Server ExApp package or administrator Test Deploy on the actual server. The Docker Socket Proxy is strictly ephemeral on the isolated GitHub Actions runner; current Nextcloud documentation recommends HaRP for new production installations. The external sample's image tag is upstream `latest`, so this test alone is not digest-locked or a production reproducibility guarantee.
+
+## ExApp release build provenance and migration status
+
+The real ExApp is deliberately thin: its administrator-only AppAPI routes
+authenticate the browser through Nextcloud, while its service container
+forwards API requests to the **separately deployed** Downloader Server.
+The core token is server-side only; never insert it into the browser or
+Nextcloud public links.
+
+The ExApp build pins its Node and Python image parents to full OCI SHA-256
+digests in `nextcloud_exapp/Dockerfile`. It uses `npm ci` with the checked-in
+`web/package-lock.json`; `nextcloud_exapp/requirements.lock` enumerates
+all exact direct and transitive versions from a green disposable CI build.
+`scripts/exapp_build_inputs.py` refuses floating/duplicate Python pins,
+mismatched direct dependencies and unpinned Dockerfile base images. The
+source-SHA release workflow includes `build-inputs.json` in the digest
+provenance artifact and checks that the registry-pulled image carries both
+the Python and npm lock checksums. An image is *not* published before its
+source revision has passed the real disposable AppAPI installation test.
+
+**Limitations:** exact package versions do not supply Python wheel hash
+verification. Base image indices have been pinned from a previously accepted
+Linux CI build, but platform/architecture-specific rebuild verification
+and comprehensive dependency hashing are still pending. Furthermore, the
+observed Nextcloud 35 AppAPI Docker manifest uses `registry/image:tag`;
+our release `info.xml` therefore uses a unique source-SHA tag, while
+`image-provenance.json` separately records the exact image `@sha256:`
+digest. Do not call this a natively digest-pinned AppAPI installation, and
+verify the registry content digest again before deploying on a real target.
+These limitations are tracked in [issue #24](https://github.com/Neup123/downloader-server-nextcloud/issues/24).
+
+The verified core-upstream synchronization merges
+`Neup123/Media-Downloader-server:main` only after its full Python tests, all
+downstream Nextcloud tests and production Docker build pass. The core
+guarded Linux Compose settings, source and policy documentation must also
+match upstream byte-for-byte, and the downstream-owned CI workflows are
+retained. This synchronization is **development source integration**, not
+real-target AppAPI acceptance or permission to enable untrusted downloads.

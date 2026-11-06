@@ -43,6 +43,10 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
             'IMAGE_REPO"] + "@" + os.environ["PUBLISHED_DIGEST"]',
             "org.opencontainers.image.revision",
             "--source-sha",
+            "scripts/exapp_build_inputs.py",
+            "exapp-release/build-inputs.json",
+            "io.github.neup123.exapp.python-lock-sha256",
+            "io.github.neup123.exapp.npm-lock-sha256",
             "--digest",
             "actions/upload-artifact@v4",
         ):
@@ -53,6 +57,8 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/appapi-docker-deploy-e2e.yml").read_text()
         build = (ROOT / ".github/workflows/nextcloud-exapp-build.yml").read_text()
         for source in (workflow, build):
+            self.assertIn('"scripts/exapp_build_inputs.py"', source)
+            self.assertIn('"tests/test_exapp_build_inputs.py"', source)
             self.assertIn('".github/workflows/publish-exapp-commit-image.yml"', source)
             self.assertIn('"scripts/exapp_release_manifest.py"', source)
             self.assertIn('"tests/test_exapp_publication_workflow.py"', source)
