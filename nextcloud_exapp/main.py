@@ -19,7 +19,7 @@ from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import (
-    UserContext, require_user, signed_user, entitlement, read_user_preferences,
+    UserContext, require_user, require_admin, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
@@ -110,19 +110,20 @@ if DIST.is_dir():
 
 
 @APP.get("/")
-async def dashboard():
+async def dashboard(_admin: UserContext = Depends(require_admin)):
     return FileResponse(DIST / "index.html", media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 @APP.get("/api-reference")
-async def reference():
+async def reference(_admin: UserContext = Depends(require_admin)):
     return FileResponse(DIST / "api-reference.html", media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 @APP.api_route(
     "/api/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
 )
-async def proxy_api(path: str, request: Request):
+async def proxy_api(path: str, request: Request,
+                    _admin: UserContext = Depends(require_admin)):
     settings = config()
     # Keep the upstream origin fixed, and reject ambiguous decoded paths.
     try:
@@ -369,9 +370,8 @@ async def user_cookie_delete(filename: str, context: UserContext = Depends(requi
 
 
 @APP.get("/admin/api/entitlements")
-async def admin_read_entitlements(request: Request):
-    user_id = signed_user(request)
-    nc = AsyncNextcloudApp(user=user_id)
+async def admin_read_entitlements(admin: UserContext = Depends(require_admin)):
+    nc = admin.nc
     return {
         "allowed_users": await nc.appconfig_ex.get_value("allowed_users", ""),
         "allowed_groups": await nc.appconfig_ex.get_value("allowed_groups", ""),
@@ -379,19 +379,18 @@ async def admin_read_entitlements(request: Request):
 
 
 @APP.put("/admin/api/entitlements")
-async def admin_write_entitlements(request: Request):
-    user_id = signed_user(request)
-    nc = AsyncNextcloudApp(user=user_id)
+async def admin_write_entitlements(request: Request,
+                                   admin: UserContext = Depends(require_admin)):
     body = await request.json()
     if not isinstance(body, dict) or set(body) - {"allowed_users", "allowed_groups"}:
         raise HTTPException(status_code=422, detail="Invalid entitlement list")
+    # Validate the entire patch before modifying any administrator settings.
+    if any(not isinstance(value, str) or len(value) > 10000 for value in body.values()):
+        raise HTTPException(status_code=422, detail="Invalid entitlement list")
     for key in ("allowed_users", "allowed_groups"):
         if key in body:
-            value = body[key]
-            if not isinstance(value, str) or len(value) > 10000:
-                raise HTTPException(status_code=422, detail="Invalid entitlement list")
-            await nc.appconfig_ex.set_value(key, value)
-    return await admin_read_entitlements(request)
+            await admin.nc.appconfig_ex.set_value(key, body[key])
+    return await admin_read_entitlements(admin)
 
 if __name__ == "__main__":
     # Routes are registered at import time before the ASGI server is started.
