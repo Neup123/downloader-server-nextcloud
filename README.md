@@ -93,3 +93,8 @@ performs a disposable WebDAV upload, SHA-256 readback and cleanup **only after
 confirming the target destination**. Even a passing combined report does not
 perform or prove AppAPI Test Deploy; administrator verification is mandatory.
 See [NEXTCLOUD.md](NEXTCLOUD.md) for the remaining deployment gates.
+
+
+## Install v0.1.0
+
+Follow [NEXTCLOUD_INSTALL.md](NEXTCLOUD_INSTALL.md) for the versioned GHCR/AppAPI path and real-target verification. The v0.1.0 baseline is still admin-only; per-user UI integration is planned separately.

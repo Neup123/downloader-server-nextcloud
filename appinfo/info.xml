@@ -18,7 +18,7 @@
         <docker-install>
             <registry>ghcr.io</registry>
             <image>neup123/downloader-server-nextcloud</image>
-            <image-tag>0.1.0-dev</image-tag>
+            <image-tag>0.1.0</image-tag>
         </docker-install>
         <environment-variables>
             <variable>

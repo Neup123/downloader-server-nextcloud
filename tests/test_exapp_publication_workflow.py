@@ -28,7 +28,7 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)
         self.assertNotIn("pull_request:", workflow)
-        self.assertIn("contents: read", workflow)
+        self.assertIn("contents: write", workflow)
         self.assertIn("packages: write", workflow)
         self.assertIn("persist-credentials: false", workflow)
 

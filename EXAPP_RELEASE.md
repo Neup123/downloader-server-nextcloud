@@ -1,6 +1,6 @@
 # Downloader Server Nextcloud ExApp — image provenance
 
-This document concerns **development images**, not an approved production release.
+The released AppAPI manifest uses the pullable image `ghcr.io/neup123/downloader-server-nextcloud:0.1.0`. The separately published `sha-<commit>` tags remain available for per-commit diagnostics. Release v0.1.0 is a first installable baseline; real-target installation is not asserted without operator checks.
 
 ## How images are published
 
@@ -51,7 +51,7 @@ interpret it as an OCI digest. Native digest-addressed ExApp deployment would
 require documented Nextcloud AppAPI support or a separately verified deploy
 mechanism.
 
-## Production deployment remains blocked
+## Real target deployment and follow-up
 
 This workflow does not install the ExApp on the user's Nextcloud server. The
 actual Nextcloud version, AppAPI/HaRP Deploy Daemon, administrator Test Deploy,

@@ -151,7 +151,7 @@ jobs:
           # The public version tag in appinfo/info.xml must match exactly.
           # Only the disposable runner has this image; no registry is published.
           docker build -f nextcloud_exapp/Dockerfile \
-            -t ghcr.io/neup123/downloader-server-nextcloud:0.1.0-dev .
+            -t ghcr.io/neup123/downloader-server-nextcloud:0.1.0 .
 
           docker run --detach \
             --name downloader-test-core \
