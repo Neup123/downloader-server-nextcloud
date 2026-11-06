@@ -190,6 +190,15 @@ class UserUnitTests(TestCase):
 
 
 class TrackingTests(TestCase):
+    def test_tracker_uses_nextcloud_persistent_volume_without_unwritable_home(self):
+        import os
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.dict(os.environ, {"APP_PERSISTENT_STORAGE": temp}):
+                tracker = JobTracker()
+                self.assertEqual(tracker.path.parent, Path(temp))
+                tracker.add("tracked", "alice")
+                self.assertEqual(JobTracker().pending(), [("tracked", "alice")])
+
     def test_pending_survives_restart_notifies_only_owner_and_retry_resets(self):
         async def run():
             with tempfile.TemporaryDirectory() as temp:
