@@ -11,9 +11,9 @@ import json
 from pathlib import Path
 import re
 
-BASE = re.compile(r"^FROM (node:22-alpine|python:3\\.13-slim-trixie)@sha256:([0-9a-f]{64}) AS (web-build|runtime)$", re.M)
-PIN = re.compile(r"^([a-zA-Z0-9_.-]+)(\\[[a-zA-Z0-9_.,-]+\\])?==([0-9][a-zA-Z0-9._+!-]*)$")
-SOURCE = re.compile(r"[0-9a-f]{40}\\Z")
+BASE = re.compile(r"^FROM (node:22-alpine|python:3\.13-slim-trixie)@sha256:([0-9a-f]{64}) AS (web-build|runtime)$", re.M)
+PIN = re.compile(r"^([a-zA-Z0-9_.-]+)(\[[a-zA-Z0-9_.,-]+\])?==([0-9][a-zA-Z0-9._+!-]*)$")
+SOURCE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 def normalized(name: str) -> str:
@@ -92,7 +92,7 @@ def main() -> None:
     args = parser.parse_args()
     record = prepare_build_inputs(args.root, args.source_sha)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(record, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+    args.output.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(f"Audited {record['python_dependency_count']} locked Python dependencies and two OCI base images")
 
 
