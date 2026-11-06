@@ -19,6 +19,7 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
             "branches: [main]",
             "github.event.workflow_run.conclusion == 'success'",
             "github.event.workflow_run.event == 'push'",
+            "github.event.workflow_run.event == 'workflow_dispatch'",
             "github.event.workflow_run.head_branch == 'main'",
             "github.event.workflow_run.head_repository.full_name == github.repository",
             "github.event.workflow_run.head_sha",
@@ -52,6 +53,18 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)
+
+    def test_synchronized_main_requires_successful_explicit_appapi_gate(self):
+        publisher = WORKFLOW.read_text()
+        sync = (ROOT / ".github/workflows/bootstrap-upstream.yml").read_text()
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", publisher)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", publisher)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", publisher)
+        self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", publisher)
+        self.assertIn("git merge-base --is-ancestor", publisher)
+        self.assertIn("gh workflow run appapi-docker-deploy-e2e.yml --ref main", sync)
+        self.assertIn("git ls-remote origin refs/heads/main", sync)
+        self.assertNotIn("pull_request:", publisher)
 
     def test_release_changes_retrigger_disposable_ci_acceptance(self):
         workflow = (ROOT / ".github/workflows/appapi-docker-deploy-e2e.yml").read_text()

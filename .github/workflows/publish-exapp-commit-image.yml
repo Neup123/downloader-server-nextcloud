@@ -1,7 +1,9 @@
 name: Publish CI-accepted ExApp image with OCI digest provenance
 
-# Elevated package-write credential is used only AFTER an actual, trusted
-# main-branch push passes the disposable Nextcloud AppAPI acceptance workflow.
+# Elevated package-write credential is used only AFTER a real, trusted
+# main-branch push or explicit main workflow_dispatch passes the disposable
+# Nextcloud AppAPI acceptance workflow. The latter is used for verified
+# core-sync commits written with GITHUB_TOKEN (whose push events do not fan out).
 # Never check out artifacts or run code from a pull request in this workflow.
 on:
   workflow_run:
@@ -22,7 +24,8 @@ jobs:
   publish:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' ||
+      github.event.workflow_run.event == 'workflow_dispatch') &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
