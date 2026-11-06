@@ -13,7 +13,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -149,6 +149,42 @@ jobs:
           assert build["python_wheel_hashes_verified"] is False
           print("Release manifest checksum and OCI digest provenance recorded")
           PY
+
+      - name: Publish the first pullable 0.1.0 AppAPI image and GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="0.1.0"
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA" || {
+            echo "A newer main commit exists; do not release the older acceptance commit."
+            exit 0
+          }
+          python3 - <<'PY'
+          from xml.etree import ElementTree as ET
+          root = ET.parse("appinfo/info.xml").getroot()
+          assert root.findtext("version") == "0.1.0"
+          assert root.findtext("./external-app/docker-install/image-tag") == "0.1.0"
+          PY
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Versioned release already exists; refusing to overwrite it."
+            exit 0
+          fi
+          if docker manifest inspect "$IMAGE_REPO:$version" >/dev/null 2>&1; then
+            docker pull "$IMAGE_REPO:$version"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$version")" = "$SOURCE_SHA"
+          else
+            docker tag "$IMAGE_REPO:$IMAGE_TAG" "$IMAGE_REPO:$version"
+            docker push "$IMAGE_REPO:$version"
+            docker image rm "$IMAGE_REPO:$version"
+            docker pull "$IMAGE_REPO:$version"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$version")" = "$SOURCE_SHA"
+          fi
+          gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "Downloader Server Nextcloud $version" \
+            appinfo/info.xml \
+            --notes "AppAPI ExApp image: \`$IMAGE_REPO:$version\`. The attached appinfo/info.xml refers to this pullable GHCR tag. Follow NEXTCLOUD_INSTALL.md for target-instance registration."
 
       - uses: actions/upload-artifact@v4
         with:
