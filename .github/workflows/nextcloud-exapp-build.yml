@@ -14,6 +14,7 @@ on:
       - ".github/workflows/publish-exapp-commit-image.yml"
       - "web/**"
       - "tests/test_nextcloud_bridge_config.py"
+      - "tests/test_nextcloud_user.py"
       - ".github/workflows/nextcloud-exapp-build.yml"
   pull_request:
     paths:
@@ -52,9 +53,15 @@ jobs:
           python -m unittest tests/test_exapp_build_inputs.py -v
           python -m unittest tests/test_exapp_publication_workflow.py -v
 
-      - name: Build the administrator-only Nextcloud ExApp image
+      - name: Build per-user Nextcloud ExApp image
         run: |
           docker build -f nextcloud_exapp/Dockerfile -t downloader-nextcloud-exapp:test .
+
+      - name: Test per-user signed identity, isolation and native notification behavior
+        run: |
+          docker run --rm --volume "$PWD/tests:/app/tests:ro" \
+            --entrypoint python downloader-nextcloud-exapp:test \
+            -m unittest discover -s /app/tests -p test_nextcloud_user.py -v
 
       - name: Prove the image contains the relative dashboard and bridge
         run: |
@@ -62,6 +69,9 @@ jobs:
           from pathlib import Path
           from nextcloud_exapp.proxy import ProxySettings
           assert (Path("/app/nextcloud_exapp/dist/index.html")).is_file()
+          assert (Path("/app/nextcloud_exapp/dist/user.html")).is_file()
+          import os
+          assert os.access("/nc_app_downloader-server-nextcloud_data", os.W_OK), "AppAPI persistent volume mount not writable by ExApp UID"
           assert (Path("/app/nextcloud_exapp/dist/assets")).is_dir()
           assert ProxySettings.validate("https://example.org", "x"*48).origin == "https://example.org"
           print("ExApp assets and bridge import verified")

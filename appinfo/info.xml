@@ -2,7 +2,7 @@
 <info>
     <id>downloader-server-nextcloud</id>
     <name>Downloader Server</name>
-    <summary>Administrator interface for a standalone media downloader</summary>
+    <summary>Per-user download jobs delivered to your Nextcloud Files</summary>
     <description>Nextcloud AppAPI gateway to the separately deployed Downloader Server. It does not run downloads inside Nextcloud.</description>
     <version>0.1.0</version>
     <licence>MIT</licence>
@@ -32,6 +32,12 @@
                 <description>Service token kept inside the ExApp server, never exposed to browsers</description>
             </variable>
             <variable>
+                <name>DOWNLOADER_WEBDAV_ORIGIN</name>
+                <display-name>Nextcloud public HTTPS Files origin</display-name>
+                <description>Optional public HTTPS origin of this Nextcloud instance. Use when AppAPI NEXTCLOUD_URL is a private HTTP address and the guarded downloader must reach WebDAV through the public HTTPS endpoint.</description>
+                <default></default>
+            </variable>
+            <variable>
                 <name>DOWNLOADER_ALLOW_TRUSTED_HTTP</name>
                 <display-name>Allow private-network HTTP</display-name>
                 <description>Set to true only for an isolated, administrator-controlled Docker network</description>
@@ -40,13 +46,20 @@
         </environment-variables>
         <routes>
             <route><url>^/$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
-            <route><url>^/assets/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/assets/.*$</url><verb>GET</verb><access_level>USER</access_level></route>
             <route><url>^/api-reference$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
             <route><url>^/api/v1/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
             <route><url>^/api/v1/.*$</url><verb>POST</verb><access_level>ADMIN</access_level></route>
             <route><url>^/api/v1/.*$</url><verb>PUT</verb><access_level>ADMIN</access_level></route>
             <route><url>^/api/v1/.*$</url><verb>PATCH</verb><access_level>ADMIN</access_level></route>
             <route><url>^/api/v1/.*$</url><verb>DELETE</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/user/$</url><verb>GET</verb><access_level>USER</access_level></route>
+            <route><url>^/user/api/.*$</url><verb>GET</verb><access_level>USER</access_level></route>
+            <route><url>^/user/api/.*$</url><verb>POST</verb><access_level>USER</access_level></route>
+            <route><url>^/user/api/.*$</url><verb>PUT</verb><access_level>USER</access_level></route>
+            <route><url>^/user/api/.*$</url><verb>DELETE</verb><access_level>USER</access_level></route>
+            <route><url>^/admin/api/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/admin/api/.*$</url><verb>PUT</verb><access_level>ADMIN</access_level></route>
         </routes>
     </external-app>
 </info>

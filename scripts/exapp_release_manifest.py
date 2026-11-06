@@ -44,8 +44,19 @@ def render_release(
     if dependencies is None or dependencies.get("min-version") != "35" or dependencies.get("max-version") != "35":
         raise ValueError("Unsupported or unreviewed Nextcloud version range")
     routes = root.findall("./external-app/routes/route")
-    if not routes or any(r.findtext("access_level") != "ADMIN" for r in routes):
-        raise ValueError("A Nextcloud route is not administrator-only")
+    if not routes or any(
+        r.findtext("access_level") not in ("ADMIN", "USER")
+        or ((r.findtext("url") or "").startswith(("^/api/v1/", "^/admin/api/"))
+            and r.findtext("access_level") != "ADMIN")
+        or ((r.findtext("url") or "").startswith("^/user/")
+            and r.findtext("access_level") != "USER")
+        or ((r.findtext("url") or "") in ("^/$", "^/api-reference$")
+            and r.findtext("access_level") != "ADMIN")
+        or ((r.findtext("url") or "") == "^/assets/.*$"
+            and r.findtext("access_level") != "USER")
+        for r in routes
+    ):
+        raise ValueError("Nextcloud routes must keep admin and per-user APIs isolated")
     tag = f"sha-{source_sha}"
     docker.find("image-tag").text = tag
     ET.indent(root, space="    ")

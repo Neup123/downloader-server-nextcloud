@@ -75,12 +75,19 @@ class NextcloudBridgeConfigurationTests(unittest.TestCase):
         for path in ("jobs/9c7c", "jobs/9c7c/events/other", "jobs//events", "events"):
             self.assertFalse(is_events_route(path))
 
-    def test_manifest_restricts_every_browser_route_to_nextcloud_admin(self):
+    def test_manifest_scopes_core_admin_and_user_routes_separately(self):
         xml = ElementTree.parse(ROOT / "appinfo/info.xml").getroot()
         self.assertEqual(xml.findtext("id"), "downloader-server-nextcloud")
         routes = xml.findall("./external-app/routes/route")
         self.assertGreaterEqual(len(routes), 8)
-        self.assertTrue(all(route.findtext("access_level") == "ADMIN" for route in routes))
+        for route in routes:
+            path = route.findtext("url")
+            level = route.findtext("access_level")
+            self.assertIn(level, {"ADMIN", "USER"})
+            if path.startswith("^/api/v1/") or path.startswith("^/admin/api/"):
+                self.assertEqual(level, "ADMIN", "Generic core APIs must never become user APIs")
+            if path.startswith("^/user/"):
+                self.assertEqual(level, "USER")
         self.assertEqual(
             set(xml.findall("./external-app/environment-variables/variable")),
             set(xml.findall("./external-app/environment-variables/variable")),
