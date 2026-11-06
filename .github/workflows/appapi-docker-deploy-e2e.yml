@@ -180,6 +180,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Two actual Nextcloud users for signed per-user entitlement smoke.
+          docker exec --user www-data -e OC_PASS="$NEXTCLOUD_APP_PASSWORD" \
+            downloader-appapi-nextcloud php occ user:add --password-from-env alice
+          docker exec --user www-data -e OC_PASS="$NEXTCLOUD_APP_PASSWORD" \
+            downloader-appapi-nextcloud php occ user:add --password-from-env bob
+
           exapp_env="$(docker inspect nc_app_downloader-server-nextcloud \
             --format '{{range .Config.Env}}{{println .}}{{end}}')"
           secret="$(printf '%s\n' "$exapp_env" | sed -n 's/^APP_SECRET=//p')"
@@ -231,6 +237,55 @@ jobs:
               data = json.load(response)
           assert data[0]["id"] == "ci-proxy-verified", data
           print("Signed AppAPI request forwarded to local test origin; unsigned denied")
+          # Verify user-scoped ExApp behavior against real disposable Nextcloud.
+          def signed_request(identity, path, *, method="GET", payload=None):
+              signature = base64.b64encode(
+                  f"{identity}:{os.environ['EXAPP_SECRET']}".encode()
+              ).decode()
+              headers = {
+                  "EX-APP-ID": "downloader-server-nextcloud",
+                  "EX-APP-VERSION": "0.2.0",
+                  "AUTHORIZATION-APP-API": signature,
+              }
+              if payload is not None:
+                  headers["Content-Type"] = "application/json"
+              return Request(
+                  base + path, data=json.dumps(payload).encode() if payload is not None else None,
+                  headers=headers, method=method,
+              )
+
+          for identity in ("alice", "bob"):
+              try:
+                  urlopen(signed_request(identity, "/user/api/me"), timeout=20)
+              except HTTPError as exc:
+                  assert exc.code == 403, f"Ungrant user {identity} was not denied"
+              else:
+                  raise AssertionError("A user without entitlement got a Downloader page")
+
+          with urlopen(signed_request(
+              "admin", "/admin/api/entitlements", method="PUT",
+              payload={"allowed_users": "alice"}
+          ), timeout=45) as response:
+              allowed = json.load(response)
+          assert "alice" in allowed["allowed_users"]
+
+          with urlopen(signed_request("alice", "/user/api/me"), timeout=30) as response:
+              identity = json.load(response)
+          assert identity == {"user_id": "alice", "entitled": True}
+
+          with urlopen(signed_request("alice", "/user/api/settings"), timeout=30) as response:
+              settings = json.load(response)
+          assert settings["app_password_configured"] is False
+          assert settings["destination_folder"] == "Downloads"
+
+          try:
+              urlopen(signed_request("bob", "/user/api/me"), timeout=20)
+          except HTTPError as exc:
+              assert exc.code == 403
+          else:
+              raise AssertionError("Non-entitled Bob accessed Alice's Downloader")
+          print("Signed per-user Nextcloud routes: Alice entitled, Bob denied, personal settings scoped")
+
           PY
           docker exec --user www-data downloader-appapi-nextcloud \
             php occ app_api:app:disable downloader-server-nextcloud
