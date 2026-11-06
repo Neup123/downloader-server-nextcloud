@@ -8,22 +8,41 @@ This repository must stay thin. It must not contain downloader logic or duplicat
 
 ## Current status
 
-**Nextcloud integration tooling and disposable AppAPI Docker deployment CI are implemented; the Downloader Server ExApp package itself is not yet implemented.**
+**The administrator-only Downloader Server ExApp is implemented and has passed a real disposable Nextcloud 35 AppAPI installation, signed proxy request and removal test. The actual Nextcloud installation has NOT been checked or approved for deployment.**
 
 - [NEXTCLOUD.md](NEXTCLOUD.md) defines the integration boundary, AppAPI/ExApp deployment path, fallbacks, WebDAV delivery, and target-instance checks.
 - Core `main` Git ancestry was already imported in merge commit [`0044d368`](https://github.com/Neup123/downloader-server-nextcloud/commit/0044d3686fed9167a9268872c9b1935740e2b74a). Future local clones should add the `upstream` remote normally; do not repeat the unrelated-histories bootstrap.
 - The **real target** Nextcloud version, AppAPI state, Deploy Daemon registration, reverse proxy, and WebDAV authentication remain unverified. Disposable CI uses Nextcloud 35.0.2 and has demonstrated both WebDAV readback and a real AppAPI Docker ExApp install/enable/disable/unregister sequence.
-- The standalone core development baseline was merged into core `main` in PR #2. Main is not a production-ready release: network egress isolation and live P2 engine acceptance remain outstanding.
+- The core `main` includes the [guarded Linux Compose egress configuration](https://github.com/Neup123/Media-Downloader-server/blob/main/EGRESS_GUARD.md), with green Linux CI for private-network and metadata-IP rejection; Docker Desktop/target egress acceptance and live P2 engine acceptance are still incomplete. Do not expose jobs to untrusted submitters.
 
 ## Verified disposable AppAPI infrastructure
 
-`.github/workflows/appapi-docker-deploy-e2e.yml` provisions a fresh Nextcloud 35.0.2 instance and a trusted-network Docker Socket Proxy on a disposable GitHub Actions runner, registers a real AppAPI Deploy Daemon, deploys Nextcloud's official Python skeleton ExApp, and exercises enable/disable/unregister. The sample manifest is pinned to a source commit; its container-image tag is upstream `latest`, so this test is **not fully image-digest reproducible**. The workflow provides no production credentials or permanent daemon; it does **not** install this project's Downloader Server ExApp. For new production installations use the supported deployment mechanism recommended for the target Nextcloud version (normally HaRP), not this ephemeral CI-only Docker Socket Proxy arrangement.
+`.github/workflows/appapi-docker-deploy-e2e.yml` provisions disposable
+Nextcloud 35.0.2 and a trusted Docker Socket Proxy, then exercises the
+official skeleton ExApp **and our own Downloader Server ExApp**. It checks
+real registration, enablement, AppAPI request signing, unsigned-request
+rejection, server-side API-key proxying and removal. The real ExApp image
+is built from this source and installed using an ephemeral local Docker
+registry remap. This does **not** modify the real target.
+
+Accepted `main` commits can publish ExApp images with source-SHA tags and an
+OCI digest/provenance artifact. [Pinned build input checks](nextcloud_exapp/Dockerfile)
+use immutable Node/Python base image digests, `npm ci`, and
+a complete exact-version Python package lock. **Python wheel hashes are not
+fully locked**, and Nextcloud 35's observed AppAPI `docker-install` manifest
+uses a SHA **tag**, not an OCI digest. The separately recorded `@sha256:`
+reference enables audit and direct verified image pulls; it does not make
+the XML digest-native or protect against external GHCR tag mutation.
+
+For new production deployments, use the mechanism recommended for the
+target's verified AppAPI/Deploy Daemon version (normally HaRP), not the
+CI-only Docker Socket Proxy.
 
 ## Integration sequence
 
 1. Verify the actual target Nextcloud instance and host-level deployment capabilities.
 2. Configure the `upstream` remote in your local checkout; the one-time core-main ancestry bootstrap is already complete, as documented in NEXTCLOUD.md.
-3. Prefer AppAPI ExApp packaging where the target supports it and a Deploy Daemon is configured and tested.
+3. Install the existing ExApp using its generated source-SHA `info.xml` from a verified release artifact **only after** the target AppAPI/Deploy Daemon passes the administrator Test Deploy. Enter the separate core service origin and secret as ExApp environment variables.
 4. Use the official External Sites app to embed the standalone UI as the fallback.
 5. Add a thin PHP bridge only if neither supported path is available.
 
