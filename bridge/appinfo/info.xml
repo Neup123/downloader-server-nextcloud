@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<info>
+  <id>downloader_bridge</id>
+  <name>Downloader UI Bridge</name>
+  <summary>Native Nextcloud Files and header hooks for Downloader</summary>
+  <description>UI-only bridge for Downloader Server. All download execution and delivery remain in the standalone service.</description>
+  <version>0.2.0</version>
+  <licence>agpl</licence>
+  <author>Neup123</author>
+  <namespace>DownloaderBridge</namespace>
+  <category>tools</category>
+  <dependencies><nextcloud min-version="35" max-version="35"/><php min-version="8.2"/></dependencies>
+</info>
