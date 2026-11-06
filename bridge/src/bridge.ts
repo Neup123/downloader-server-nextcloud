@@ -164,6 +164,55 @@ function registerActions() {
   });
 }
 
+/**
+ * Nextcloud 35's legacy OCA.Viewer does not consume @nextcloud/files v4 menu
+ * actions in its own modal toolbar. This is a UI-only compatibility affordance:
+ * never infer a source URL from a private Nextcloud DAV path.
+ */
+function attachLegacyViewerAction() {
+  const viewer = document.querySelector<HTMLElement>('#viewer.viewer');
+  if (!viewer || viewer.querySelector('#downloader-viewer-action')) return;
+  const legacy = (window as unknown as {OCA?: {Viewer?: {
+    fileInfo?: {mime?: string; mimetype?: string; download_source_url?: string};
+  }}}).OCA?.Viewer;
+  const info = legacy?.fileInfo;
+  const mime = info?.mimetype || info?.mime || '';
+  if (!/^(video|audio|image)\//.test(mime) && !viewer.querySelector('video, audio, img')) return;
+  const target = viewer.querySelector<HTMLElement>('.modal-header, .modal__header, [class*="modal-header"]') || viewer;
+  const button = node('button', 'Download with Downloader', 'dl-viewer-trigger');
+  button.id = 'downloader-viewer-action';
+  button.type = 'button';
+  button.addEventListener('click', () => {
+    const current = (window as unknown as {OCA?: {Viewer?: {
+      fileInfo?: {download_source_url?: string};
+    }}}).OCA?.Viewer?.fileInfo;
+    const source = current?.download_source_url;
+    if (source && sourceIsHttp(source)) {
+      void api('/jobs', 'POST', {url: source}).then(
+        () => notify('Download submitted to your Files.'),
+        error => notify(error instanceof Error ? error.message : 'Download failed'),
+      );
+    } else {
+      void openDialog(null);
+    }
+  });
+  target.append(button);
+}
+
+function installLegacyViewerHook() {
+  let pending = false;
+  const observer = new MutationObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      attachLegacyViewerAction();
+    });
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  attachLegacyViewerAction();
+}
+
 function headerProgress() {
   const header = document.querySelector('#header-right');
   if (!header || document.getElementById('downloader-topbar-progress')) return;
@@ -251,6 +300,9 @@ function styles() {
     '.dl-job span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.dl-job progress{width:100%}.dl-error{color:var(--color-error,#c33)}',
     '.dl-small{justify-self:end;padding:3px 6px}',
+    '.dl-viewer-trigger{position:absolute;top:18px;right:108px;z-index:10050;',
+    'padding:7px 10px;border-radius:6px;border:1px solid var(--color-border,#ccc);',
+    'background:var(--color-main-background,#222);color:var(--color-main-text,#fff);cursor:pointer}',
   ].join('');
   document.head.append(style);
 }
@@ -260,6 +312,6 @@ async function start() {
   // this independently for every authenticated call.
   try { await api<{user_id: string; entitled: boolean}>('/me'); }
   catch { return; }
-  styles(); registerActions(); headerProgress();
+  styles(); registerActions(); headerProgress(); installLegacyViewerHook();
 }
 void start();
