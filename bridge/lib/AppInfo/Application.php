@@ -10,6 +10,8 @@ use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCA\DownloaderBridge\Listener\AssetsListener;
 use OCA\DownloaderBridge\Dashboard\DownloadsWidget;
+use OCA\DownloaderBridge\BackgroundJob\ActivitySync;
+use OCP\BackgroundJob\IJobList;
 use OCA\DownloaderBridge\Search\DownloadsProvider;
 
 /** UI integration only: never run engines or perform file deliveries in PHP. */
@@ -27,5 +29,6 @@ final class Application extends App implements IBootstrap {
     }
 
     public function boot(IBootContext $context): void {
+        $context->getServerContainer()->get(IJobList::class)->add(ActivitySync::class);
     }
 }
