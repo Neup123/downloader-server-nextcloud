@@ -17,6 +17,8 @@ class ResolverPolicyTests(unittest.TestCase):
         self.assertTrue(all(result[p] == "ours" for p in DOWNSTREAM))
         self.assertTrue(all(result[p] == "theirs" for p in CORE_TEST_ONLY))
         self.assertIn(".github/workflows/pinned-engine-updates.yml", CORE_TEST_ONLY)
+        self.assertIn(".github/workflows/egress-guard-e2e.yml", CORE_TEST_ONLY)
+        self.assertIn(".github/workflows/manual-p2-site-webdav.yml", CORE_TEST_ONLY)
         self.assertNotIn(".github/workflows/pinned-engine-updates-copy.yml", CORE_TEST_ONLY)
 
     def test_unknown_conflicts_are_rejected_without_partial_resolution(self):
