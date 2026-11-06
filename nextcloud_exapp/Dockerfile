@@ -14,7 +14,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 RUN groupadd --system --gid 10001 exapp \
     && useradd --system --uid 10001 --gid exapp --home-dir /app exapp \
-    && mkdir -p /app/nextcloud_exapp
+    && mkdir -p /app/nextcloud_exapp /nc_app_downloader-server-nextcloud_data \
+    && chown exapp:exapp /nc_app_downloader-server-nextcloud_data
 WORKDIR /app
 COPY nextcloud_exapp/requirements.lock /app/requirements.lock
 RUN pip install --no-cache-dir --only-binary=:all: -r /app/requirements.lock
