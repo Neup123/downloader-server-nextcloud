@@ -7,12 +7,13 @@ service API token or another user's WebDAV credentials.
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import HTTPException, Request
 from nc_py_api.nextcloud import AsyncNextcloudApp
@@ -136,6 +137,34 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
     return await read_user_preferences(context)
 
 
+
+def nextcloud_webdav_base(nc: AsyncNextcloudApp) -> str:
+    """Resolve a server-configured public HTTPS Files origin when AppAPI is internal.
+
+    AppAPI may use http://nextcloud/ as its own internal URL. The isolated core
+    cannot deliver to a private/insecure origin, so an operator-provided public
+    HTTPS origin overrides only the WebDAV destination, never AppAPI requests.
+    """
+    origin = os.environ.get("DOWNLOADER_WEBDAV_ORIGIN", "").strip()
+    if not origin:
+        return nc.app_cfg.dav_endpoint.rstrip("/")
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Administrator WebDAV origin is invalid") from exc
+    if (
+        len(origin) > 2048 or parsed.scheme != "https"
+        or not parsed.hostname or port == 0
+        or parsed.username is not None or parsed.password is not None
+        or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+        or parsed.netloc.endswith(":")
+        or any(ord(char) < 33 or char == "\\" for char in origin)
+    ):
+        raise HTTPException(status_code=503, detail="Administrator WebDAV origin must be a plain HTTPS origin")
+    return origin.rstrip("/") + "/remote.php/dav"
+
+
 async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str, Any]:
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
@@ -178,7 +207,7 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
     if node is None or (hasattr(node, "is_dir") and not bool(node.is_dir)):
         raise HTTPException(status_code=409, detail="Destination folder is missing; choose an existing folder")
     # Derive the user Files origin from the AppAPI-supplied server URL, never the browser.
-    nc_root = context.nc.app_cfg.dav_endpoint.rstrip("/")
+    nc_root = nextcloud_webdav_base(context.nc)
     return {
         "url": source,
         "engine": engine,
