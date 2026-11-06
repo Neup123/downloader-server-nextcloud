@@ -61,6 +61,68 @@ review have been demonstrated. A green candidate may still be reviewed and merge
 manually after independent approval. This makes source promotion to `main` a
 *development milestone*, not a production-release declaration.
 
+## Safe GitHub Actions red/green rehearsal
+
+The weekly `pinned-engine-updates.yml` workflow also exposes a **manual-only**
+`rehearsal_only` checkbox. When enabled, it reuses the complete candidate
+eligibility, Python/CLI tests, production Docker build and real disposable
+Nextcloud/WebDAV SHA-256 acceptance, while explicitly **skipping** candidate
+PR creation, production merge, release creation and blocked-issue creation.
+
+Its synthetic update reports represent a deliberately older placeholder
+version being replaced by the **already pinned current** yt-dlp and aria2
+versions. The yt-dlp artifact digest is retrieved from the exact official
+PyPI release metadata, and the aria2 version comes from the checked-in
+Dockerfile. There is no package bump. The green path checks that the
+PyPI/Debian combined candidate passes policy; the red paths prove that
+an unsupported svtplay-dl update and a duplicate candidate are rejected.
+
+The ordinary `live-nextcloud-e2e.yml` workflow now runs this candidate
+rehearsal before starting the downloader/Nextcloud containers and archives
+its non-secret JSON evidence. Its subsequent real download, restart,
+re-delivery and browser checks still exercise only currently pinned engines.
+
+**Interpretation:** A green rehearsal shows the policy and existing
+known-good engine binaries pass the actual GitHub Actions acceptance
+pipeline; it is *not* a green real-version-upgrade candidate, an
+end-to-end P2 site test or a production release demonstration. The
+repository variable `DOWNLOADER_AUTOMATED_RELEASES_APPROVED` remains
+untouched and the real target Nextcloud remains unverified.
+
+## Combined candidate eligibility and exact release provenance
+
+The pinned PyPI and Debian tracks now use
+`python -m scripts.engine_candidate_gate` after detecting their changes
+but **before** installing, building or launching candidate containers.
+The validator fails closed on unknown/duplicated engines, missing PyPI
+artifact digests, unexpected Debian package mappings, unchanged/invalid
+pins, and engines without their own legal WebDAV fixture coverage.
+The resulting `engine-promotion-report.json` is retained in the
+candidate diagnostics artifact. This is an **eligibility record**, not a
+claim that the PyPI artifact hash was enforced during installation.
+
+The automated promotion step is still disabled unless the repository
+variable `DOWNLOADER_AUTOMATED_RELEASES_APPROVED` is set to `true`
+after the remaining production gates are explicitly approved. When
+enabled, the workflow additionally:
+
+1. Verifies the candidate PR head is the exact commit whose Python,
+   Docker and real disposable-Nextcloud SHA-256 tests passed.
+2. Squash-merges only that candidate, requiring the resulting immutable
+   merge SHA to equal the current remote `main` tip.
+3. Rechecks the remote `main` immediately before publication, and
+   creates the patch release with an **exact commit SHA** target rather
+   than the mutable name `main`. A race or incomplete merge fails
+   closed without publishing a release for a different commit.
+
+`tests/test_engine_candidate_gate.py` exercises deterministic red and
+green PyPI/Debian cases, missing or malformed provenance, duplicates,
+unverified P2 updates and a CLI run that produces no acceptance artifact
+on a red candidate. A **real live GitHub Actions release red/green
+demonstration remains open**. No automated release has been enabled by
+these offline simulations, and real P2 source acceptance and host-level
+network security require separate approval.
+
 ## Workflow behavior
 
 1. Runs weekly and can be dispatched manually after the workflow reaches the default branch.
