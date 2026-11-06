@@ -1,0 +1,96 @@
+name: Read-only upstream core merge acceptance
+
+# Exercise the *actual* shared-history merge and both test suites on PRs.
+# This deliberately has no write permissions and NEVER pushes a merge.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/bootstrap-upstream.yml"
+      - ".github/workflows/verify-upstream-merge.yml"
+      - "scripts/resolve_upstream_conflicts.py"
+      - "scripts/run_downstream_acceptance.py"
+      - "tests/test_nextcloud_upstream_*.py"
+      - "tests/test_nextcloud_test_inventory.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-merge-read-only-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-upstream-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Verify actual upstream merge conflicts and core file parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "upstream-merge-read-only-ci"
+          git config user.email "noreply@example.invalid"
+          git remote add upstream https://github.com/Neup123/Media-Downloader-server.git
+          git fetch --no-tags upstream main
+          if git merge --no-ff --no-commit upstream/main; then
+            echo "Upstream merge has no conflicts."
+          else
+            if [[ ! -f .git/MERGE_HEAD ]]; then
+              echo "Unexpected upstream merge failure" >&2
+              exit 1
+            fi
+            python3 scripts/resolve_upstream_conflicts.py
+          fi
+          if [[ -n "$(git ls-files -u)" ]]; then
+            echo "Unresolved merge conflicts remain" >&2
+            exit 1
+          fi
+          # Only Nextcloud-owned workflow and README changes may diverge.
+          git restore --source=HEAD --staged --worktree README.md .github/workflows
+          git diff --exit-code upstream/main -- \
+            app openapi.yaml requirements.txt Dockerfile \
+            Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh EGRESS_GUARD.md
+
+      - name: Run all tests against exact upstream core main
+        shell: bash
+        env:
+          DATA_DIR: /tmp/downloader-upstream-preview-core
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/verified-upstream-core upstream/main
+          python -m pip install -r /tmp/verified-upstream-core/requirements.txt pytest PyYAML
+          (cd /tmp/verified-upstream-core && python -m pytest -q)
+
+      - name: Run only reviewed downstream tests against merged source
+        shell: bash
+        env:
+          DATA_DIR: /tmp/downloader-upstream-preview-nextcloud
+        run: |
+          set -euo pipefail
+          python -m compileall -q app scripts tests nextcloud_exapp
+          python3 scripts/run_downstream_acceptance.py
+
+      - name: Build production core image from read-only merged worktree
+        shell: bash
+        run: docker build --tag downloader-server:nextcloud-upstream-preview .
+
+      - name: Confirm no core workflows are staged for publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo "Core workflow changes unexpectedly staged" >&2
+            exit 1
+          fi
+          echo "Read-only upstream merge acceptance completed (no commit/push)"
