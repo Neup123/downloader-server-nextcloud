@@ -83,6 +83,27 @@ async def require_user(request: Request) -> UserContext:
     return UserContext(user_id, nc)
 
 
+async def require_admin(request: Request) -> UserContext:
+    """Authorize privileged endpoints independently of AppAPI's ADMIN route ACL.
+
+    AppAPI filters normal proxied requests by the manifest's ADMIN access
+    level. This check also denies calls that reach the ExApp directly via its
+    container network, without relying on an untrusted HTTP admin header.
+    Nextcloud's reserved 'admin' group defines administrator membership.
+    """
+    user_id = signed_user(request)
+    nc = AsyncNextcloudApp(user=user_id)
+    try:
+        info = await nc.users.get_user(user_id)
+        groups = info.groups
+    except Exception:
+        # Inability to verify admin membership must never become access.
+        raise HTTPException(status_code=403, detail="Nextcloud administrator required") from None
+    if not isinstance(groups, (list, tuple, set, frozenset)) or "admin" not in groups:
+        raise HTTPException(status_code=403, detail="Nextcloud administrator required")
+    return UserContext(user_id, nc)
+
+
 async def read_user_preferences(context: UserContext) -> dict[str, Any]:
     preferences = context.nc.preferences_ex
     folder = validate_folder(await preferences.get_value("destination_folder", DEFAULT_FOLDER))
