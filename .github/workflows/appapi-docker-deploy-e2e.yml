@@ -151,7 +151,7 @@ jobs:
           # The public version tag in appinfo/info.xml must match exactly.
           # Only the disposable runner has this image; no registry is published.
           docker build -f nextcloud_exapp/Dockerfile \
-            -t ghcr.io/neup123/downloader-server-nextcloud:0.2.0 .
+            -t ghcr.io/neup123/downloader-server-nextcloud:0.3.0 .
 
           docker run --detach \
             --name downloader-test-core \
@@ -228,7 +228,7 @@ jobs:
           ).decode()
           request = Request(url, headers={
               "EX-APP-ID": "downloader-server-nextcloud",
-              "EX-APP-VERSION": "0.2.0",
+              "EX-APP-VERSION": "0.3.0",
               "AUTHORIZATION-APP-API": signature,
               "Authorization": "Bearer must-not-reach-core",
               "Cookie": "session=must-not-reach-core",
@@ -244,7 +244,7 @@ jobs:
               ).decode()
               headers = {
                   "EX-APP-ID": "downloader-server-nextcloud",
-                  "EX-APP-VERSION": "0.2.0",
+                  "EX-APP-VERSION": "0.3.0",
                   "AUTHORIZATION-APP-API": signature,
               }
               if payload is not None:

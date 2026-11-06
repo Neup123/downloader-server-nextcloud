@@ -4,7 +4,7 @@
   <name>Downloader UI Bridge</name>
   <summary>Native Nextcloud Files and header hooks for Downloader</summary>
   <description>UI-only bridge for Downloader Server. All download execution and delivery remain in the standalone service.</description>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
   <licence>agpl</licence>
   <author>Neup123</author>
   <namespace>DownloaderBridge</namespace>
