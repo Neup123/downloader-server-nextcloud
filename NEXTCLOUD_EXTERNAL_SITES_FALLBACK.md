@@ -40,7 +40,7 @@ working `NET_ADMIN`, iptables and ip6tables:
 ```sh
 cp .env.example .env
 # Edit .env with strong APP_API_TOKEN and APP_ENCRYPTION_KEY values.
-docker pull ghcr.io/neup123/media-downloader-server:0.3.0
+docker pull ghcr.io/neup123/media-downloader-server:0.3.1
 docker compose --env-file .env -f compose.external-sites.yaml build egress-guard
 docker compose --env-file .env -f compose.external-sites.yaml up -d --no-build --wait
 docker compose --env-file .env -f compose.external-sites.yaml ps
