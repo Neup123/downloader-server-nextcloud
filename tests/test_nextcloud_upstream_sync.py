@@ -34,6 +34,19 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
             content.index("git push origin HEAD:main"),
         )
 
+    def test_accepted_upstream_merge_dispatches_main_appapi_acceptance(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("actions: write", content)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", content)
+        self.assertIn("if: steps.merge.outputs.changed == 'true'", content)
+        self.assertIn("gh workflow run appapi-docker-deploy-e2e.yml --ref main", content)
+        self.assertIn('actual_main="$(git ls-remote origin refs/heads/main | cut -f1)"', content)
+        self.assertIn('if [[ "$actual_main" != "$accepted_sha" ]]', content)
+        self.assertLess(
+            content.index("git push origin HEAD:main"),
+            content.index("gh workflow run appapi-docker-deploy-e2e.yml --ref main"),
+        )
+
     def test_no_unverified_or_unsafe_merges(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git merge-base --is-ancestor", content)
