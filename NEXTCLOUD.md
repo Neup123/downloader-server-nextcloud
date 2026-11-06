@@ -292,3 +292,20 @@ guarded Linux Compose settings, source and policy documentation must also
 match upstream byte-for-byte, and the downstream-owned CI workflows are
 retained. This synchronization is **development source integration**, not
 real-target AppAPI acceptance or permission to enable untrusted downloads.
+
+### Publishing accepted source after a core-main synchronization
+
+GitHub suppresses ordinary push-triggered workflows when `main` is updated
+using the repository's own `GITHUB_TOKEN`. For that reason, an accepted
+automatic core import now checks that the exact merged commit is the remote
+`main` tip and invokes a trusted `workflow_dispatch` for the real
+`appapi-docker-deploy-e2e.yml` workflow. This is not permission to publish
+untested code: the separate GHCR publisher accepts only successful AppAPI
+runs from this repository's `main` (either an actual human-authored push or
+that trusted workflow dispatch), checks the source commit is an ancestor of
+`main`, then performs its lock-label and OCI digest readbacks.
+
+If any merge, Python test, downstream Nextcloud test, Docker build, or AppAPI
+deployment step fails, the sync does **not** publish an ExApp image. An
+external target upgrade still requires administrator approval, native AppAPI
+Test Deploy and digest reconciliation; publication alone is not deployment.
