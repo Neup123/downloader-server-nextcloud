@@ -21,7 +21,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 from nextcloud_exapp.user import (
     UserContext, require_user, signed_user, entitlement, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
-    job_submission, own_job, scoped_cookie_filename,
+    job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
 from nextcloud_exapp.tracking import JobTracker
@@ -252,6 +252,32 @@ async def update_user_preset(preset_id: str, request: Request,
 @APP.delete("/user/api/presets/{preset_id}")
 async def remove_user_preset(preset_id: str, context: UserContext = Depends(require_user)):
     return await delete_user_preset(context, preset_id)
+
+
+@APP.get("/user/api/provenance")
+async def user_file_provenance(file_id: str, context: UserContext = Depends(require_user)):
+    if not file_id.isdecimal() or len(file_id) > 32:
+        raise HTTPException(status_code=422, detail="Invalid Nextcloud file ID")
+    result = await core_json("GET", "provenance",
+                             params={"owner_id": context.user_id, "file_id": file_id})
+    return own_job_provenance(result, context.user_id)
+
+
+@APP.post("/user/api/provenance/{file_id}/redownload", status_code=202)
+async def user_redownload_source(file_id: str, request: Request,
+                                context: UserContext = Depends(require_user)):
+    if not file_id.isdecimal() or len(file_id) > 32:
+        raise HTTPException(status_code=422, detail="Invalid Nextcloud file ID")
+    provenance = own_job_provenance(
+        await core_json("GET", "provenance",
+                        params={"owner_id": context.user_id, "file_id": file_id}),
+        context.user_id,
+    )
+    submitted = await job_submission(context, {"url": provenance["source_url"]})
+    job = await core_json("POST", "jobs", payload=submitted)
+    own_job(job, context.user_id)
+    request.app.state.job_tracker.add(job["id"], context.user_id)
+    return job
 
 
 @APP.get("/user/api/jobs")
