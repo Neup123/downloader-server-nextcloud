@@ -32,6 +32,12 @@
                 <description>Service token kept inside the ExApp server, never exposed to browsers</description>
             </variable>
             <variable>
+                <name>DOWNLOADER_WEBDAV_ORIGIN</name>
+                <display-name>Nextcloud public HTTPS Files origin</display-name>
+                <description>Optional public HTTPS origin of this Nextcloud instance. Use when AppAPI NEXTCLOUD_URL is a private HTTP address and the guarded downloader must reach WebDAV through the public HTTPS endpoint.</description>
+                <default></default>
+            </variable>
+            <variable>
                 <name>DOWNLOADER_ALLOW_TRUSTED_HTTP</name>
                 <display-name>Allow private-network HTTP</display-name>
                 <description>Set to true only for an isolated, administrator-controlled Docker network</description>
