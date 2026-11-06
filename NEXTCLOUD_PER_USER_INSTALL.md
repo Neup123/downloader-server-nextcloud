@@ -3,11 +3,13 @@
 ## Release images
 
 - Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.0
-- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.0
-- Native UI-only PHP bridge: downloader-bridge-0.5.0.zip attached to the Nextcloud v0.5.0 GitHub Release.
+- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.1
+- Native UI-only PHP bridge: downloader-bridge-0.5.1.zip attached to the Nextcloud v0.5.1 GitHub Release.
+
+The v0.5.1 release additionally enforces administrator permissions inside the ExApp backend; use it instead of v0.5.0 for new deployments.
 
 The v0.1.0 release remains the administrator-only baseline and cannot accept
-per-user job submissions. **Core 0.3.0 and ExApp 0.5.0 are required** for the
+per-user job submissions. **Core 0.3.0 and ExApp 0.5.1 are required** for the
 per-user UI. Never write directly into Nextcloud's data directory.
 
 ## Step 1 — verify connectivity and published tags
@@ -15,7 +17,7 @@ per-user UI. Never write directly into Nextcloud's data directory.
 On the Docker host, pull the images:
 
     docker pull ghcr.io/neup123/media-downloader-server:0.3.0
-    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.0
+    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.1
 
 For private GHCR packages give the AppAPI Deploy Daemon a read-only registry
 credential, or make the package public. Do not reuse the downloader API token
@@ -48,9 +50,9 @@ at internal HTTP with explicit DOWNLOADER_ALLOW_TRUSTED_HTTP=true. It must
 also be able to reach the Nextcloud WebDAV URL reported to the ExApp. Do not
 expose APP_API_TOKEN to end users or to any JavaScript.
 
-## Step 3 — register the 0.5.0 ExApp
+## Step 3 — register the 0.5.1 ExApp
 
-Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.0
+Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.1
 release. In the Nextcloud AppAPI administrator page, select the tested
 Deploy Daemon and register the ExApp using that manifest. Supply environment
 variables on the server only:
@@ -90,7 +92,7 @@ core APP_API_TOKEN. The defaults are private and user-scoped.
 
 ## Step 5 — install native Files/header UI integration
 
-Extract downloader-bridge-0.5.0.zip under the instance's custom_apps
+Extract downloader-bridge-0.5.1.zip under the instance's custom_apps
 directory, producing custom_apps/downloader_bridge/appinfo/info.xml and
 custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
@@ -124,7 +126,7 @@ on the operator's actual Nextcloud deployment.
 
 ## Limits
 
-The Nextcloud 0.5.0 integration includes per-user jobs, personal settings,
+The Nextcloud 0.5.1 integration includes per-user jobs, personal settings,
 Files/+New/Viewer and progress UI, failure notifications, provenance details,
 Dashboard, unified search, and native Activity entries. The standalone core remains version 0.3.0.
 Nextcloud's background jobs must be enabled for Activity events.
