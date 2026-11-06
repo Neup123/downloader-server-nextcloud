@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.completion import _file_sha256
 from app.config import Settings
-from app.db import DeliverySetting
+from app.db import DeliverySetting, Job
 from app.security import UnsafeUrlError, resolve_http_target, validate_target_url
 
 
@@ -107,6 +108,44 @@ def _webdav_uploaded_size(payload: bytes, target_url: str) -> int | None:
 
 
 
+def _nextcloud_file_id(payload: bytes, target_url: str) -> str | None:
+    """Read the stable Nextcloud file ID only from this file's successful DAV propstat.
+
+    File IDs survive rename/move within Nextcloud, unlike WebDAV URL paths.
+    Return None for generic WebDAV servers without the Nextcloud extension.
+    """
+    if len(payload) > 1_000_000:
+        return None
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return None
+    ns = "{DAV:}"
+    nc = "{http://owncloud.org/ns}"
+    if root.tag != ns + "multistatus":
+        return None
+    expected = urlsplit(target_url)
+    ids: list[str] = []
+    for response in root.findall(ns + "response"):
+        href = response.findtext(ns + "href")
+        if not href:
+            continue
+        found = urlsplit(urljoin(target_url, href.strip()))
+        if (found.scheme != expected.scheme or found.netloc != expected.netloc
+                or unquote(found.path) != unquote(expected.path)
+                or found.query or found.fragment):
+            continue
+        for propstat in response.findall(ns + "propstat"):
+            status = (propstat.findtext(ns + "status") or "").strip()
+            if re.match(r"^HTTP/\d+(?:\.\d+)?\s+200(?:\s|$)", status) is None:
+                continue
+            prop = propstat.find(ns + "prop")
+            file_id = prop.findtext(nc + "fileid") if prop is not None else None
+            if file_id and file_id.isdecimal() and len(file_id) <= 32:
+                ids.append(file_id)
+    return ids[0] if len(ids) == 1 else None
+
+
 def _webdav_is_collection(payload: bytes, target_url: str) -> bool:
     """Verify a successful DAV:resourcetype collection property for this URL.
 
@@ -156,7 +195,7 @@ async def _ensure_webdav_collection(client: httpx.AsyncClient, url: str, label: 
     if response.status_code == 201:
         return
     if response.status_code != 405:
-        raise DeliveryError(f"{label} ({response.status_code})")
+        raise _delivery_failure(response.status_code, label)
     verify = await client.request(
         "PROPFIND", url.rstrip("/") + "/",
         headers={"Depth": "0", "Content-Type": "application/xml"},
@@ -182,6 +221,37 @@ def decrypt_password(encrypted: str | None, settings: Settings) -> str:
         return _fernet(settings).decrypt(encrypted.encode("ascii")).decode("utf-8")
     except (InvalidToken, UnicodeDecodeError) as exc:
         raise DeliveryError("Stored WebDAV app password cannot be decrypted; verify APP_ENCRYPTION_KEY") from exc
+
+
+def encrypt_job_delivery(payload, owner_id: str, settings: Settings) -> str:
+    """Snapshot a Nextcloud user's WebDAV destination per job, encrypted at rest."""
+    if payload.mode != "webdav" or not payload.app_password:
+        raise DeliveryError("Per-user jobs require an individual WebDAV app password")
+    parts = urlsplit(payload.webdav_url or "")
+    # The WebDAV root MUST be this owner's Files, even if a compromised gateway
+    # submits a different username/URL. The core API token remains server-only.
+    if (
+        payload.username != owner_id
+        or not parts.path.endswith("/remote.php/dav/files/" + quote(owner_id, safe=""))
+    ):
+        raise DeliveryError("Per-user WebDAV credentials must target that user's own Files")
+    _validate_webdav_destination(payload.webdav_url, settings)
+    data = {
+        "url": payload.webdav_url.strip().rstrip("/"),
+        "username": payload.username,
+        "password": payload.app_password,
+        "folder": payload.folder,
+    }
+    return _fernet(settings).encrypt(json.dumps(data).encode("utf-8")).decode("ascii")
+
+
+def _delivery_failure(status: int, label: str) -> DeliveryError:
+    reasons = {
+        507: "Nextcloud storage quota exceeded; free space in Files and retry",
+        403: "Nextcloud destination is not writable; select a writable folder or request access and retry",
+        404: "Nextcloud destination folder is missing; recreate or select the folder and retry",
+    }
+    return DeliveryError(reasons.get(status, f"{label} ({status})"))
 
 
 def serialize_delivery(setting: DeliverySetting | None) -> dict[str, Any]:
@@ -233,8 +303,21 @@ async def deliver_files(
         if on_delivered is not None:
             await on_delivered(item)
     with session_factory() as session:
-        setting = session.get(DeliverySetting, 1)
-        if setting is None or setting.mode == "local":
+        job = session.get(Job, job_id)
+        per_user = bool(job and job.owner_id)
+        if per_user:
+            if not job.delivery_token:
+                raise DeliveryError("Per-user delivery configuration missing; choose your destination again")
+            try:
+                data = json.loads(_fernet(settings).decrypt(job.delivery_token.encode("ascii")).decode("utf-8"))
+            except (InvalidToken, UnicodeDecodeError, ValueError) as exc:
+                raise DeliveryError("Per-user WebDAV credentials unavailable; reconnect Files and retry") from exc
+            if data.get("username") != job.owner_id:
+                raise DeliveryError("Per-user destination owner mismatch; reconnect Files")
+            setting = None
+        else:
+            setting = session.get(DeliverySetting, 1)
+        if not per_user and (setting is None or setting.mode == "local"):
             target_dir = settings.output_dir / job_id
             target_dir.mkdir(parents=True, exist_ok=True)
             output: list[dict[str, Any]] = []
@@ -292,12 +375,13 @@ async def deliver_files(
                 await record(item)
             await check_cancelled()
             return output
-        data = {
-            "url": setting.webdav_url,
-            "username": setting.username,
-            "password": decrypt_password(setting.password_encrypted, settings),
-            "folder": setting.folder,
-        }
+        if not per_user:
+            data = {
+                "url": setting.webdav_url,
+                "username": setting.username,
+                "password": decrypt_password(setting.password_encrypted, settings),
+                "folder": setting.folder,
+            }
 
     if not data["url"] or not data["username"]:
         raise DeliveryError("WebDAV URL and username are not configured")
@@ -329,10 +413,23 @@ async def deliver_files(
         client_options["transport"] = transport
     async with httpx.AsyncClient(**client_options) as client:
         current = base_url
-        for segment in prefix_parts:
+        for index, segment in enumerate(prefix_parts):
             await check_cancelled()
             current += "/" + quote(segment, safe="")
-            await _ensure_webdav_collection(client, current, "WebDAV directory creation failed")
+            if per_user and index < len(folder_parts):
+                # The user's chosen destination must exist; do not silently
+                # recreate a deleted or forbidden Nextcloud folder.
+                verify_folder = await client.request(
+                    "PROPFIND", current.rstrip("/") + "/",
+                    headers={"Depth": "0", "Content-Type": "application/xml"},
+                    content='<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
+                )
+                if verify_folder.status_code != 207:
+                    raise _delivery_failure(verify_folder.status_code, "Nextcloud folder verification failed")
+                if not _webdav_is_collection(verify_folder.content, current):
+                    raise DeliveryError("Nextcloud destination folder is missing; select an existing folder and retry")
+            else:
+                await _ensure_webdav_collection(client, current, "WebDAV directory creation failed")
         created_folders = set()
         for source in files:
             await check_cancelled()
@@ -361,16 +458,16 @@ async def deliver_files(
                 headers={"Content-Type": "application/octet-stream"},
             )
             if response.status_code not in {200, 201, 204}:
-                raise DeliveryError(f"WebDAV PUT failed for {source.name} ({response.status_code})")
+                raise _delivery_failure(response.status_code, f"WebDAV PUT failed for {source.name}")
             await check_cancelled()
             verify = await client.request(
                 "PROPFIND",
                 target,
                 headers={"Depth": "0", "Content-Type": "application/xml"},
-                content='<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/></d:prop></d:propfind>',
+                content='<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><d:getcontentlength/><oc:fileid/></d:prop></d:propfind>',
             )
             if verify.status_code != 207:
-                raise DeliveryError(f"WebDAV verification failed for {source.name} ({verify.status_code})")
+                raise _delivery_failure(verify.status_code, f"WebDAV verification failed for {source.name}")
             remote_size = _webdav_uploaded_size(verify.content, target)
             expected_size = source.stat().st_size
             if remote_size != expected_size:
@@ -381,6 +478,7 @@ async def deliver_files(
                 "path": target,
                 "delivery": "webdav",
                 "verified": True,
+                "file_id": _nextcloud_file_id(verify.content, target) if per_user else None,
             }
             output.append(item)
             await record(item)

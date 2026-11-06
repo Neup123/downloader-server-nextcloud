@@ -25,7 +25,7 @@ from app.config import Settings
 from app.discovery import PreviewError, inspect_ytdlp
 from app.options_catalog import get_catalog
 from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make_engine, make_session_factory, initialize_database, append_log, utcnow
-from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings
+from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery
 from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn
 from app.security import UnsafeUrlError, preflight_source_dns, validate_target_url
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
@@ -108,8 +108,23 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                         [executable, version_flag], capture_output=True, text=True,
                         timeout=4, check=False, env=downloader_environment(),
                     )
-                    lines = (completed.stdout or completed.stderr).splitlines()
-                    version = lines[0][:160] if completed.returncode == 0 and lines else "unknown"
+                    # get-sauce's -v can exit successfully while printing
+                    # a blank line. Ignore empty lines and do not treat help,
+                    # errors or whitespace as a meaningful engine version.
+                    lines = (completed.stdout or "").splitlines() + (completed.stderr or "").splitlines()
+                    version = next((line.strip()[:160] for line in lines if line.strip()), "unknown") \
+                        if completed.returncode == 0 else "unknown"
+                    if item["name"] == "get-sauce" and version == "unknown" \
+                            and Path(executable) == Path("/usr/local/bin/get-sauce"):
+                        # The production build records the pinned Go module
+                        # version extracted from the installed binary's build
+                        # info. Do not label a different PATH binary using it.
+                        try:
+                            module_version = (ROOT / "get-sauce.version").read_text().strip()
+                            if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", module_version):
+                                version = module_version + " (Go module)"
+                        except OSError:
+                            pass
                 except (OSError, subprocess.TimeoutExpired, IndexError):
                     version = "unknown"
             result.append({
@@ -358,14 +373,46 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         return {"created": len(jobs), "jobs": [job_to_dict(job) for job in jobs]}
 
     @app.get("/api/v1/jobs", response_model=list[JobOut], tags=["jobs"])
-    def list_jobs(_: bool = Depends(authenticate), session: Session = Depends(db_session), limit: int = 50, status: str | None = None):
+    def list_jobs(_: bool = Depends(authenticate), session: Session = Depends(db_session), limit: int = 50, status: str | None = None, owner_id: str | None = None):
         limit = max(1, min(200, limit))
-        query = select(Job).order_by(Job.created_at.desc()).limit(limit)
+        query = select(Job)
         if status:
             if status not in {"queued", "starting", "extracting", "downloading", "post-processing", "delivering", "completed", "failed", "cancelled"}:
                 raise HTTPException(status_code=422, detail="Unknown job status")
-            query = select(Job).where(Job.status == status).order_by(Job.created_at.desc()).limit(limit)
+            query = query.where(Job.status == status)
+        if owner_id is not None:
+            query = query.where(Job.owner_id == owner_id)
+        query = query.order_by(Job.created_at.desc()).limit(limit)
         return [job_to_dict(job) for job in session.scalars(query).all()]
+
+    @app.get("/api/v1/provenance", tags=["jobs"])
+    def file_provenance(owner_id: str, file_id: str,
+                        _: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        """Lookup the original download by Nextcloud's stable file ID and owner.
+
+        Only the trusted gateway can call this route. The gateway takes the
+        owner from the signed AppAPI identity, not from the browser.
+        """
+        if not owner_id or len(owner_id) > 255 or not file_id.isdecimal() or len(file_id) > 32:
+            raise HTTPException(status_code=422, detail="Invalid file identity")
+        jobs = session.scalars(
+            select(Job).where(Job.owner_id == owner_id, Job.status == "completed")
+            .order_by(Job.created_at.desc())
+        ).all()
+        for job in jobs:
+            for item in job.output_files or []:
+                if item.get("verified") and str(item.get("file_id") or "") == file_id:
+                    return {
+                        "job_id": job.id,
+                        "file_id": file_id,
+                        "owner_id": owner_id,
+                        "source_url": job.url,
+                        "engine": job.engine,
+                        "created_at": job.created_at.isoformat(),
+                        "filename": item.get("filename", ""),
+                    }
+        raise HTTPException(status_code=404, detail="This file has no download provenance")
+
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
@@ -731,8 +778,21 @@ def build_job(payload: JobCreate, session: Session, config: Settings) -> Job:
     except (UnsafeUrlError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    encrypted_delivery = None
+    if payload.owner_id:
+        if payload.delivery is None:
+            raise HTTPException(status_code=422, detail="Per-user jobs require a WebDAV delivery destination")
+        try:
+            delivery = DeliverySettingsIn.model_validate(payload.delivery)
+            encrypted_delivery = encrypt_job_delivery(delivery, payload.owner_id, config)
+        except (ValueError, DeliveryError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif payload.delivery is not None:
+        raise HTTPException(status_code=422, detail="Per-job WebDAV delivery requires an owner_id")
     return Job(
         url=url,
+        owner_id=payload.owner_id,
+        delivery_token=encrypted_delivery,
         engine=engine,
         status="queued",
         overrides=overrides,
@@ -744,6 +804,7 @@ def job_to_dict(job: Job) -> dict:
     return {
         "id": job.id,
         "url": job.url,
+        "owner_id": job.owner_id,
         "engine": job.engine,
         "status": job.status,
         "overrides": job.overrides or {},
