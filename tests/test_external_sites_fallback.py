@@ -71,7 +71,7 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
         doc = (ROOT / "NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md").read_text()
         self.assertIn("External Sites", doc)
         self.assertIn("app password", doc)
-        self.assertIn("does not authenticate", doc)
+        self.assertIn("not authenticate to Downloader", doc)
         self.assertIn("Do not run", doc)
         self.assertIn("redirect", doc.lower())
 
