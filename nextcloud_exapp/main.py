@@ -25,6 +25,7 @@ from nextcloud_exapp.user import (
     unscoped_cookie_filename,
 )
 from nextcloud_exapp.tracking import JobTracker
+from nextcloud_exapp.search_index import update_index
 from nextcloud_exapp.proxy import (
     ProxySettings, RESPONSE_HEADERS, is_events_route, safe_upstream_headers,
     upstream_api_url,
@@ -277,6 +278,10 @@ async def user_redownload_source(file_id: str, request: Request,
     job = await core_json("POST", "jobs", payload=submitted)
     own_job(job, context.user_id)
     request.app.state.job_tracker.add(job["id"], context.user_id)
+    try:
+        await update_index(context.nc, context.user_id, [job])
+    except Exception:
+        pass
     return job
 
 
@@ -291,7 +296,13 @@ async def user_jobs(limit: int = 50, status: str | None = None,
     rows = await core_json("GET", "jobs", params=params)
     if not isinstance(rows, list):
         raise HTTPException(status_code=502, detail="Invalid download list")
-    return [own_job(row, context.user_id) for row in rows]
+    owned = [own_job(row, context.user_id) for row in rows]
+    try:
+        await update_index(context.nc, context.user_id, owned)
+    except Exception:
+        # Search indexing must never block jobs or their delivery.
+        pass
+    return owned
 
 
 @APP.post("/user/api/jobs", status_code=202)
@@ -301,6 +312,10 @@ async def user_submit(request: Request, context: UserContext = Depends(require_u
     job = await core_json("POST", "jobs", payload=request_body)
     own_job(job, context.user_id)
     request.app.state.job_tracker.add(job["id"], context.user_id)
+    try:
+        await update_index(context.nc, context.user_id, [job])
+    except Exception:
+        pass
     return job
 
 

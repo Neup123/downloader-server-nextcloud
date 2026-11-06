@@ -14,6 +14,7 @@ from typing import Awaitable, Callable
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import TERMINAL_STATES, delivery_notification
+from nextcloud_exapp.search_index import update_index
 
 CoreGet = Callable[[str], Awaitable[dict]]
 
@@ -60,12 +61,18 @@ class JobTracker:
                 if job.get("owner_id") != owner_id or job.get("status") not in TERMINAL_STATES:
                     continue
                 subject, message = delivery_notification(job)
-                await AsyncNextcloudApp(user=owner_id).notifications.create(
+                nc = AsyncNextcloudApp(user=owner_id)
+                await nc.notifications.create(
                     subject=subject,
                     message=message,
                     link="/apps/app_api/proxy/downloader-server-nextcloud/user/",
                 )
                 self.mark(job_id)
+                try:
+                    await update_index(nc, owner_id, [job])
+                except Exception:
+                    # Notification success is durable even if optional indexing fails.
+                    pass
             except Exception:
                 # Remain in durable pending state; retry on next tick or restart.
                 continue
