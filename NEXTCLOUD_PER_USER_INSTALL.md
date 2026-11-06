@@ -1,5 +1,8 @@
 # Install the per-user Downloader integration (Nextcloud 35)
 
+If the target cannot deploy AppAPI ExApps, use the separately tested [official External Sites fallback](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md); it is a standalone, administrator-scoped UI, **not** per-user SSO.
+
+
 ## Release images
 
 - Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.0
@@ -67,14 +70,23 @@ variables on the server only:
   WebDAV destinations. Ensure DNS/hairpin routing from the core container to
   this HTTPS origin actually works. This value is server-side only.
 
-For an installation that supports the AppAPI CLI, the command shape is:
+For an installation that supports the AppAPI CLI, the **command shape** is
+shown below. Do **not** run it without first configuring
+`DOWNLOADER_API_URL` and `DOWNLOADER_API_TOKEN`: the ExApp validates them at
+startup and registration will fail when they are absent. The supported
+`app_api:app:register` command accepts repeatable `--env NAME=VALUE`
+arguments (including `DOWNLOADER_WEBDAV_ORIGIN` if required). However,
+command-line secrets can appear in shell history and process listings, so
+**prefer AppAPI's administrator deployment options UI** to enter the secret
+and register the manifest.
 
     docker cp info.xml CONTAINER:/tmp/downloader-info.xml
-    docker exec -u www-data CONTAINER php occ app_api:app:register downloader-server-nextcloud YOUR_DAEMON --info-xml /tmp/downloader-info.xml --wait-finish
+    # Supply required --env NAME=VALUE options when using the CLI.
+    docker exec -u www-data CONTAINER php occ app_api:app:register downloader-server-nextcloud YOUR_DAEMON --info-xml /tmp/downloader-info.xml --wait-finish --env DOWNLOADER_API_URL=https://YOUR-CORE-ORIGIN --env DOWNLOADER_API_TOKEN=REPLACE_WITH_REAL_SECRET
     docker exec -u www-data CONTAINER php occ app_api:app:enable downloader-server-nextcloud
 
-Prefer the administrator UI when supplying the secret so it does not enter
-shell history. Register the required environment values in that UI.
+Never paste a real token in a shared terminal, issue, log, or test transcript.
+Register the required environment values in the administrator UI.
 Confirm the ExApp container is running and AppAPI reports it enabled.
 
 ## Step 4 — assign user entitlement
