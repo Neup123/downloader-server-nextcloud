@@ -21,9 +21,8 @@ CoreGet = Callable[[str], Awaitable[dict]]
 
 class JobTracker:
     def __init__(self, path: Path | None = None):
-        self.path = path or Path(os.environ.get("DOWNLOADER_TRACKING_DB", "")) if os.environ.get("DOWNLOADER_TRACKING_DB") else path
-        if self.path is None:
-            self.path = Path(persistent_storage()) / "download-notifications.sqlite"
+        selected = os.environ.get("DOWNLOADER_TRACKING_DB")
+        self.path = path or (Path(selected) if selected else Path(persistent_storage()) / "download-notifications.sqlite")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS jobs (
@@ -37,6 +36,10 @@ class JobTracker:
     def add(self, job_id: str, owner_id: str) -> None:
         with self._connect() as db:
             db.execute("INSERT OR IGNORE INTO jobs (job_id, owner_id) VALUES (?, ?)", (job_id, owner_id))
+
+    def reset(self, job_id: str) -> None:
+        with self._connect() as db:
+            db.execute("UPDATE jobs SET notified = 0 WHERE job_id = ?", (job_id,))
 
     def pending(self) -> list[tuple[str, str]]:
         with self._connect() as db:

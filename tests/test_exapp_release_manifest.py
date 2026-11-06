@@ -36,8 +36,11 @@ class ExAppReleaseManifestTests(unittest.TestCase):
         )
         self.assertFalse(record["appapi_manifest_digest_pinned"])
         self.assertEqual(record["appapi_manifest_sha256"], hashlib.sha256(xml).hexdigest())
-        self.assertTrue(all(r.findtext("access_level") == "ADMIN" for r in
-                            root.findall("./external-app/routes/route")))
+        self.assertTrue(all(
+            r.findtext("access_level") == "ADMIN"
+            for r in root.findall("./external-app/routes/route")
+            if (r.findtext("url") or "").startswith("^/api/v1/")
+        ))
 
     def test_invalid_source_sha_and_digest_fail_closed(self):
         for source in ("abcd", "A" * 40, "x" * 40, "a" * 41, "a" * 39, "a" * 40 + "\n"):

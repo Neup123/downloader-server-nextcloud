@@ -98,7 +98,7 @@ export default function UserApp() {
     setMessage('');
     try {
       const job = await request<Download>('/jobs', json('POST', {
-        url, engine, preset_id: presetId || undefined, folder: folder || personal.destination_folder,
+        url, engine, preset_id: presetId || undefined, ...(folder ? {folder} : {}),
       }));
       setUrl('');
       setJobs(items => [job, ...items]);

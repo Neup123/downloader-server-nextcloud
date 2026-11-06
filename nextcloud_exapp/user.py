@@ -168,7 +168,14 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
         node = await context.nc.files.by_path("/" + folder if folder else "/")
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Cannot open destination folder in Nextcloud Files") from exc
-    if node is None or (hasattr(node, "is_dir") and not node.is_dir):
+    if node is None and "folder" not in data and folder == DEFAULT_FOLDER:
+        # First-use default: make the Downloads folder in the user's own Files.
+        try:
+            await context.nc.files.makedirs("/" + DEFAULT_FOLDER, exist_ok=True)
+            node = await context.nc.files.by_path("/" + DEFAULT_FOLDER)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail="Could not create your Downloads folder; check Files permissions") from exc
+    if node is None or (hasattr(node, "is_dir") and not bool(node.is_dir)):
         raise HTTPException(status_code=409, detail="Destination folder is missing; choose an existing folder")
     # Derive the user Files origin from the AppAPI-supplied server URL, never the browser.
     nc_root = context.nc.app_cfg.dav_endpoint.rstrip("/")

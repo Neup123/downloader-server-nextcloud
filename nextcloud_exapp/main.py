@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import os
 import asyncio
-import json
-import base64
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,7 +17,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
-from nc_py_api.ex_app.ui.settings import SettingsForm
 
 from nextcloud_exapp.user import (
     UserContext, require_user, signed_user, entitlement, read_user_preferences,
@@ -271,14 +268,17 @@ async def user_get_job(job_id: str, context: UserContext = Depends(require_user)
 
 
 @APP.post("/user/api/jobs/{job_id}/{action}", status_code=202)
-async def user_job_action(job_id: str, action: str,
+async def user_job_action(job_id: str, action: str, request: Request,
                           context: UserContext = Depends(require_user)):
     if action not in {"cancel", "retry", "redeliver"}:
         raise HTTPException(status_code=404, detail="Unknown action")
     identifier = scoped_core_path(job_id)
     own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
     response = await core_json("POST", "jobs/" + identifier + "/" + action)
-    return own_job(response, context.user_id)
+    own_job(response, context.user_id)
+    if action in ("retry", "redeliver"):
+        request.app.state.job_tracker.reset(identifier)
+    return response
 
 
 @APP.get("/user/api/cookies")
