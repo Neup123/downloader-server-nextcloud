@@ -51,7 +51,8 @@ class TargetExappImageTests(unittest.TestCase):
             raise AssertionError(args)
 
         with patch("scripts.verify_deployed_exapp.docker_field", side_effect=docker_mock):
-            result = reconciliation(RELEASE, "nc_app_downloader-server-nextcloud", SHA)
+            result = reconciliation(RELEASE, "nc_app_downloader-server-nextcloud", SHA, REF)
+        self.assertTrue(result["matches_expected_publisher_digest"])
         self.assertEqual(result["deployed_image_digest"], REF)
         self.assertTrue(result["target_image_reconciled"])
         self.assertFalse(result["appapi_native_digest_pinned"])
@@ -68,6 +69,13 @@ class TargetExappImageTests(unittest.TestCase):
             ):
                 with self.assertRaises(ImageVerificationError):
                     reconciliation(RELEASE, "nc_app_downloader-server-nextcloud", SHA)
+
+    def test_publisher_digest_mismatch_fails_closed(self):
+        with patch("scripts.verify_deployed_exapp.docker_field",
+                   side_effect=[IMAGE_ID, IMAGE_ID, SHA, json.dumps([REF])]):
+            with self.assertRaisesRegex(ImageVerificationError, "differs from"):
+                reconciliation(RELEASE, "nc_app_downloader-server-nextcloud", SHA,
+                               "ghcr.io/neup123/downloader-server-nextcloud@sha256:" + "f" * 64)
 
     def test_source_sha_and_container_name_are_strict(self):
         for invalid in ("abc", "A" * 40, "a" * 41, "a" * 40 + "\n"):
