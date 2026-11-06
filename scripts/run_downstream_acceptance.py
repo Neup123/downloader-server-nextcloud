@@ -25,6 +25,7 @@ DOWNSTREAM_TEST_MODULES = frozenset({
     "tests/test_exapp_publication_workflow.py",
     "tests/test_exapp_release_manifest.py",
     "tests/test_nextcloud_bridge_config.py",
+    "tests/test_nextcloud_core_sync_evidence.py",
     "tests/test_nextcloud_merge_preview_workflow.py",
     "tests/test_nextcloud_preflight.py",
     "tests/test_nextcloud_test_inventory.py",
