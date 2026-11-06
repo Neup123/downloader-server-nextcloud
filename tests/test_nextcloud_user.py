@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from nextcloud_exapp.user import (
-    UserContext, delivery_notification, entitlement, job_submission,
+    UserContext, delivery_notification, entitlement, job_submission, require_admin,
     own_job, parse_entitlements, read_user_preferences, scoped_cookie_filename,
     signed_user, unscoped_cookie_filename, validate_folder,
     write_user_preferences,
@@ -80,6 +80,59 @@ class UserUnitTests(TestCase):
         self.assertTrue(asyncio.run(entitlement(FakeNc("alice", groups="staff", user_groups=("staff",)), "alice")))
         self.assertFalse(asyncio.run(entitlement(FakeNc("alice", groups="staff", user_groups=("other",)), "alice")))
         self.assertFalse(asyncio.run(entitlement(FakeNc("alice"), "alice")))
+
+    def test_admin_backend_authorization_is_independent_of_proxy_manifest(self):
+        """A normal user cannot bypass AppAPI ADMIN routes by reaching ExApp directly."""
+        scope = {"type": "http", "headers": [], "username": "alice"}
+        async def check(groups, user_id="alice"):
+            with patch("nextcloud_exapp.user.AsyncNextcloudApp",
+                       side_effect=lambda user: FakeNc(user, user_groups=groups)):
+                return await require_admin(Request({**scope, "username": user_id}))
+        admin = asyncio.run(check(("staff", "admin")))
+        self.assertEqual(admin.user_id, "alice")
+        for groups in (("staff",), (), ("administrators",), None):
+            with self.subTest(groups=groups), self.assertRaises(HTTPException) as failure:
+                asyncio.run(check(groups))
+            self.assertEqual(failure.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as missing:
+            asyncio.run(check(("admin",), ""))
+        self.assertEqual(missing.exception.status_code, 401)
+
+        class BrokenNc(FakeNc):
+            async def _get_user(self, uid):
+                raise RuntimeError("Nextcloud groups unavailable")
+        with patch("nextcloud_exapp.user.AsyncNextcloudApp", side_effect=lambda user: BrokenNc(user)):
+            with self.assertRaises(HTTPException) as unavailable:
+                asyncio.run(require_admin(Request(scope)))
+        self.assertEqual(unavailable.exception.status_code, 403)
+
+    def test_all_privileged_exapp_handlers_require_admin_in_backend(self):
+        from nextcloud_exapp.main import APP
+        protected = {"/", "/api-reference", "/api/v1/{path:path}",
+                     "/admin/api/entitlements"}
+        matches = [route for route in APP.routes if getattr(route, "path", None) in protected]
+        self.assertEqual({route.path for route in matches}, protected)
+        self.assertTrue(all(
+            any(dep.call is require_admin for dep in route.dependant.dependencies)
+            for route in matches
+        ))
+        self.assertFalse(any(
+            dep.call is require_admin for route in APP.routes
+            if getattr(route, "path", "").startswith("/user/")
+            for dep in route.dependant.dependencies
+        ))
+
+    def test_admin_entitlement_patch_is_validated_before_any_write(self):
+        from nextcloud_exapp.main import admin_write_entitlements
+        from unittest.mock import AsyncMock
+        nc = FakeNc("alice", user_groups=("admin",))
+        nc.appconfig_ex.set_value = AsyncMock(wraps=nc.appconfig_ex.set_value)
+        request = Request({"type": "http", "headers": [], "username": "alice"})
+        request._json = {"allowed_users": "alice", "allowed_groups": ["not a string"]}
+        with self.assertRaises(HTTPException) as rejected:
+            asyncio.run(admin_write_entitlements(request, UserContext("alice", nc)))
+        self.assertEqual(rejected.exception.status_code, 422)
+        nc.appconfig_ex.set_value.assert_not_awaited()
 
     def test_personal_webdav_password_is_sensitive_and_never_returned(self):
         ctx = UserContext("alice", FakeNc("alice"))
