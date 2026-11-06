@@ -58,6 +58,12 @@ variables on the server only:
 - DOWNLOADER_API_URL: URL of the core (origin only, without /api/v1).
 - DOWNLOADER_API_TOKEN: exactly the core APP_API_TOKEN.
 - DOWNLOADER_ALLOW_TRUSTED_HTTP: true only for trusted internal HTTP.
+- DOWNLOADER_WEBDAV_ORIGIN: the actual public HTTPS origin of this same
+  Nextcloud installation (for example `https://cloud.example.org`). Set this
+  when AppAPI is internally reachable at `http://nextcloud` or another private
+  host. The guarded core deliberately rejects private-address or plaintext
+  WebDAV destinations. Ensure DNS/hairpin routing from the core container to
+  this HTTPS origin actually works. This value is server-side only.
 
 For an installation that supports the AppAPI CLI, the command shape is:
 
