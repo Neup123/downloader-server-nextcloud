@@ -232,3 +232,20 @@ class TrackingTests(TestCase):
                     self.assertEqual(len(created), 3)
                     self.assertEqual(created[-1][0], "alice")
         asyncio.run(run())
+
+
+class ProvenanceContractTests(TestCase):
+    def test_provenance_owner_isolation(self):
+        from nextcloud_exapp.user import own_job_provenance
+        good = {"owner_id": "alice", "file_id": "55", "source_url": "https://example.test/owned"}
+        self.assertEqual(own_job_provenance(good, "alice"), good)
+        for other in ("bob", "", None):
+            with self.assertRaises(HTTPException) as err:
+                own_job_provenance(good, other)
+            self.assertEqual(err.exception.status_code, 404)
+
+    def test_redownload_uses_own_core_record(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parents[1] / "nextcloud_exapp/main.py").read_text()
+        self.assertIn('params={"owner_id": context.user_id, "file_id": file_id}', source)
+        self.assertIn('await job_submission(context, {"url": provenance["source_url"]})', source)

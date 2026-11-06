@@ -298,6 +298,13 @@ def own_job(data: Any, owner_id: str) -> dict[str, Any]:
     return data
 
 
+def own_job_provenance(record: Any, owner_id: str) -> dict[str, Any]:
+    if (not isinstance(record, dict) or record.get("owner_id") != owner_id
+            or not isinstance(record.get("source_url"), str)):
+        raise HTTPException(status_code=404, detail="File provenance not found")
+    return record
+
+
 def scoped_cookie_filename(user_id: str, visible_filename: str) -> str:
     basename = PurePosixPath(visible_filename).name
     if (

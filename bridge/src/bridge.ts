@@ -2,7 +2,7 @@
  * Nextcloud-native UI adapter. All execution, secrets and WebDAV delivery
  * remain in the standalone core and authenticated ExApp. No server API token.
  */
-import { registerFileAction, addNewFileMenuEntry } from '@nextcloud/files';
+import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@nextcloud/files';
 
 type Job = {id: string; url: string; status: string; progress?: {percent?: number}; error?: string | null};
 type Preset = {id: string; name: string; engine: string};
@@ -275,6 +275,76 @@ function headerProgress() {
   }, 4000);
 }
 
+
+type Provenance = {
+  file_id: string; owner_id: string; job_id: string; source_url: string;
+  engine: string; created_at: string; filename: string;
+};
+
+/** Nextcloud Files 35 supported custom-element details sidebar. */
+function registerProvenanceSidebar() {
+  const tagName = 'downloader_bridge-provenance-tab';
+  registerSidebarTab({
+    id: 'downloader_bridge-provenance',
+    displayName: 'Downloads',
+    iconSvgInline: ICON,
+    order: 70,
+    tagName,
+    enabled: context => context.node.mime !== 'httpd/unix-directory',
+    onInit: async () => {
+      if (customElements.get(tagName)) return;
+      class ProvenanceTab extends HTMLElement {
+        private version = 0;
+        private _node?: {id?: string | number};
+        get node() { return this._node; }
+        set node(value: {id?: string | number} | undefined) {
+          this._node = value;
+          void this.renderRecord();
+        }
+        private async renderRecord() {
+          const call = ++this.version;
+          this.replaceChildren(node('p', 'Checking download source…', 'dl-muted'));
+          const id = String(this._node?.id ?? '');
+          if (!/^\d{1,32}$/.test(id)) {
+            this.replaceChildren(node('p', 'No Downloader source is associated with this file.', 'dl-muted'));
+            return;
+          }
+          try {
+            const record = await api<Provenance>('/provenance?file_id=' + encodeURIComponent(id));
+            if (this.version !== call) return;
+            const heading = node('h3', 'Original download source');
+            const url = node('a', record.source_url, 'dl-provenance-source');
+            url.href = record.source_url;
+            url.target = '_blank'; url.rel = 'noopener noreferrer';
+            const details = node('p', 'Engine: ' + record.engine, 'dl-muted');
+            const redownload = node('button', 'Re-download from source', 'dl-primary');
+            redownload.type = 'button';
+            redownload.addEventListener('click', async () => {
+              redownload.disabled = true;
+              try {
+                await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
+                notify('Re-download queued to your Nextcloud Files.');
+              } catch (error) {
+                notify(error instanceof Error ? error.message : 'Could not re-download source');
+              } finally {
+                redownload.disabled = false;
+              }
+            });
+            this.replaceChildren(heading, url, details, redownload);
+          } catch (error) {
+            if (this.version !== call) return;
+            const message = error instanceof Error && /404|not found/i.test(error.message)
+              ? 'No Downloader source is associated with this file.'
+              : 'Unable to check download source. Open Downloads to retry.';
+            this.replaceChildren(node('p', message, 'dl-muted'));
+          }
+        }
+      }
+      customElements.define(tagName, ProvenanceTab);
+    },
+  });
+}
+
 function styles() {
   const style = node('style');
   style.textContent = [
@@ -300,6 +370,7 @@ function styles() {
     '.dl-job span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.dl-job progress{width:100%}.dl-error{color:var(--color-error,#c33)}',
     '.dl-small{justify-self:end;padding:3px 6px}',
+    '.dl-provenance-source{display:block;overflow-wrap:anywhere;margin:10px 0}',
     '.dl-viewer-trigger{position:absolute;top:18px;right:108px;z-index:10050;',
     'padding:7px 10px;border-radius:6px;border:1px solid var(--color-border,#ccc);',
     'background:var(--color-main-background,#222);color:var(--color-main-text,#fff);cursor:pointer}',
@@ -312,6 +383,6 @@ async function start() {
   // this independently for every authenticated call.
   try { await api<{user_id: string; entitled: boolean}>('/me'); }
   catch { return; }
-  styles(); registerActions(); headerProgress(); installLegacyViewerHook();
+  styles(); registerActions(); registerProvenanceSidebar(); headerProgress(); installLegacyViewerHook();
 }
 void start();
