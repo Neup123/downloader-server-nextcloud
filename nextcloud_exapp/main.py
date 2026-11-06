@@ -172,8 +172,6 @@ async def proxy_api(path: str, request: Request):
     )
 
 
-if __name__ == "__main__":
-    run_app("nextcloud_exapp.main:APP")
 
 
 # --- Per-user API. Never forward arbitrary /api/v1 paths to normal users. ---
@@ -336,3 +334,7 @@ async def admin_write_entitlements(request: Request):
                 raise HTTPException(status_code=422, detail="Invalid entitlement list")
             await nc.appconfig_ex.set_value(key, value)
     return await admin_read_entitlements(request)
+
+if __name__ == "__main__":
+    # Routes are registered at import time before the ASGI server is started.
+    run_app("nextcloud_exapp.main:APP")

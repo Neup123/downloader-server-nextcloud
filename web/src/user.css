@@ -1,0 +1,10 @@
+.user-downloader { max-width: 1240px; }
+.user-running { border-radius: 20px; background: #263b52; color: #b8d5ff; padding: 6px 12px; font-size: 12px; }
+.user-job-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; color: #eaf2ff; padding: 0; text-align: left; min-width: 0; font-size: 12px; }
+.user-break { word-break: break-all; }
+.user-downloader dl { display: grid; grid-template-columns: 65px 1fr; gap: 7px; font-size: 12px; }
+.user-downloader dt { color: #95a5b8; }
+.user-downloader dd { margin: 0; }
+.user-downloader .job-actions { gap: 8px; }
+.user-downloader label { max-width: 640px; }
+.user-downloader .delivery-panel { max-width: 770px; }

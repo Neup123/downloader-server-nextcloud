@@ -54,7 +54,7 @@ def validate_folder(folder: str) -> str:
 
 
 def parse_entitlements(value: str | None) -> set[str]:
-    return {token for token in re.split(r"[,\n\r]+", value or "") if (token := token.strip())}
+    return {part.strip() for part in re.split(r"[,\n\r]+", value or "") if part.strip()}
 
 
 async def entitlement(nc: AsyncNextcloudApp, user_id: str) -> bool:
