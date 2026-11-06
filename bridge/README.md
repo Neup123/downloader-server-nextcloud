@@ -51,3 +51,15 @@ preferences; it does not contact the downloader core or handle any file bytes.
 Nextcloud's built-in **Files** search continues to find actual delivered files.
 Search index entries update at submission, history refresh and terminal state.
 Existing historical jobs become indexed when the user first opens Downloader.
+
+
+## Native Activity entries
+
+The UI bridge registers a standard Nextcloud Activity provider and a small
+180-second Nextcloud timed job. It reads owner-scoped terminal job metadata
+from Nextcloud's own user preferences and publishes **one Activity record per
+completed/failed/cancelled download** for the affected owner; individual and
+group entitlements apply. No downloader service connection, WebDAV or data
+directory access exists in this PHP hook. Nextcloud's background jobs must run
+for these Activity entries to appear. The stored `activity_seen` preference
+limits duplicate entries across cron runs.
