@@ -22,14 +22,14 @@ REF = "ghcr.io/neup123/downloader-server-nextcloud@" + DIGEST
 class TargetExappImageTests(unittest.TestCase):
     def test_manifest_is_from_expected_registry(self):
         image, version, tag = image_from_manifest(RELEASE)
-        self.assertEqual(image, "ghcr.io/neup123/downloader-server-nextcloud:0.5.1")
-        self.assertEqual(version, "0.5.1")
-        self.assertEqual(tag, "0.5.1")
+        self.assertEqual(image, "ghcr.io/neup123/downloader-server-nextcloud:0.5.2")
+        self.assertEqual(version, "0.5.2")
+        self.assertEqual(tag, "0.5.2")
         for invalid in (
             RELEASE.replace(b"ghcr.io", b"badreg", 1),
             RELEASE.replace(b"neup123/downloader-server-nextcloud",
                             b"someone-else/my-container", 1),
-            RELEASE.replace(b"<image-tag>0.5.1</image-tag>",
+            RELEASE.replace(b"<image-tag>0.5.2</image-tag>",
                             b"<image-tag>latest</image-tag>"),
         ):
             with self.subTest(invalid=invalid[:90]), self.assertRaises(ImageVerificationError):

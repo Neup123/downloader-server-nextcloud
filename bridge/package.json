@@ -1,7 +1,7 @@
 {
   "name": "nextcloud-downloader-ui-bridge",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "description": "Nextcloud standard UI hooks only",
   "scripts": {
