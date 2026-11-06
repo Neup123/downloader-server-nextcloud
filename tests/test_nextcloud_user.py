@@ -114,6 +114,25 @@ class UserUnitTests(TestCase):
             own_job({"id": "someone-elses-job", "owner_id": "bob"}, "alice")
         self.assertEqual(exc.exception.status_code, 404)
 
+    def test_public_https_origin_override_keeps_webdav_out_of_private_appapi(self):
+        import os
+        from nextcloud_exapp.user import nextcloud_webdav_base
+        from unittest.mock import patch
+        nc = FakeNc("alice")
+        for invalid in ("http://nextcloud", "https://alice:secret@example.org",
+                        "https://example.org/remote.php/dav", "https://example.org?token=bad"):
+            with self.subTest(invalid=invalid), patch.dict(
+                os.environ, {"DOWNLOADER_WEBDAV_ORIGIN": invalid}
+            ), self.assertRaises(HTTPException):
+                nextcloud_webdav_base(nc)
+        with patch.dict(os.environ, {"DOWNLOADER_WEBDAV_ORIGIN": "https://cloud.example.org"}):
+            self.assertEqual(nextcloud_webdav_base(nc), "https://cloud.example.org/remote.php/dav")
+            nc.preferences_ex.saved["dav_app_password"] = "secret"
+            payload = asyncio.run(job_submission(UserContext("alice", nc),
+                {"url": "https://example.test/video"}))
+            self.assertEqual(payload["delivery"]["webdav_url"],
+                "https://cloud.example.org/remote.php/dav/files/alice")
+
     def test_first_user_download_creates_only_own_default_folder(self):
         nc = FakeNc("alice")
         nc.preferences_ex.saved["dav_app_password"] = "password"
