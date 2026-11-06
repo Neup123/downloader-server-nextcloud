@@ -42,7 +42,7 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
         self.assertEqual(config["name"], "downloader-external-sites")
         core = config["services"]["downloader-server"]
         guard = config["services"]["egress-guard"]
-        self.assertEqual(core["image"], "ghcr.io/neup123/media-downloader-server:0.3.0")
+        self.assertEqual(core["image"], "ghcr.io/neup123/media-downloader-server:0.3.1")
         self.assertNotIn("build", core)
         self.assertEqual(core["network_mode"], "service:egress-guard")
         self.assertEqual(core["depends_on"]["egress-guard"]["condition"], "service_healthy")
@@ -73,7 +73,7 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
             "APP_API_TOKEN": "test-token-012345678901234567890123456789",
             "APP_ENCRYPTION_KEY": "test-only",
             "NEXTCLOUD_DOCKER_NETWORK": "actual-nextcloud-network",
-            "DOWNLOADER_IMAGE": "ghcr.io/neup123/media-downloader-server:0.3.0",
+            "DOWNLOADER_IMAGE": "ghcr.io/neup123/media-downloader-server:0.3.1",
         })
         result = subprocess.run(
             ["docker", "compose", "-f", str(ROOT / "compose.egress.yaml"),
