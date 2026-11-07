@@ -63,3 +63,26 @@ group entitlements apply. No downloader service connection, WebDAV or data
 directory access exists in this PHP hook. Nextcloud's background jobs must run
 for these Activity entries to appear. The stored `activity_seen` preference
 limits duplicate entries across cron runs.
+
+
+## Nextcloud Talk message action
+
+On Nextcloud 35 with Talk enabled, the UI bridge registers Talk's supported
+`OCA.Talk.registerMessageAction` menu action **Download linked URL into my Files**.
+It is shown only to Downloader-entitled signed-in users; Talk itself hides
+third-party actions in classified conversations. On a message with exactly
+one HTTP(S) link, selecting the action opens the usual download confirmation
+dialog with the source prefilled, engine/preset selection and the user's
+configured Files destination. The user must press **Download** to submit.
+No Talk messages are sent to a bot, scraped from the DOM or downloaded
+without confirmation. Messages with zero or multiple distinct links do not
+start any download. Talk 35's message-action API has no per-message visibility
+predicate, so the menu action may also appear on messages without links;
+clicking it simply explains that one link is required.
+
+This uses the native Talk 35 JavaScript API; it is not a verified browser test
+on the owner's target server. After installing the bridge, verify the action
+in an actual non-classified Talk conversation and confirm the destination in
+Files. A fresh user who has no /Downloads folder must still be able to submit
+using their implicit default destination; the signed ExApp creates that folder
+only when its default is Downloads. Explicit paths must already exist.
