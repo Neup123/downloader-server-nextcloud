@@ -195,23 +195,47 @@ export default function UserApp() {
       setMessage(error instanceof Error ? error.message : 'Job action failed');
     }
   }
-  async function savePersonal(event: FormEvent) {
+  async function connectFiles(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
+    if (!appPassword) return;
+    setConnectingFiles(true);
     try {
-      const newSettings = await request<Personal>('/settings', json('PUT', {
-        destination_folder: personal.destination_folder,
-        default_preset: personal.default_preset,
-        notify_finished: personal.notify_finished !== false,
-        notify_failed: personal.notify_failed !== false,
-        ...(appPassword ? { app_password: appPassword } : {}),
+      // The only path for a DAV secret is this explicit user action.
+      // Ordinary preference autosaves never read or send appPassword.
+      const result = await request<Personal>('/settings', json('PUT', {
+        app_password: appPassword,
       }));
-      setPersonal(newSettings);
+      setPersonal(previous => ({
+        ...previous,
+        app_password_configured: result.app_password_configured,
+      }));
       setAppPassword('');
-      setMessage('Saved ✓ Your new downloads will use these settings.');
+      setMessage('Connected ✓ Your own Nextcloud Files are available for delivery.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save preferences');
-    } finally { setBusy(false); }
+      setMessage(error instanceof Error ? error.message : 'Could not connect your Files.');
+    } finally { setConnectingFiles(false); }
+  }
+
+  async function browseFolders(path: string, append = false) {
+    if (folderBusy) return;
+    setFolderBusy(true);
+    try {
+      const params = new URLSearchParams({
+        path, offset: append ? String(folderOffset + 100) : '0',
+      });
+      const listed = await request<FolderListing>('/folders?' + params.toString());
+      setFolderBrowserPath(listed.path);
+      setFolderOptions(previous => append ? [...previous, ...listed.folders] : listed.folders);
+      setFolderOffset(listed.offset);
+      setFolderHasMore(listed.has_more);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Cannot browse this folder in your Files.');
+    } finally { setFolderBusy(false); }
+  }
+
+  function pickFolder(path: string) {
+    setPersonal(previous => ({...previous, destination_folder: path}));
+    setFolderPickerOpen(false);
   }
   async function saveEngines(event: FormEvent) {
     event.preventDefault();
