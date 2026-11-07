@@ -80,6 +80,9 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q app scripts tests nextcloud_exapp
+          # The owner-scoped UI/onboarding tests import nc_py_api; run them
+          # against the same exact-version Nextcloud runtime lock as the ExApp.
+          python -m pip install -r nextcloud_exapp/requirements.lock
           python3 scripts/run_downstream_acceptance.py
 
       - name: Build production core image from read-only merged worktree
