@@ -21,6 +21,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 from nextcloud_exapp.user import (
     UserContext, require_user, require_admin, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
+    normalize_shared_presets, SHARED_PRESET_PREFIX,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
@@ -251,9 +252,36 @@ async def user_engines(context: UserContext = Depends(require_user)):
     return await core_json("GET", "engines")
 
 
+async def read_shared_presets() -> list[dict]:
+    """Fetch only the administrator-approved Core collection, never all presets.
+
+    A still-deployed v0.3.1 Core lacks this endpoint; personal presets must
+    keep functioning during a staged upgrade. Other upstream errors propagate.
+    """
+    try:
+        approved = await core_json("GET", "presets/shared")
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return []
+        raise
+    return normalize_shared_presets(approved)
+
+
+async def selected_shared_presets(context: UserContext, data: dict) -> list[dict]:
+    if not isinstance(data, dict):
+        return []
+    requested = data.get("preset_id")
+    if not requested:
+        requested = await context.nc.preferences_ex.get_value("default_preset", "")
+    if isinstance(requested, str) and requested.startswith(SHARED_PRESET_PREFIX):
+        return await read_shared_presets()
+    return []
+
+
 @APP.get("/user/api/presets")
 async def user_presets(context: UserContext = Depends(require_user)):
-    return await read_user_presets(context)
+    personal = [{**item, "is_shared": False} for item in await read_user_presets(context)]
+    return personal + await read_shared_presets()
 
 
 @APP.post("/user/api/presets", status_code=201)
@@ -291,7 +319,11 @@ async def user_redownload_source(file_id: str, request: Request,
                         params={"owner_id": context.user_id, "file_id": file_id}),
         context.user_id,
     )
-    submitted = await job_submission(context, {"url": provenance["source_url"]})
+    request_data = {"url": provenance["source_url"]}
+    submitted = await job_submission(
+        context, request_data,
+        shared_presets=await selected_shared_presets(context, request_data),
+    )
     job = await core_json("POST", "jobs", payload=submitted)
     own_job(job, context.user_id)
     request.app.state.job_tracker.add(job["id"], context.user_id)
@@ -335,7 +367,9 @@ async def user_jobs(limit: int = 50, status: str | None = None,
 @APP.post("/user/api/jobs", status_code=202)
 async def user_submit(request: Request, context: UserContext = Depends(require_user)):
     data = await request.json()
-    request_body = await job_submission(context, data)
+    request_body = await job_submission(
+        context, data, shared_presets=await selected_shared_presets(context, data),
+    )
     job = await core_json("POST", "jobs", payload=request_body)
     own_job(job, context.user_id)
     request.app.state.job_tracker.add(job["id"], context.user_id)
