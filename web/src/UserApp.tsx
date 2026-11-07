@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { PersonalAutosave, type SaveStatus } from './personal-autosave';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
@@ -13,6 +14,26 @@ type Personal = {
   engine_settings: Record<string, Record<string, unknown>>; app_password_configured: boolean;
   first_download_verified?: boolean; notify_finished?: boolean; notify_failed?: boolean;
 };
+type SafePersonal = {
+  destination_folder: string; default_preset: string;
+  notify_finished: boolean; notify_failed: boolean;
+};
+type FolderChoice = {name: string; path: string};
+type FolderListing = {path: string; folders: FolderChoice[]; offset: number; has_more: boolean};
+const ordinaryPreferences = (value: Personal): SafePersonal => ({
+  destination_folder: value.destination_folder,
+  default_preset: value.default_preset,
+  notify_finished: value.notify_finished !== false,
+  notify_failed: value.notify_failed !== false,
+});
+function validateFolderDraft(folder: string): void {
+  const normalized = folder.trim().replace(/^\\/+|\\/+$/g, '');
+  if (folder.length > 512 || /[\\x00-\\x1f\\\\]/.test(folder)
+      || (normalized && normalized.split('/').some(part =>
+        !part || part === '.' || part === '..'))) {
+    throw new Error('Choose a valid folder in your Files (without parent paths).');
+  }
+}
 const TYPES: Engine[] = ['auto', 'yt-dlp', 'aria2c', 'gallery-dl', 'generic', 'you-get', 'svtplay-dl', 'get-sauce'];
 const API = window.location.pathname.replace(/\/user\/?$/, '/user/api');
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
@@ -63,6 +84,16 @@ export default function UserApp() {
   const [cookies, setCookies] = useState<{filename: string}[]>([]);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const personalAutosave = useRef<PersonalAutosave<SafePersonal> | null>(null);
+  const [personalSaveState, setPersonalSaveState] = useState<SaveStatus>('loading');
+  const [personalValidationError, setPersonalValidationError] = useState('');
+  const [connectingFiles, setConnectingFiles] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [folderBrowserPath, setFolderBrowserPath] = useState('');
+  const [folderOptions, setFolderOptions] = useState<FolderChoice[]>([]);
+  const [folderOffset, setFolderOffset] = useState(0);
+  const [folderHasMore, setFolderHasMore] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -84,6 +115,15 @@ export default function UserApp() {
         if (!mounted) return;
         setMe(identity.user_id);
         setPersonal(settings);
+        // Never place the write-only DAV app password in this snapshot.
+        const autosave = new PersonalAutosave<SafePersonal>(
+          async values => { await request('/settings', json('PUT', values)); },
+          setPersonalSaveState,
+          700,
+        );
+        personalAutosave.current?.dispose();
+        autosave.hydrate(ordinaryPreferences(settings));
+        personalAutosave.current = autosave;
         setEngineJson(JSON.stringify(settings.engine_settings, null, 2));
         setPresets(presetList);
         setCookies(await request<{filename: string}[]>('/cookies'));
@@ -96,8 +136,30 @@ export default function UserApp() {
     }
     void initialize();
     const timer = window.setInterval(() => { if (mounted) void reload(); }, 3500);
-    return () => { mounted = false; window.clearInterval(timer); };
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+      personalAutosave.current?.dispose();
+      personalAutosave.current = null;
+    };
   }, [reload]);
+  // Hydration alone never causes a PUT. Edits are serialized and only ordinary
+  // owner settings are included; connection credentials have a separate action.
+  useEffect(() => {
+    if (initializing || !me || !personalAutosave.current) return;
+    try {
+      validateFolderDraft(personal.destination_folder);
+      setPersonalValidationError('');
+      personalAutosave.current.change(ordinaryPreferences(personal));
+    } catch (error) {
+      setPersonalValidationError(
+        error instanceof Error ? error.message : 'Choose a valid Files folder.',
+      );
+      personalAutosave.current.pause();
+    }
+  }, [initializing, me, personal.destination_folder, personal.default_preset,
+    personal.notify_finished, personal.notify_failed]);
+
   const active = useMemo(() => jobs.find(job => job.id === selected), [jobs, selected]);
   const running = jobs.filter(job => !TERMINAL.has(job.status));
   const hasVerifiedDownload = Boolean(personal.first_download_verified)
