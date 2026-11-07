@@ -92,17 +92,34 @@ def run_browser_acceptance() -> None:
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+            assert page.locator("header input[type=password]").count() == 0
+            page.get_by_role("button", name="My settings", exact=True).click()
+            page.get_by_label("API key").fill(API_TOKEN)
             with page.expect_response(
                 lambda r: r.url.endswith("/engines/aria2c/settings")
                 and r.request.method == "GET", timeout=30000
             ):
-                page.get_by_placeholder("API key").fill(API_TOKEN)
-
-            page.get_by_role("button", name="Engine settings", exact=True).click()
+                page.get_by_role("button", name="Connect", exact=True).click()
+            page.get_by_role("navigation", name="Main navigation").get_by_role("button", name="Administration", exact=True).click()
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "GET",
+                timeout=30000
+            ):
+                page.get_by_role("navigation", name="Administration sections").get_by_role("button", name="Delivery").click()
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery/test")
+                and r.request.method == "POST", timeout=30000
+            ) as delivery_preflight:
+                page.get_by_role("button", name="Test delivery", exact=True).click()
+            assert delivery_preflight.value.status == 200, "Destination byte readback/cleanup failed"
+            payload = delivery_preflight.value.json()
+            assert payload["verified"] and payload["cleaned_up"]
+            page.get_by_role("navigation", name="Administration sections").get_by_role("button", name="Engines").click()
 
             yt_panel = page.locator("section.panel").filter(
                 has=page.get_by_role("heading", name="yt-dlp", exact=True)
             )
+            yt_panel.locator(".quality-control summary").click()
             yt_panel.get_by_label("Format selector", exact=True).fill(YTDLP_GLOBAL)
             with page.expect_response(
                 lambda r: r.url.endswith("/engines/yt-dlp/settings")
@@ -124,14 +141,16 @@ def run_browser_acceptance() -> None:
             assert saved.value.status == 200
             assert fetch_settings(api, "aria2c")["options"]["max-connection-per-server"] == ARIA_GLOBAL
 
-            page.get_by_role("button", name="Downloads", exact=True).click()
+            page.get_by_role("button", name="Download", exact=True).click()
             form = page.locator("section.submit-panel form")
-            assert form.count() == 1, "Downloads tab did not render a unique submission form"
+            assert form.count() == 1, "Download screen did not render a unique submission form"
+            form.locator("summary").click()
             # Native wrapped <label><select> fields can have an accessible name
             # expanded by the option list; target the real form structure.
             form.locator("select").first.select_option("yt-dlp")
             form.locator('input[type="url"]').fill(SOURCE_URL)
-            form.locator(".options-block > label input").first.fill(YTDLP_OVERRIDE)
+            form.locator(".quality-control summary").click()
+            form.get_by_label("Format selector", exact=True).fill(YTDLP_OVERRIDE)
             yt_job = submitted_job(page, api, "yt-dlp", {"format": YTDLP_OVERRIDE})
             verify_webdav_bytes(yt_job)
             print("Real Chromium: yt-dlp global + per-job settings + WebDAV PASS", flush=True)

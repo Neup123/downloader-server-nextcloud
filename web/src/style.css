@@ -76,3 +76,109 @@ footer { color: #6f8198; border-top: 1px solid #253447; margin-top: 30px; paddin
 .option-category { display: grid; gap: .6rem; }
 .option-category .field-title { margin-top: .55rem; }
 .option-help { display: block; font-size: .78rem; margin-top: .18rem; }
+
+/* Navigation and feedback remain usable with keyboard and at 360px. */
+.admin-nav { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 20px; }
+.admin-nav button { color:#dce8f6; background:#23354a; border:1px solid #405b79; min-height:44px; }
+.admin-nav button.active { color:#12243d; background:#92baff; }
+.guidance { max-width:750px; margin:24px auto; }
+.guidance p, .connection-settings p { color:#c4d2e5; line-height:1.6; }
+.guidance button { min-height:44px; }
+.connection-settings { max-width:780px; }
+.connection-settings .keyrow { width:100%; align-items:end; flex-wrap:wrap; }
+.connection-settings .keyrow label { flex:1 1 260px; margin:0; }
+.connection-settings .keyrow button { min-height:44px; }
+.library-layout { grid-template-columns:minmax(0,1fr); }
+.library-layout .queue-panel, .library-layout .details-panel { grid-column:1; grid-row:auto; }
+.library-filters { display:grid; grid-template-columns:minmax(0,2fr) minmax(150px,1fr); gap:12px; }
+.library-filters label { margin:0 0 14px; }
+.footer-link { color:#9cc5ff; background:transparent; text-decoration:underline; padding:6px; }
+:focus-visible { outline:3px solid #b9d9ff !important; outline-offset:3px; }
+.tabs button, .job-actions button, .small { min-height:44px; }
+@media(max-width:600px) {
+  .shell { padding:0 12px 24px; }
+  .topbar { min-height:70px; height:auto; gap:9px; }
+  .top-actions { font-size:11px; }
+  .tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+  .tabs button { border-radius:8px; padding:12px 6px; }
+  .library-filters { grid-template-columns:1fr; }
+  .admin-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .panel { padding:15px; }
+  .job-title { flex-wrap:wrap; }
+  .job-actions { gap:6px; flex-wrap:wrap; }
+}
+
+/* Phase 2: one focused download hero, one job card in every view. */
+.submit-panel { position:relative; }
+.submit-panel h2 { font-size:clamp(21px,2.2vw,31px); line-height:1.2; }
+.mode-switch { display:flex; gap:8px; padding:4px; border:1px solid #3b536e; border-radius:12px; margin:20px 0 12px; }
+.mode-switch button { background:transparent; color:#dae7fa; flex:1; min-height:44px; }
+.mode-switch button.active { background:#91baff; color:#14223a; }
+.url-entry { display:flex; align-items:center; gap:8px; }
+.url-entry input { flex:1; }
+.url-entry button { min-height:44px; }
+.url-entry .valid-link { border-color:#8dd5aa; box-shadow:0 0 0 2px #8dd5aa25; }
+.input-valid { color:#a4e8c0; font-size:12px; margin:6px 0 13px; }
+.input-help { color:#ffbbc5; font-size:12px; margin:6px 0 13px; }
+.download-options { border:1px solid #37506d; border-radius:12px; margin-top:14px; padding:10px 14px; }
+.download-options summary { cursor:pointer; font-weight:700; min-height:36px; padding:6px; }
+.download-options summary .muted { margin-left:8px; font-weight:400; }
+.download-submit { width:100%; min-height:50px; margin-top:16px; font-size:15px; }
+.job-list { display:grid; gap:12px; }
+.job-card { background:#172538; border:1px solid #405570; border-radius:13px; padding:16px; min-width:0; }
+.job-card-head { display:flex; gap:13px; align-items:flex-start; }
+.job-card-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:#284668; color:#cce4ff; font-size:20px; flex:0 0 38px; }
+.job-card-info { flex:1; min-width:0; }
+.job-card-title { display:block; background:transparent; border:none; padding:2px 0; color:#f0f6ff; font-size:15px; text-align:start; max-width:100%; overflow-wrap:anywhere; }
+.job-card-title:hover { text-decoration:underline; }
+.job-card-state { font-size:13px; line-height:1.5; color:#d7e5f4; overflow-wrap:anywhere; }
+.job-card-meta { color:#a8bcd4; font-size:12px; margin-top:5px; }
+.job-card .progress-track { height:6px; margin-top:13px; }
+.job-card .job-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-start; }
+.job-card .job-actions button, .job-card-file-link { min-height:44px; display:inline-flex; align-items:center; }
+.job-card-file-link { text-decoration:none; }
+.job-card-details { margin-top:16px; border-top:1px solid #41556d; padding-top:13px; font-size:13px; }
+.job-card-details details { margin-top:15px; }
+.job-card-details details summary { cursor:pointer; padding:10px 0; }
+.job-card .error-box { font-size:13px; }
+@media(max-width:600px) {
+  .url-entry { flex-wrap:wrap; }
+  .url-entry input { flex:1 1 100%; }
+  .url-entry button { width:100%; }
+  .download-submit { position:sticky; bottom:10px; z-index:4; box-shadow:0 4px 24px #06111c; }
+  .job-card .job-card-head { gap:9px; }
+  .job-card { padding:14px; }
+}
+
+/* Human option editors: simple controls first, raw CLI/JSON only when requested. */
+.quality-control { display:grid; gap:3px; }
+.quality-control label { margin:10px 0 2px; }
+.advanced-quality,.advanced-options { background:#121c29; border:1px solid #344b67; border-radius:10px; padding:10px 14px; margin:12px 0; }
+.advanced-quality summary,.advanced-options summary,.preset-visual summary { cursor:pointer; padding:8px 0; min-height:40px; font-weight:600; }
+.preset-visual { display:grid; gap:4px; }
+.preset-visual label { margin:10px 0; }
+.preset-visual .check { margin-top:12px; }
+.preset-visual .option-help { line-height:1.5; }
+
+/* First-use guide: explicit verification, no secret copied into a URL. */
+.first-run { margin:18px 0; }
+.first-run h2 { margin-bottom:8px; }
+.first-run ol { list-style:none; padding:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.first-run li { border:1px solid #37536f; border-radius:11px; padding:15px; }
+.first-run li p { line-height:1.6; }
+.first-run li button { min-height:44px; }
+.first-run .check { margin-top:10px; }
+.delivery-panel button + button { margin-left:10px; }
+@media(max-width:720px) {
+  .first-run ol { grid-template-columns:1fr; }
+  .delivery-panel button + button { margin-left:0; margin-top:10px; }
+}
+
+/* Library actions remain discoverable and usable from 360px. */
+.library-bulk-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:4px 0 18px; }
+.library-bulk-actions button { min-height:44px; }
+.library-bulk-actions .muted { flex:1 1 280px; font-size:12px; line-height:1.5; }
+.load-more { display:block; width:100%; margin:18px 0 0; min-height:44px; }
+@media(max-width:600px) {
+  .library-bulk-actions button { flex:1 1 140px; }
+}
