@@ -216,12 +216,21 @@ jobs:
           test -n "$secret"
           test -n "$port"
           echo "::add-mask::$secret"
+          # The core token is supplied solely to the isolated CI fixture
+          # control action; it is never sent to a browser or ExApp user API.
+          core_env="$(docker inspect downloader-test-core \
+            --format '{{range .Config.Env}}{{println .}}{{end}}')"
+          fixture_token="$(printf '%s\n' "$core_env" | sed -n 's/^MOCK_CORE_TOKEN=//p')"
+          test -n "$fixture_token"
+          echo "::add-mask::$fixture_token"
           docker run --rm -i --network downloader-appapi-ci \
             -e EXAPP_SECRET="$secret" \
             -e EXAPP_PORT="$port" \
             -e NC_USER_TEST_PASSWORD="$NEXTCLOUD_APP_PASSWORD" \
+            -e MOCK_CORE_TOKEN="$fixture_token" \
             python:3.13-alpine python - <<'PY'
           import base64
+          import hashlib
           import json
           import os
           import time
@@ -360,6 +369,59 @@ jobs:
               assert response.status == 207, response.status
               assert b"collection" in response.read().lower()
           print("Real AppAPI + Nextcloud Files: first-use /Downloads created in Alice's own Files")
+
+          # First-use guide MUST NOT complete on a queued, unverified job.
+          with urlopen(signed_request("alice", "/user/api/jobs"), timeout=30) as response:
+              pending_jobs = json.load(response)
+          assert [job["status"] for job in pending_jobs] == ["queued"], pending_jobs
+          with urlopen(signed_request("alice", "/user/api/settings"), timeout=30) as response:
+              pending_settings = json.load(response)
+          assert pending_settings["app_password_configured"] is True
+          assert pending_settings["first_download_verified"] is False
+
+          # The mock core never performs a download. Construct a deterministic
+          # media fixture in actual disposable Nextcloud DAV, verify the same
+          # bytes by GET and SHA-256, then and only then let the mock core
+          # publish a *simulated* verified-completion manifest.
+          fixture_dir = "http://downloader-appapi-nextcloud/remote.php/dav/files/alice/Downloads/ci-first-use-user-job/"
+          basic_auth = "Basic " + base64.b64encode(
+              f"alice:{os.environ['NC_USER_TEST_PASSWORD']}".encode()
+          ).decode()
+          with urlopen(Request(
+              fixture_dir, headers={"Authorization": basic_auth}, method="MKCOL"
+          ), timeout=30) as response:
+              assert response.status == 201, response.status
+          fixture_bytes = b"%PDF-1.4\n" + b"Verified disposable Nextcloud fixture\n"
+          fixture_bytes += b"X" * (13264 - len(fixture_bytes))
+          fixture_sha256 = hashlib.sha256(fixture_bytes).hexdigest()
+          with urlopen(Request(
+              fixture_dir + "dummy.pdf", data=fixture_bytes, method="PUT",
+              headers={"Authorization": basic_auth, "Content-Type": "application/pdf"},
+          ), timeout=30) as response:
+              assert response.status in (201, 204), response.status
+          with urlopen(Request(
+              fixture_dir + "dummy.pdf", method="GET",
+              headers={"Authorization": basic_auth},
+          ), timeout=30) as response:
+              readback = response.read()
+          assert len(readback) == 13264 and readback == fixture_bytes
+          assert hashlib.sha256(readback).hexdigest() == fixture_sha256
+
+          with urlopen(Request(
+              "http://downloader-test-core:8080/fixture/complete-after-dav-readback",
+              method="POST", headers={"X-API-Key": os.environ["MOCK_CORE_TOKEN"]},
+          ), timeout=30) as response:
+              assert json.load(response)["fixture_completed"] is True
+
+          with urlopen(signed_request("alice", "/user/api/jobs"), timeout=30) as response:
+              completed_jobs = json.load(response)
+          assert len(completed_jobs) == 1 and completed_jobs[0]["status"] == "completed"
+          assert completed_jobs[0]["owner_id"] == "alice"
+          assert completed_jobs[0]["output_files"][0]["verified"] is True
+          with urlopen(signed_request("alice", "/user/api/settings"), timeout=30) as response:
+              completed_settings = json.load(response)
+          assert completed_settings["first_download_verified"] is True
+          print("First-run owner acceptance: queued stays pending; byte-verified DAV fixture completes guide")
 
           # The visual folder picker calls this signed, owner-scoped read-only
           # endpoint; verify actual nc_py_api listdir against Nextcloud DAV.
