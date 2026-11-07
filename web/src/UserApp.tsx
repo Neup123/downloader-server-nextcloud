@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { PersonalAutosave, type SaveStatus } from './personal-autosave';
+import './personal-settings.css';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
@@ -13,6 +15,26 @@ type Personal = {
   engine_settings: Record<string, Record<string, unknown>>; app_password_configured: boolean;
   first_download_verified?: boolean; notify_finished?: boolean; notify_failed?: boolean;
 };
+type SafePersonal = {
+  destination_folder: string; default_preset: string;
+  notify_finished: boolean; notify_failed: boolean;
+};
+type FolderChoice = {name: string; path: string};
+type FolderListing = {path: string; folders: FolderChoice[]; offset: number; has_more: boolean};
+const ordinaryPreferences = (value: Personal): SafePersonal => ({
+  destination_folder: value.destination_folder,
+  default_preset: value.default_preset,
+  notify_finished: value.notify_finished !== false,
+  notify_failed: value.notify_failed !== false,
+});
+function validateFolderDraft(folder: string): void {
+  const normalized = folder.trim().replace(/^\/+|\/+$/g, '');
+  if (folder.length > 512 || /[\x00-\x1f\\]/.test(folder)
+      || (normalized && normalized.split('/').some(part =>
+        !part || part === '.' || part === '..'))) {
+    throw new Error('Choose a valid folder in your Files (without parent paths).');
+  }
+}
 const TYPES: Engine[] = ['auto', 'yt-dlp', 'aria2c', 'gallery-dl', 'generic', 'you-get', 'svtplay-dl', 'get-sauce'];
 const API = window.location.pathname.replace(/\/user\/?$/, '/user/api');
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
@@ -63,6 +85,16 @@ export default function UserApp() {
   const [cookies, setCookies] = useState<{filename: string}[]>([]);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const personalAutosave = useRef<PersonalAutosave<SafePersonal> | null>(null);
+  const [personalSaveState, setPersonalSaveState] = useState<SaveStatus>('loading');
+  const [personalValidationError, setPersonalValidationError] = useState('');
+  const [connectingFiles, setConnectingFiles] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [folderBrowserPath, setFolderBrowserPath] = useState('');
+  const [folderOptions, setFolderOptions] = useState<FolderChoice[]>([]);
+  const [folderOffset, setFolderOffset] = useState(0);
+  const [folderHasMore, setFolderHasMore] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -84,6 +116,15 @@ export default function UserApp() {
         if (!mounted) return;
         setMe(identity.user_id);
         setPersonal(settings);
+        // Never place the write-only DAV app password in this snapshot.
+        const autosave = new PersonalAutosave<SafePersonal>(
+          async values => { await request('/settings', json('PUT', values)); },
+          setPersonalSaveState,
+          700,
+        );
+        personalAutosave.current?.dispose();
+        autosave.hydrate(ordinaryPreferences(settings));
+        personalAutosave.current = autosave;
         setEngineJson(JSON.stringify(settings.engine_settings, null, 2));
         setPresets(presetList);
         setCookies(await request<{filename: string}[]>('/cookies'));
@@ -96,8 +137,30 @@ export default function UserApp() {
     }
     void initialize();
     const timer = window.setInterval(() => { if (mounted) void reload(); }, 3500);
-    return () => { mounted = false; window.clearInterval(timer); };
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+      personalAutosave.current?.dispose();
+      personalAutosave.current = null;
+    };
   }, [reload]);
+  // Hydration alone never causes a PUT. Edits are serialized and only ordinary
+  // owner settings are included; connection credentials have a separate action.
+  useEffect(() => {
+    if (initializing || !me || !personalAutosave.current) return;
+    try {
+      validateFolderDraft(personal.destination_folder);
+      setPersonalValidationError('');
+      personalAutosave.current.change(ordinaryPreferences(personal));
+    } catch (error) {
+      setPersonalValidationError(
+        error instanceof Error ? error.message : 'Choose a valid Files folder.',
+      );
+      personalAutosave.current.pause();
+    }
+  }, [initializing, me, personal.destination_folder, personal.default_preset,
+    personal.notify_finished, personal.notify_failed]);
+
   const active = useMemo(() => jobs.find(job => job.id === selected), [jobs, selected]);
   const running = jobs.filter(job => !TERMINAL.has(job.status));
   const hasVerifiedDownload = Boolean(personal.first_download_verified)
@@ -133,23 +196,47 @@ export default function UserApp() {
       setMessage(error instanceof Error ? error.message : 'Job action failed');
     }
   }
-  async function savePersonal(event: FormEvent) {
+  async function connectFiles(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
+    if (!appPassword) return;
+    setConnectingFiles(true);
     try {
-      const newSettings = await request<Personal>('/settings', json('PUT', {
-        destination_folder: personal.destination_folder,
-        default_preset: personal.default_preset,
-        notify_finished: personal.notify_finished !== false,
-        notify_failed: personal.notify_failed !== false,
-        ...(appPassword ? { app_password: appPassword } : {}),
+      // The only path for a DAV secret is this explicit user action.
+      // Ordinary preference autosaves never read or send appPassword.
+      const result = await request<Personal>('/settings', json('PUT', {
+        app_password: appPassword,
       }));
-      setPersonal(newSettings);
+      setPersonal(previous => ({
+        ...previous,
+        app_password_configured: result.app_password_configured,
+      }));
       setAppPassword('');
-      setMessage('Saved ✓ Your new downloads will use these settings.');
+      setMessage('Connected ✓ Your own Nextcloud Files are available for delivery.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save preferences');
-    } finally { setBusy(false); }
+      setMessage(error instanceof Error ? error.message : 'Could not connect your Files.');
+    } finally { setConnectingFiles(false); }
+  }
+
+  async function browseFolders(path: string, append = false) {
+    if (folderBusy) return;
+    setFolderBusy(true);
+    try {
+      const params = new URLSearchParams({
+        path, offset: append ? String(folderOffset + 100) : '0',
+      });
+      const listed = await request<FolderListing>('/folders?' + params.toString());
+      setFolderBrowserPath(listed.path);
+      setFolderOptions(previous => append ? [...previous, ...listed.folders] : listed.folders);
+      setFolderOffset(listed.offset);
+      setFolderHasMore(listed.has_more);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Cannot browse this folder in your Files.');
+    } finally { setFolderBusy(false); }
+  }
+
+  function pickFolder(path: string) {
+    setPersonal(previous => ({...previous, destination_folder: path}));
+    setFolderPickerOpen(false);
   }
   async function saveEngines(event: FormEvent) {
     event.preventDefault();
@@ -300,37 +387,114 @@ export default function UserApp() {
       </section>
     </div>}
 
-    {tabs === 'personal' && <section className="panel delivery-panel">
-      <h2>My settings</h2>
-      <p className="muted">These settings are stored in your Nextcloud account, not shared across users.</p>
-      <form onSubmit={event => void savePersonal(event)}>
-        <h3>Where your downloads go</h3><p className="muted">Delivered files appear in this folder in your own Nextcloud Files. The default is Downloads.</p>
-        <label>Destination folder<input value={personal.destination_folder}
-          onChange={event => setPersonal(old => ({ ...old, destination_folder: event.target.value }))} /></label>
-        <h3>Your defaults</h3><p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
-        <label>Default preset<select value={personal.default_preset}
-          onChange={event => setPersonal(old => ({ ...old, default_preset: event.target.value }))}>
-          <option value="">None</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
-        </select></label>
-        <h3>Files connection</h3><p className="muted" role="status">{personal.app_password_configured ? 'Connected ✓' : 'Not connected — create an app password to let Downloader deliver files.'}</p>
-        <p className="muted"><a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>, then paste it below.</p>
-        <label>My Nextcloud Files app password
-          <input type="password" autoComplete="new-password" value={appPassword}
-            onChange={event => setAppPassword(event.target.value)}
-            placeholder={personal.app_password_configured ? 'Stored securely; leave blank to keep' : 'Create one in Nextcloud personal Security settings'} />
-        </label>
-        <p className="secure-note">A dedicated Nextcloud app password authorizes WebDAV delivery to your own Files. It is stored as a sensitive Nextcloud preference and never shown again. The downloader service API key never reaches this page.</p>
-        <h3>Notifications</h3>
-        <p className="muted">Choose which download outcomes should send native Nextcloud notifications. Your download history is kept either way.</p>
-        <label className="check"><input type="checkbox" checked={personal.notify_finished !== false}
-          onChange={event => setPersonal(old => ({...old, notify_finished: event.target.checked}))} />
-          Notify me when a download finishes</label>
-        <label className="check"><input type="checkbox" checked={personal.notify_failed !== false}
-          onChange={event => setPersonal(old => ({...old, notify_failed: event.target.checked}))} />
-          Notify me when a download fails or is cancelled</label>
-        <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save my settings'}</button>
-      </form>
-    </section>}
+    {tabs === 'personal' && <div className="personal-settings">
+      <div className="personal-heading">
+        <h2>My settings</h2>
+        <p className="muted">Your settings belong to your Nextcloud account. They do not change anybody else's downloads.</p>
+        <div className="personal-save-state" role="status" aria-live="polite">
+          {personalValidationError || (personalSaveState === 'saved'
+            ? 'Saved ✓ Changes affect new downloads.'
+            : personalSaveState === 'pending' ? 'Changes will save automatically…'
+            : personalSaveState === 'saving' ? 'Saving changes…'
+            : personalSaveState === 'error' ? 'Changes not saved. Check your connection and retry.'
+            : 'Loading your settings…')}
+          {personalSaveState === 'error' && !personalValidationError &&
+            <button type="button" className="small secondary"
+              onClick={() => personalAutosave.current?.retry()}>Retry saving</button>}
+        </div>
+      </div>
+      <div className="personal-settings-grid">
+        <section className="panel personal-card" aria-label="Where your downloads go">
+          <div className="eyebrow">MY FILES</div><h3>Where your downloads go</h3>
+          <p className="muted">Delivered files appear in this folder in your own Nextcloud Files. The default is Downloads.</p>
+          <label>Destination folder
+            <input value={personal.destination_folder}
+              onChange={event => setPersonal(old => ({...old, destination_folder: event.target.value}))}
+              placeholder="Downloads" />
+          </label>
+          <button type="button" className="secondary personal-browse"
+            onClick={() => {setFolderPickerOpen(true);void browseFolders('');}}>
+            Browse my Files folders
+          </button>
+          {folderPickerOpen && <div className="personal-folder-picker" aria-label="Choose a Files folder">
+            <div className="folder-picker-head">
+              <strong>Folder: /{folderBrowserPath}</strong>
+              <button type="button" className="small secondary"
+                onClick={() => setFolderPickerOpen(false)}>Close</button>
+            </div>
+            <p className="muted">Only folders in your own Files are listed. Choose an existing folder.</p>
+            <div className="folder-picker-actions">
+              <button type="button" className="small secondary" disabled={folderBusy || !folderBrowserPath}
+                onClick={() => void browseFolders(folderBrowserPath.split('/').slice(0, -1).join('/'))}>
+                Parent folder
+              </button>
+              <button type="button" className="small primary" disabled={folderBusy}
+                onClick={() => pickFolder(folderBrowserPath)}>Use this folder</button>
+            </div>
+            {folderBusy ? <p role="status">Loading folders…</p> :
+              !folderOptions.length ? <p className="muted">No subfolders here.</p> :
+                <ul className="folder-options">
+                  {folderOptions.map(option => <li key={option.path}>
+                    <span>📁 {option.name}</span>
+                    <button type="button" className="small secondary"
+                      onClick={() => void browseFolders(option.path)}>Open</button>
+                  </li>)}
+                </ul>}
+            {folderHasMore && <button type="button" className="small secondary"
+              disabled={folderBusy} onClick={() => void browseFolders(folderBrowserPath, true)}>
+              Show more folders
+            </button>}
+          </div>}
+          <h3>Your defaults</h3>
+          <p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
+          <label>Default preset<select value={personal.default_preset}
+            onChange={event => setPersonal(old => ({...old, default_preset: event.target.value}))}>
+            <option value="">None</option>{presets.map(preset =>
+              <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
+          </select></label>
+        </section>
+        <section className="panel personal-card" aria-label="Files connection">
+          <div className="eyebrow">SECURE DELIVERY</div><h3>Files connection</h3>
+          <p className="muted" role="status">
+            {personal.app_password_configured
+              ? 'Connected ✓ Your downloads can be delivered to your own Files.'
+              : 'Not connected — create an app password to let Downloader deliver files.'}
+          </p>
+          <p className="muted">
+            <a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>,
+            then enter it here.
+          </p>
+          <form onSubmit={event => void connectFiles(event)}>
+            <label>My Nextcloud Files app password
+              <input type="password" autoComplete="new-password" value={appPassword}
+                onChange={event => setAppPassword(event.target.value)}
+                placeholder={personal.app_password_configured
+                  ? 'Stored securely; enter a new password only to replace it'
+                  : 'Paste your dedicated app password'} />
+            </label>
+            <button type="submit" className="primary" disabled={!appPassword || connectingFiles}>
+              {connectingFiles ? 'Connecting…'
+                : personal.app_password_configured ? 'Update Files connection' : 'Connect my Files'}
+            </button>
+          </form>
+          <p className="secure-note">The password is saved only when you press Connect.
+            It is stored as a sensitive Nextcloud preference and never shown again.
+            The downloader service API key never reaches this page.</p>
+        </section>
+        <section className="panel personal-card" aria-label="Notifications">
+          <div className="eyebrow">MY ALERTS</div><h3>Notifications</h3>
+          <p className="muted">Choose which download outcomes should send native Nextcloud notifications. Your download history is kept either way.</p>
+          <label className="check"><input type="checkbox" checked={personal.notify_finished !== false}
+            onChange={event => setPersonal(old => ({...old, notify_finished: event.target.checked}))} />
+            Notify me when a download finishes</label>
+          <label className="check"><input type="checkbox" checked={personal.notify_failed !== false}
+            onChange={event => setPersonal(old => ({...old, notify_failed: event.target.checked}))} />
+            Notify me when a download fails or is cancelled</label>
+          <p className="muted">Changes to notifications and your destination save automatically.
+            Already-running downloads keep their existing destination.</p>
+        </section>
+      </div>
+    </div>}
 
     {tabs === 'engines' && <div className="settings-layout">
       <section className="panel">

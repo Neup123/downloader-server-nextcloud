@@ -21,7 +21,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 from nextcloud_exapp.user import (
     UserContext, require_user, require_admin, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
-    normalize_shared_presets, SHARED_PRESET_PREFIX,
+    normalize_shared_presets, SHARED_PRESET_PREFIX, validate_folder,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
@@ -235,6 +235,49 @@ async def user_page(request: Request):
 @APP.get("/user/api/me")
 async def user_me(context: UserContext = Depends(require_user)):
     return {"user_id": context.user_id, "entitled": True}
+
+
+@APP.get("/user/api/folders")
+async def user_folders(path: str = "", offset: int = 0,
+                       context: UserContext = Depends(require_user)):
+    """Browse existing folders in the signed Nextcloud user's own Files.
+
+    No arbitrary user ID, local path or Core credential is accepted. This is a
+    read-only picker, not a Files-wide listing or folder creation endpoint.
+    """
+    folder = validate_folder(path)
+    if not 0 <= offset <= 10000:
+        raise HTTPException(status_code=422, detail="Invalid folder page")
+    try:
+        nodes = await context.nc.files.listdir("/" + folder if folder else "/")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409, detail="Cannot browse this folder in your Nextcloud Files"
+        ) from exc
+    expected_prefix = folder + "/" if folder else ""
+    choices: dict[str, dict[str, str]] = {}
+    for node in nodes:
+        if not getattr(node, "is_dir", False):
+            continue
+        raw = getattr(node, "user_path", None)
+        if not isinstance(raw, str):
+            continue
+        try:
+            child = validate_folder(raw)
+        except HTTPException:
+            continue
+        if not child.startswith(expected_prefix):
+            continue
+        name = child[len(expected_prefix):]
+        if not name or "/" in name:
+            continue
+        choices[child] = {"name": name, "path": child}
+    rows = sorted(choices.values(), key=lambda item: item["name"].casefold())
+    page = rows[offset:offset + 100]
+    return {
+        "path": folder, "folders": page, "offset": offset,
+        "has_more": len(rows) > offset + len(page),
+    }
 
 
 @APP.get("/user/api/settings")
