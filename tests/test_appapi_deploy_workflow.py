@@ -31,7 +31,7 @@ class AppApiDeployWorkflowTests(unittest.TestCase):
     def test_our_exapp_really_deploys_and_enforces_appapi_signing(self):
         source = (ROOT / ".github/workflows/appapi-docker-deploy-e2e.yml").read_text()
         required = (
-            "ghcr.io/neup123/downloader-server-nextcloud:0.5.2",
+            "ghcr.io/neup123/downloader-server-nextcloud:0.5.3",
             "app_api:daemon:registry:add downloader-ci-dsp",
             "--registry-from=ghcr.io --registry-to=local",
             "--info-xml /tmp/downloader-info.xml",
@@ -47,7 +47,7 @@ class AppApiDeployWorkflowTests(unittest.TestCase):
             with self.subTest(snippet=snippet):
                 self.assertIn(snippet, source)
         manifest = (ROOT / "appinfo/info.xml").read_text()
-        self.assertIn("<image-tag>0.5.2</image-tag>", manifest)
+        self.assertIn("<image-tag>0.5.3</image-tag>", manifest)
         fixture = (ROOT / "tests/exapp_mock_core.py").read_text()
         for dangerous in ("Authorization", "Cookie", "AUTHORIZATION-APP-API"):
             self.assertIn(dangerous, fixture)
