@@ -347,7 +347,10 @@ class TrackingTests(TestCase):
                     async def create(self, subject, message, link):
                         created.append((self.uid, subject, message, link))
                 def fake_nextcloud(user):
-                    return SimpleNamespace(notifications=FakeNotifications(user))
+                    return SimpleNamespace(
+                        notifications=FakeNotifications(user),
+                        preferences_ex=Pref(),
+                    )
                 with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", fake_nextcloud):
                     await tracker.tick(core)
                     self.assertEqual({x[0] for x in created}, {"alice", "bob"})
