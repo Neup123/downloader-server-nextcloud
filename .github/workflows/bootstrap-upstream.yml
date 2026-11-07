@@ -133,6 +133,9 @@ jobs:
           python -m compileall -q app scripts tests nextcloud_exapp
           # The reviewed downstream module manifest excludes core-only tests,
           # including ones already imported into downstream Git ancestry.
+          # The owner-scoped UI/onboarding tests import nc_py_api; run them
+          # against the same exact-version Nextcloud runtime lock as the ExApp.
+          python -m pip install -r nextcloud_exapp/requirements.lock
           python3 scripts/run_downstream_acceptance.py
 
       - name: Verify merged production Docker image builds
