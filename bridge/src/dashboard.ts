@@ -1,8 +1,11 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
+import { downloadTitle, downloadStatus, deliveredFilesQuery } from './download-labels.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
 type Job = {
-  id: string; url: string; status: string;
-  progress?: {percent?: number}; error?: string | null; created_at: string;
+  id: string; url: string; status: string; created_at: string;
+  owner_id?: string; engine?: string;
+  progress?: {percent?: number}; error?: string | null;
+  output_files?: {filename:string;path?:string;verified?:boolean;file_id?:string|number}[];
 };
 type Dashboard = {register: (id: string, render: (el: HTMLElement) => void) => void};
 const host = window as unknown as {OC?: Oc; OCA?: {Dashboard?: Dashboard}};
@@ -48,17 +51,22 @@ function renderDashboard(element: HTMLElement) {
         return;
       }
       for (const job of jobs.slice(0, 10)) {
-        const row = elem('div');
-        row.style.cssText = 'padding:8px 0;border-bottom:1px solid var(--color-border,#ddd)';
-        const label = elem('div', job.status + ': ' + job.url);
-        label.title = job.url;
-        label.style.cssText = 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-        row.append(label);
+        const row = elem('article');
+        row.className = 'downloader-dashboard-job';
+        row.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--color-border,#ddd);display:grid;gap:6px';
+        const title = elem('a', downloadTitle(job));
+        title.href = host.OC!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/') +
+          '?job=' + encodeURIComponent(job.id);
+        title.style.cssText = 'font-size:14px;font-weight:600;overflow-wrap:anywhere';
+        const status = elem('div', downloadStatus(job));
+        status.style.cssText = 'font-size:12px;color:var(--color-text-maxcontrast,#777)';
+        row.append(title, status);
         if (!TERMINAL.has(job.status)) {
           const progress = elem('progress');
           progress.max = 100;
           progress.value = Math.min(100, Math.max(0, Number(job.progress?.percent ?? 0)));
           progress.style.width = '100%';
+          progress.setAttribute('aria-label', 'Progress: ' + downloadTitle(job));
           row.append(progress);
         }
         if (job.status === 'failed' && job.error) {
@@ -66,18 +74,31 @@ function renderDashboard(element: HTMLElement) {
           error.style.color = 'var(--color-error,#c33)';
           row.append(error);
         }
-        if (job.status !== 'completed') {
-          const operation = TERMINAL.has(job.status) ? 'retry' : 'cancel';
-          const action = elem('button', operation === 'retry' ? 'Retry' : 'Cancel');
-          action.type = 'button';
-          action.style.cssText = 'margin:5px 0;padding:4px 8px;cursor:pointer';
-          action.addEventListener('click', async () => {
-            action.disabled = true;
-            try {await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST');await refresh();}
-            catch {action.disabled = false;}
-          });
-          row.append(action);
+        const actions = elem('div');
+        actions.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+        const query = deliveredFilesQuery(job);
+        if (query) {
+          const files = elem('a', 'Open in Files');
+          files.href = host.OC!.generateUrl('/apps/files/files') + query;
+          files.target = '_blank'; files.rel = 'noopener noreferrer';
+          actions.append(files);
         }
+        const operation = job.status === 'completed' ? 'redeliver' : TERMINAL.has(job.status) ? 'retry' : 'cancel';
+        const action = elem('button', operation === 'retry' ? 'Try again'
+          : operation === 'redeliver' ? 'Re-deliver' : 'Cancel');
+        action.type = 'button';
+        action.style.cssText = 'margin:4px 0;padding:7px 10px;min-height:44px;cursor:pointer';
+        action.addEventListener('click', async () => {
+          action.disabled = true;
+          try {
+            await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST');
+            await refresh();
+          } catch {
+            action.disabled = false;
+          }
+        });
+        actions.append(action);
+        row.append(actions);
         list.append(row);
       }
     } catch {
