@@ -7,6 +7,7 @@ service API token or another user's WebDAV credentials.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import os
 import json
 import re
@@ -103,6 +104,94 @@ async def require_admin(request: Request) -> UserContext:
     if not isinstance(groups, (list, tuple, set, frozenset)) or "admin" not in groups:
         raise HTTPException(status_code=403, detail="Nextcloud administrator required")
     return UserContext(user_id, nc)
+
+
+async def admin_files_connection_status(admin: UserContext) -> dict[str, Any]:
+    """Admin-only readiness snapshot: explicit grants + entitled group members.
+
+    A Nextcloud administrator may see whether a user connected Files, but
+    never receives another user's saved WebDAV credential. Failed preference
+    reads are unknown rather than wrongly reported as disconnected. The scan
+    of group members is bounded to avoid overwhelming a large Nextcloud.
+    """
+    allowed_users = parse_entitlements(
+        await admin.nc.appconfig_ex.get_value("allowed_users", "")
+    )
+    allowed_groups = parse_entitlements(
+        await admin.nc.appconfig_ex.get_value("allowed_groups", "")
+    )
+    max_scanned = 250
+    discovered: set[str] = set()
+    scan_truncated = False
+    directory_unavailable = False
+    if allowed_groups:
+        try:
+            directory = await admin.nc.users_list()
+            if not isinstance(directory, list) or any(
+                not isinstance(uid, str) for uid in directory
+            ):
+                raise ValueError("Invalid Nextcloud user directory")
+            # Even if the list is larger, do not claim all group members
+            # were checked; the result carries an explicit partial flag.
+            scan_truncated = len(directory) > max_scanned
+            discovered = set(directory[:max_scanned])
+        except Exception:
+            directory_unavailable = True
+
+    candidates = sorted(allowed_users | discovered)
+    group_members: dict[str, list[str]] = {gid: [] for gid in allowed_groups}
+    ready_users: dict[str, dict[str, Any]] = {}
+    gate = asyncio.Semaphore(10)
+
+    async def inspect_user(uid: str) -> None:
+        async with gate:
+            groups: list[str] = []
+            group_known = False
+            try:
+                info = await admin.nc.users.get_user(uid)
+                if isinstance(info.groups, (list, tuple)):
+                    groups = [value for value in info.groups if isinstance(value, str)]
+                    group_known = True
+            except Exception:
+                pass
+            matching = sorted(allowed_groups.intersection(groups))
+            if uid not in allowed_users and not matching:
+                return
+            # Do not mistake an unavailable membership lookup for a grant.
+            if uid not in allowed_users and not group_known:
+                return
+            status = "unknown"
+            try:
+                personal = AsyncNextcloudApp(user=uid)
+                stored = await personal.preferences_ex.get_value("dav_app_password", "")
+                status = "connected" if bool(stored) else "not_connected"
+            except Exception:
+                pass
+            ready_users[uid] = {
+                "user_id": uid, "via_groups": matching,
+                "explicit": uid in allowed_users, "connection": status,
+            }
+            for gid in matching:
+                group_members[gid].append(uid)
+
+    await asyncio.gather(*(inspect_user(uid) for uid in candidates))
+    groups = []
+    for name in sorted(allowed_groups):
+        members = [ready_users[uid] for uid in group_members[name]]
+        groups.append({
+            "name": name,
+            "members_checked": len(members),
+            "connected": sum(item["connection"] == "connected" for item in members),
+            "not_connected": sum(item["connection"] == "not_connected" for item in members),
+            "unknown": sum(item["connection"] == "unknown" for item in members),
+            "partial": scan_truncated or directory_unavailable,
+        })
+    return {
+        "users": [ready_users[uid] for uid in sorted(ready_users)],
+        "groups": groups,
+        "partial": scan_truncated or directory_unavailable,
+        "scan_limit": max_scanned,
+    }
 
 
 async def read_user_preferences(context: UserContext) -> dict[str, Any]:

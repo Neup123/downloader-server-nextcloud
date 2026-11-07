@@ -19,7 +19,7 @@ from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import (
-    UserContext, require_user, require_admin, read_user_preferences,
+    UserContext, require_user, require_admin, admin_files_connection_status, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
     normalize_shared_presets, SHARED_PRESET_PREFIX, validate_folder,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
@@ -494,6 +494,12 @@ async def admin_connection_status(admin: UserContext = Depends(require_admin)):
             "token_configured": True, "engines_ready": 0,
             "message": "Cannot reach Downloader Server with the configured credentials",
         }
+
+
+@APP.get("/admin/api/files-connections")
+async def admin_read_files_connections(admin: UserContext = Depends(require_admin)):
+    """Read-only administrator visibility, with no app password returned."""
+    return await admin_files_connection_status(admin)
 
 
 @APP.get("/admin/api/entitlements")

@@ -271,3 +271,29 @@ is never sent to the user's browser.
 On a missing or inaccessible Nextcloud Files folder, select an existing
 folder using the picker; the default first-use Downloads folder may also
 be created by the signed submission flow as documented above.
+
+
+### Administrator: which entitled users have connected Files?
+
+Open **Nextcloud → Downloader administration → Who can download**, then
+select **Check Files connections**. This read-only report checks the **saved**
+user/group entitlements, displays each entitled user as **Connected ✓**,
+**Not connected**, or **Status unavailable**, and summarizes each
+entitled group's connection status.
+
+Only a signed Nextcloud administrator can request this report. It asks
+Nextcloud whether each granted user has saved a dedicated WebDAV app
+password; neither the password nor any API token is ever returned to the
+administrator's browser. **Status unavailable** means Nextcloud could
+not read the user's readiness; it is not equivalent to no connection.
+For large installations, group membership inspection is capped at 250
+directory users per refresh. If Nextcloud cannot provide that directory
+or the scan is incomplete, the admin screen explicitly marks group
+counts **partial**; missing names must not be treated as disconnected.
+The report does not itself grant or revoke any Downloader access.
+
+The two-step first-run guide remains visible to entitled users until
+their Files connection is configured and a download has actually
+completed with verified WebDAV delivery. A non-entitled user's direct
+link gets the existing friendly access message rather than the admin
+connection report.
