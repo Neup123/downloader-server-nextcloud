@@ -400,7 +400,17 @@ function registerProvenanceSidebar() {
             const url = node('a', record.source_url, 'dl-provenance-source');
             url.href = record.source_url;
             url.target = '_blank'; url.rel = 'noopener noreferrer';
-            const details = node('p', 'Engine: ' + record.engine, 'dl-muted');
+            const info = node('dl', '', 'dl-provenance-details');
+            const when = new Date(record.created_at);
+            const entries: Array<[string, string]> = [
+              ['Filename', record.filename || 'Unknown'],
+              ['Downloaded by', record.owner_id || 'Unknown'],
+              ['Downloaded on', Number.isFinite(when.getTime()) ? when.toLocaleString() : 'Date unavailable'],
+              ['Engine', record.engine || 'Unknown'],
+            ];
+            for (const [key, value] of entries) {
+              info.append(node('dt', key), node('dd', value));
+            }
             const redownload = node('button', 'Re-download from source', 'dl-primary');
             redownload.type = 'button';
             redownload.addEventListener('click', async () => {
@@ -414,7 +424,7 @@ function registerProvenanceSidebar() {
                 redownload.disabled = false;
               }
             });
-            this.replaceChildren(heading, url, details, redownload);
+            this.replaceChildren(heading, url, info, redownload);
           } catch (error) {
             if (this.version !== call) return;
             const message = error instanceof Error && /404|not found/i.test(error.message)
@@ -457,6 +467,9 @@ function styles() {
     '.dl-job progress{width:100%}.dl-error{color:var(--color-error,#c33)}',
     '.dl-small{justify-self:end;padding:3px 6px}',
     '.dl-provenance-source{display:block;overflow-wrap:anywhere;margin:10px 0}',
+    '.dl-provenance-details{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;font-size:13px}',
+    '.dl-provenance-details dt{color:var(--color-text-maxcontrast,#777)}',
+    '.dl-provenance-details dd{margin:0;overflow-wrap:anywhere}',
     '.dl-viewer-trigger{position:absolute;top:18px;right:108px;z-index:10050;',
     'padding:7px 10px;border-radius:6px;border:1px solid var(--color-border,#ccc);',
     'background:var(--color-main-background,#222);color:var(--color-main-text,#fff);cursor:pointer}',
