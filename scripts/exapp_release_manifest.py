@@ -35,7 +35,7 @@ def render_release(
     if (
         docker.findtext("registry") != REGISTRY
         or docker.findtext("image") != IMAGE
-        or docker.findtext("image-tag") != "0.5.2"
+        or docker.findtext("image-tag") != "0.5.3"
     ):
         raise ValueError("Manifest registry, image or development tag changed unexpectedly")
     if root.findtext("id") != "downloader-server-nextcloud":

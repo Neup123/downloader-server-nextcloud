@@ -13,7 +13,12 @@ This repository must stay thin. It must not contain downloader logic or duplicat
 
 ## Current status
 
-**The administrator-only Downloader Server ExApp is implemented and has passed a real disposable Nextcloud 35 AppAPI installation, signed proxy request and removal test. The actual Nextcloud installation has NOT been checked or approved for deployment.**
+**The per-user Nextcloud v0.5.3 release includes native Files, Viewer, Dashboard,
+Search, Activity and opt-in Talk message actions.** The standalone downloader
+remains Core v0.3.1. Disposable Nextcloud 35 AppAPI and WebDAV checks are
+automated; **the owner's actual Nextcloud installation has NOT been checked or
+approved for deployment**. See [per-user installation](NEXTCLOUD_PER_USER_INSTALL.md)
+and the [acceptance ledger](ACCEPTANCE_STATUS.md).
 
 - [NEXTCLOUD.md](NEXTCLOUD.md) defines the integration boundary, AppAPI/ExApp deployment path, fallbacks, WebDAV delivery, and target-instance checks.
 - Core `main` Git ancestry was already imported in merge commit [`0044d368`](https://github.com/Neup123/downloader-server-nextcloud/commit/0044d3686fed9167a9268872c9b1935740e2b74a). Future local clones should add the `upstream` remote normally; do not repeat the unrelated-histories bootstrap.
