@@ -263,7 +263,10 @@ function registerTalkAction(): boolean {
 function installTalkAction() {
   // The Talk bundle may initialize after the native UI bridge. Bounded retry,
   // only on Talk routes; no polling of messages, DOM scraping or bot install.
-  if (!/(?:\\/call(?:\\/|$)|\\/apps\\/spreed(?:\\/|$))/.test(window.location.pathname)) return;
+  const segments = window.location.pathname.split('/');
+  const inTalk = segments.some((part, index) => part === 'call'
+    || (part === 'apps' && segments[index + 1] === 'spreed'));
+  if (!inTalk) return;
   if (registerTalkAction()) return;
   let attempts = 0;
   const timer = window.setInterval(() => {
