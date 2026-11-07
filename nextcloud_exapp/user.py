@@ -122,6 +122,7 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         "engine_settings": {name: options for name, options in settings.items()
                             if name in ENGINES and isinstance(options, dict)},
         "app_password_configured": bool(await preferences.get_value("dav_app_password", "")),
+        "first_download_verified": await preferences.get_value("first_download_verified", "0") == "1",
     }
 
 
