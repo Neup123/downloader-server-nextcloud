@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
@@ -211,7 +211,23 @@ async def core_json(method: str, path: str, *, payload: dict | None = None,
 
 
 @APP.get("/user/")
-async def user_page(context: UserContext = Depends(require_user)):
+async def user_page(request: Request):
+    # The signed identity remains mandatory; only the lack of a Downloader
+    # entitlement turns into friendly navigation rather than a raw 403 page.
+    try:
+        await require_user(request)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        return HTMLResponse(
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
+            "<title>Downloader access</title>"
+            "<main style=\"max-width:36rem;margin:4rem auto;font:1rem system-ui;padding:1rem\">"
+            "<h1>Downloader is not enabled for your account</h1>"
+            "<p>Ask your Nextcloud administrator to give you access to Downloader.</p>"
+            "<a href=\"/\">Back to Nextcloud</a></main></html>",
+            headers={"Cache-Control": "no-store"},
+        )
     return FileResponse(DIST / "user.html", media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
@@ -298,6 +314,16 @@ async def user_jobs(limit: int = 50, status: str | None = None,
     if not isinstance(rows, list):
         raise HTTPException(status_code=502, detail="Invalid download list")
     owned = [own_job(row, context.user_id) for row in rows]
+    # Retain completed onboarding across browsers and after history pagination.
+    # A queued/failed job or unverified delivery must never complete the guide.
+    if any(job.get("status") == "completed"
+           and job.get("output_files")
+           and all(isinstance(item, dict) and item.get("verified") is True
+                   for item in job["output_files"]) for job in owned):
+        try:
+            await context.nc.preferences_ex.set_value("first_download_verified", "1")
+        except Exception:
+            pass  # Onboarding tracking cannot prevent history retrieval.
     try:
         await update_index(context.nc, context.user_id, owned)
     except Exception:
