@@ -16,6 +16,7 @@ on:
       - ".github/workflows/publish-exapp-commit-image.yml"
       - "tests/exapp_mock_core.py"
       - "web/**"
+      - "bridge/**"
   pull_request:
     paths:
       - ".github/workflows/appapi-docker-deploy-e2e.yml"
@@ -30,6 +31,7 @@ on:
       - ".github/workflows/publish-exapp-commit-image.yml"
       - "tests/exapp_mock_core.py"
       - "web/**"
+      - "bridge/**"
   workflow_dispatch:
 
 permissions:
