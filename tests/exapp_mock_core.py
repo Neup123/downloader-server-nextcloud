@@ -8,6 +8,15 @@ from __future__ import annotations
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Lock
+from urllib.parse import parse_qs, urlsplit
+
+
+# Controlled CI fixture state only, never a production core implementation.
+# Completion is published only after the runner independently verifies an
+# actual byte-for-byte Nextcloud WebDAV upload.
+_STATE_LOCK = Lock()
+_TEST_JOB: dict | None = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -23,8 +32,21 @@ class Handler(BaseHTTPRequestHandler):
         )):
             self.respond(400, {"detail": "Browser credentials reached core"})
             return
-        if self.path == "/api/v1/jobs":
+        target = urlsplit(self.path)
+        if target.path == "/api/v1/jobs" and target.query:
+            owner = parse_qs(target.query).get("owner_id", [""])[0]
+            with _STATE_LOCK:
+                selected = dict(_TEST_JOB) if _TEST_JOB is not None else None
+            self.respond(200, [selected] if owner == "alice" and selected else [])
+        elif self.path == "/api/v1/jobs":
             self.respond(200, [{"id": "ci-proxy-verified", "status": "queued"}])
+        elif target.path == "/api/v1/jobs/ci-first-use-user-job":
+            with _STATE_LOCK:
+                selected = dict(_TEST_JOB) if _TEST_JOB is not None else None
+            if selected:
+                self.respond(200, selected)
+            else:
+                self.respond(404, {"detail": "No fixture job"})
         elif self.path == "/api/v1/engines":
             self.respond(200, [{"name": "generic", "installed": True}])
         else:
@@ -38,6 +60,26 @@ class Handler(BaseHTTPRequestHandler):
             "Authorization", "Cookie", "AUTHORIZATION-APP-API",
         )):
             self.respond(400, {"detail": "Browser credentials reached core"})
+            return
+        if self.path == "/fixture/complete-after-dav-readback":
+            # The runner calls this **only after** uploading into disposable
+            # Nextcloud and checking the actual returned bytes and checksum.
+            global _TEST_JOB
+            with _STATE_LOCK:
+                if _TEST_JOB is None:
+                    self.respond(409, {"detail": "No queued test job"})
+                    return
+                _TEST_JOB = {
+                    **_TEST_JOB,
+                    "status": "completed",
+                    "progress": {"state": "completed", "percent": 100},
+                    "output_files": [{
+                        "filename": "dummy.pdf", "size_bytes": 13264,
+                        "verified": True,
+                        "path": "http://downloader-appapi-nextcloud/remote.php/dav/files/alice/Downloads/ci-first-use-user-job/dummy.pdf",
+                    }],
+                }
+            self.respond(200, {"fixture_completed": True})
             return
         if self.path != "/api/v1/jobs":
             self.respond(404, {"detail": "Unknown endpoint"})
@@ -57,10 +99,17 @@ class Handler(BaseHTTPRequestHandler):
         # This fixture never downloads or writes to Nextcloud. It proves
         # that actual Nextcloud's signed per-user Files folder creation
         # succeeded before the job reached the core.
-        self.respond(202, {
+        created = {
             "id": "ci-first-use-user-job", "owner_id": "alice",
-            "status": "queued", "delivery": {"mode": "webdav", "folder": "Downloads"},
-        })
+            "url": data["url"], "engine": data.get("engine", "generic"),
+            "status": "queued", "progress": {"state": "queued"},
+            "output_files": [],
+            "delivery": {"mode": "webdav", "folder": "Downloads"},
+        }
+        global _TEST_JOB
+        with _STATE_LOCK:
+            _TEST_JOB = created
+        self.respond(202, created)
 
     def respond(self, status: int, data: object) -> None:
         payload = json.dumps(data).encode()
