@@ -33,8 +33,8 @@ export function downloadAmount(input) {
 /** Match the Core Download / Library JobCard content-type icon. */
 export function downloadSymbol(job) {
   if (job.engine === 'gallery-dl' || job.engine === 'get-sauce') return '▧';
-  if (/\\.(mp3|ogg|wav|flac)(?:$|\\?)/i.test(job.url)) return '♫';
-  if (/\\.(mp4|mkv|webm)(?:$|\\?)/i.test(job.url) || job.engine === 'yt-dlp') return '▶';
+  if (/\.(mp3|ogg|wav|flac)(?:$|\?)/i.test(job.url)) return '♫';
+  if (/\.(mp4|mkv|webm)(?:$|\?)/i.test(job.url) || job.engine === 'yt-dlp') return '▶';
   return '↓';
 }
 
