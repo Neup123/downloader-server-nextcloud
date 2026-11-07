@@ -27,8 +27,8 @@ const ordinaryPreferences = (value: Personal): SafePersonal => ({
   notify_failed: value.notify_failed !== false,
 });
 function validateFolderDraft(folder: string): void {
-  const normalized = folder.trim().replace(/^\\/+|\\/+$/g, '');
-  if (folder.length > 512 || /[\\x00-\\x1f\\\\]/.test(folder)
+  const normalized = folder.trim().replace(/^\/+|\/+$/g, '');
+  if (folder.length > 512 || /[\x00-\x1f\\]/.test(folder)
       || (normalized && normalized.split('/').some(part =>
         !part || part === '.' || part === '..'))) {
     throw new Error('Choose a valid folder in your Files (without parent paths).');
