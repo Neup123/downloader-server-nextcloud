@@ -21,11 +21,19 @@ export class PersonalAutosave<T> {
   private disposed = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
+  private readonly persist: (value: T) => Promise<unknown>;
+  private readonly status: (state: SaveStatus) => void;
+  private readonly delayMs: number;
+
   constructor(
-    private readonly persist: (value: T) => Promise<unknown>,
-    private readonly status: (state: SaveStatus) => void,
-    private readonly delayMs = 650,
-  ) {}
+    persist: (value: T) => Promise<unknown>,
+    status: (state: SaveStatus) => void,
+    delayMs = 650,
+  ) {
+    this.persist = persist;
+    this.status = status;
+    this.delayMs = delayMs;
+  }
 
   hydrate(value: T): void {
     if (this.disposed) return;
