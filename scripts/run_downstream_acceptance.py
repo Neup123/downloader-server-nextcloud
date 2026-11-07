@@ -28,6 +28,7 @@ DOWNSTREAM_TEST_MODULES = frozenset({
     "tests/test_admin_files_connection_status.py",
     "tests/test_nextcloud_onboarding.py",
     "tests/test_notification_controls.py",
+    "tests/test_first_run_gateway.py",
     "tests/test_folder_picker.py",
     "tests/test_shared_preset_gateway.py",
     "tests/test_nextcloud_bridge_config.py",
