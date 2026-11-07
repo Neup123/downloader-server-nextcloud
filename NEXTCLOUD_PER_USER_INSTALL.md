@@ -146,8 +146,9 @@ python3 scripts/verify_deployed_exapp.py \
 ```
 
 The `release_sha` variable is the GitHub Release's exact target commit. Do not
-reuse the commit from an earlier release or substitute the mutable branch head. For stronger independent attestation,
-take `container_image_digest` from the matching source-SHA publisher
+reuse the commit from an earlier release or substitute the mutable branch head.
+For stronger independent attestation, take `container_image_digest` from the
+matching source-SHA publisher
 workflow's `image-provenance.json` artifact and add
 `--expected-digest ghcr.io/neup123/downloader-server-nextcloud@sha256:...`.
 This independently compares the installed Docker digest with the
@@ -210,7 +211,11 @@ on the operator's actual Nextcloud deployment.
 
 The Nextcloud 0.5.3 integration includes per-user jobs, personal settings,
 Files/+New/Viewer and progress UI, failure notifications, provenance details,
-Dashboard, unified search, and native Activity entries. The standalone core remains version 0.3.1.
+Dashboard, unified search, native Activity entries, and the opt-in Talk 35
+message-menu download action. The standalone core remains version 0.3.1.
 Nextcloud's background jobs must be enabled for Activity events.
-The native Talk 35 message menu now offers an opt-in download action for messages containing exactly one HTTP(S) link; no download begins before confirmation. Verify the menu in the operator's real Nextcloud/Talk browser before claiming target acceptance.
-Files without stored provenance cannot be re-downloaded without supplying their source URL.
+A Talk message with exactly one HTTP(S) link opens the download dialog; no
+download begins before confirmation. Verify the action in the operator's real
+Nextcloud/Talk browser before claiming target acceptance.
+Files without stored provenance cannot be re-downloaded without supplying
+their source URL.
