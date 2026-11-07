@@ -219,3 +219,28 @@ download begins before confirmation. Verify the action in the operator's real
 Nextcloud/Talk browser before claiming target acceptance.
 Files without stored provenance cannot be re-downloaded without supplying
 their source URL.
+
+
+### Shared administrator presets and private personal presets
+
+Core's administrator may mark a validated preset **Available to everyone**.
+Only explicitly marked, non-sensitive presets appear for signed-in,
+Downloader-entitled Nextcloud users. Existing Core presets remain private
+by default, including after database migration. The user's preset list
+combines those read-only shared choices with personal presets saved in that
+user's Nextcloud preferences; personal presets never leave their owner scope.
+
+Shared choices are labeled **Shared by administrator** and cannot be edited
+or deleted by ordinary Nextcloud users. Selection may be saved as the user's
+default or chosen for an individual download. The ExApp resolves the approval
+against the current Core `GET /presets/shared` collection on each submission,
+merges the approved options into that user's signed per-job settings and
+**never forwards the global Core preset ID** as a Core `preset_id`.
+Unshared, revoked, guessed or cross-user personal IDs fail closed.
+When Core is older and does not support the shared endpoint, personal presets
+still work and the shared list stays empty.
+
+The shared feature requires a Core deployment containing the new opt-in
+endpoint; it is **not** included in older tagged Core v0.3.1. It does not
+remove the need to verify a real Nextcloud target, AppAPI/HaRP routing,
+TLS/WebDAV delivery and entitlement behavior under #19.
