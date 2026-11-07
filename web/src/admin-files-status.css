@@ -1,0 +1,18 @@
+/* Administrator-only connection readiness; no credential display. */
+.admin-readiness{margin-top:22px;padding:18px 0 0;border-top:1px solid #405b7a}
+.admin-readiness-heading{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between}
+.admin-readiness-heading>div{flex:1 1 250px}
+.admin-readiness-heading h3{margin:0 0 7px}
+.admin-readiness-heading button{min-height:44px}
+.admin-readiness h4{margin:17px 0 10px}
+.admin-status-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:10px}
+.admin-connection-person{display:grid;gap:6px;min-width:0;overflow-wrap:anywhere;
+ padding:12px;border:1px solid #405b78;border-radius:10px}
+.admin-connection-person strong{font-size:14px}
+.admin-connection-state{font-size:13px;font-weight:600}
+.admin-connection-state.connected{color:#a7e5bd}
+.admin-connection-state.not_connected{color:#ffcf9d}
+.admin-connection-state.unknown{color:#ceddec}
+.admin-group-list{display:grid;gap:9px}
+.admin-group-list p{padding:11px;background:#182d43;border-radius:8px}
+@media(max-width:600px){.admin-readiness{padding-top:14px}.admin-readiness-heading button{width:100%}}
