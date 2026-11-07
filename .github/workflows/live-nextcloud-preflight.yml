@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          password="$(python -c 'import secrets; print("nc-" + secrets.token_urlsafe(32))')"
           echo "::add-mask::$password"
           echo "NEXTCLOUD_APP_PASSWORD=$password" >> "$GITHUB_ENV"
 

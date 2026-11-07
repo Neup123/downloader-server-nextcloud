@@ -54,7 +54,7 @@ jobs:
           import os
           import secrets
           for name in ("NEXTCLOUD_APP_PASSWORD", "APPAPI_DSP_PASSWORD"):
-              value = secrets.token_urlsafe(32)
+              value = ("nc-" if name == "NEXTCLOUD_APP_PASSWORD" else "") + secrets.token_urlsafe(32)
               print("::add-mask::" + value)
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
                   out.write(f"{name}={value}\n")
