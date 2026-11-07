@@ -69,12 +69,17 @@ function cleanFolder(path?: string): string {
 }
 
 async function openDialog(folder: string | null, suggested = '') {
-  const [presets, settings] = await Promise.all([
+  const request = await Promise.all([
     api<Preset[]>('/presets').catch(() => []),
     folder === null
-      ? api<{destination_folder: string}>('/settings').catch(() => ({destination_folder: 'Downloads'}))
+      ? api<{destination_folder: string}>('/settings')
       : Promise.resolve(null),
-  ]);
+  ]).catch(() => null);
+  if (!request) {
+    notify('Unable to read your Files destination. Open Downloader settings and retry.');
+    return;
+  }
+  const [presets, settings] = request;
   // A null folder means the signed user's default destination, not an explicit
   // path. Preserve that distinction so the ExApp can create /Downloads on first use.
   const originalDestination = folder === null ? settings!.destination_folder : folder;
