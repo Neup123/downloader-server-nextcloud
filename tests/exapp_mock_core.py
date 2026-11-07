@@ -53,6 +53,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, {"detail": "Unknown endpoint"})
 
     def do_POST(self) -> None:
+        global _TEST_JOB
         if self.headers.get("X-API-Key") != os.environ["MOCK_CORE_TOKEN"]:
             self.respond(401, {"detail": "Not authenticated"})
             return
@@ -64,7 +65,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/fixture/complete-after-dav-readback":
             # The runner calls this **only after** uploading into disposable
             # Nextcloud and checking the actual returned bytes and checksum.
-            global _TEST_JOB
             with _STATE_LOCK:
                 if _TEST_JOB is None:
                     self.respond(409, {"detail": "No queued test job"})
@@ -106,7 +106,6 @@ class Handler(BaseHTTPRequestHandler):
             "output_files": [],
             "delivery": {"mode": "webdav", "folder": "Downloads"},
         }
-        global _TEST_JOB
         with _STATE_LOCK:
             _TEST_JOB = created
         self.respond(202, created)
