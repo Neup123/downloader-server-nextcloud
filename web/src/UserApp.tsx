@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { PersonalAutosave, type SaveStatus } from './personal-autosave';
 import './personal-settings.css';
+import { firstDownloadVerified, showFirstRunGuide } from './first-run';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
@@ -163,10 +164,10 @@ export default function UserApp() {
 
   const active = useMemo(() => jobs.find(job => job.id === selected), [jobs, selected]);
   const running = jobs.filter(job => !TERMINAL.has(job.status));
-  const hasVerifiedDownload = Boolean(personal.first_download_verified)
-    || jobs.some(job => job.status === 'completed' && job.output_files?.length
-      && job.output_files.every(file => file.verified));
-  const showGuide = Boolean(me) && (!personal.app_password_configured || !hasVerifiedDownload);
+  const hasVerifiedDownload = firstDownloadVerified(
+    me, Boolean(personal.first_download_verified), jobs,
+  );
+  const showGuide = showFirstRunGuide(me, personal.app_password_configured, hasVerifiedDownload);
   const exampleUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
 
   async function submit(event: FormEvent) {
