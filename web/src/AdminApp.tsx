@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import './admin-files-status.css';
 
 type Connection = {
   connected: boolean; core_origin: string; token_configured: boolean;
