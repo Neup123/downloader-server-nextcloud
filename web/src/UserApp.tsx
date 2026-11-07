@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { PersonalAutosave, type SaveStatus } from './personal-autosave';
+import './personal-settings.css';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
