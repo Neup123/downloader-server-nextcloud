@@ -10,6 +10,8 @@ import os
 import sqlite3
 from pathlib import Path
 from typing import Awaitable, Callable
+from urllib.parse import quote, unquote, urlsplit
+import re
 
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
@@ -17,6 +19,45 @@ from nextcloud_exapp.user import TERMINAL_STATES, delivery_notification
 from nextcloud_exapp.search_index import update_index
 
 CoreGet = Callable[[str], Awaitable[dict]]
+
+
+def notification_link(job: dict, owner_id: str) -> str:
+    """Use only verified files in the current owner's DAV tree for native Files links.
+
+    Source URLs and HTTP hosts are never copied into notifications; when the
+    exact Files destination is unavailable, link to the owner-checked job view.
+    """
+    identifier = str(job.get("id") or "")
+    fallback = "/apps/app_api/proxy/downloader-server-nextcloud/user/"
+    if re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", identifier):
+        fallback += "?job=" + quote(identifier, safe="")
+    if job.get("status") != "completed":
+        return fallback
+    for item in job.get("output_files") or []:
+        if not isinstance(item, dict) or item.get("verified") is not True:
+            continue
+        raw = item.get("path")
+        if not isinstance(raw, str):
+            continue
+        try:
+            path = urlsplit(raw).path
+            prefix, suffix = path.split("/remote.php/dav/files/", 1)
+            parts = suffix.split("/")
+            if len(parts) < 2 or unquote(parts[0]) != owner_id:
+                continue
+            segments = [unquote(part) for part in parts[1:]]
+            if any(not part or part in (".", "..") or "/" in part or "\\" in part
+                   for part in segments):
+                continue
+            directory = "/" + "/".join(segments[:-1])
+            url = prefix + "/apps/files/files?dir=" + quote(directory, safe="")
+            file_id = item.get("file_id")
+            if isinstance(file_id, (int, str)) and str(file_id).isdecimal():
+                url += "&openfile=" + quote(str(file_id), safe="")
+            return url
+        except (ValueError, TypeError):
+            continue
+    return fallback
 
 
 class JobTracker:
@@ -62,11 +103,16 @@ class JobTracker:
                     continue
                 subject, message = delivery_notification(job)
                 nc = AsyncNextcloudApp(user=owner_id)
-                await nc.notifications.create(
-                    subject=subject,
-                    message=message,
-                    link="/apps/app_api/proxy/downloader-server-nextcloud/user/",
-                )
+                key = "notify_finished" if job["status"] == "completed" else "notify_failed"
+                # On preference-service errors keep this job pending; never
+                # override a user's opt-out by assuming notifications are on.
+                choice = await nc.preferences_ex.get_value(key, "1")
+                if choice != "0":
+                    await nc.notifications.create(
+                        subject=subject,
+                        message=message,
+                        link=notification_link(job, owner_id),
+                    )
                 self.mark(job_id)
                 try:
                     await update_index(nc, owner_id, [job])
