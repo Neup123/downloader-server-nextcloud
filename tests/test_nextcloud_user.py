@@ -378,4 +378,8 @@ class ProvenanceContractTests(TestCase):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "nextcloud_exapp/main.py").read_text()
         self.assertIn('params={"owner_id": context.user_id, "file_id": file_id}', source)
-        self.assertIn('await job_submission(context, {"url": provenance["source_url"]})', source)
+        self.assertIn('request_data = {"url": provenance["source_url"]}', source)
+        self.assertIn('shared_presets=await selected_shared_presets(context, request_data)', source)
+        self.assertIn('await job_submission(', source)
+        # Redownload still resolves exclusively from the signed owner's provenance.
+        self.assertIn('own_job_provenance(', source)
