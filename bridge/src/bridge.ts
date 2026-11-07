@@ -3,6 +3,7 @@
  * remain in the standalone core and authenticated ExApp. No server API token.
  */
 import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@nextcloud/files';
+import { suggestTalkSource } from './talk-links.mjs';
 
 type Job = {id: string; url: string; status: string; progress?: {percent?: number}; error?: string | null};
 type Preset = {id: string; name: string; engine: string};
@@ -68,7 +69,15 @@ function cleanFolder(path?: string): string {
 }
 
 async function openDialog(folder: string | null, suggested = '') {
-  const presets = await api<Preset[]>('/presets').catch(() => []);
+  const [presets, settings] = await Promise.all([
+    api<Preset[]>('/presets').catch(() => []),
+    folder === null
+      ? api<{destination_folder: string}>('/settings').catch(() => ({destination_folder: 'Downloads'}))
+      : Promise.resolve(null),
+  ]);
+  // A null folder means the signed user's default destination, not an explicit
+  // path. Preserve that distinction so the ExApp can create /Downloads on first use.
+  const originalDestination = folder === null ? settings!.destination_folder : folder;
   const dialog = node('dialog', '', 'dl-dialog');
   const form = node('form');
   form.method = 'dialog';
@@ -81,7 +90,7 @@ async function openDialog(folder: string | null, suggested = '') {
     ...presets.map(item => ({value: item.id, label: item.name})),
   ]);
   const destination = node('input', '', 'dl-input');
-  destination.value = folder === null ? 'Downloads' : folder;
+  destination.value = originalDestination;
   destination.placeholder = 'Folder in my Files';
   const buttons = node('div', '', 'dl-buttons');
   const cancel = node('button', 'Cancel');
@@ -106,7 +115,10 @@ async function openDialog(folder: string | null, suggested = '') {
         url: url.value,
         engine: engines.value,
         ...(preset.value ? {preset_id: preset.value} : {}),
-        ...(destination.value ? {folder: destination.value} : {folder: ''}),
+        // Omit an unchanged implicit default: explicitly passing "Downloads"
+        // skips the server's first-use /Downloads auto-creation path.
+        ...(folder === null && destination.value.trim() === originalDestination
+          ? {} : {folder: destination.value}),
       });
       notify('Download submitted to your Nextcloud Files.');
       close();
@@ -211,6 +223,53 @@ function installLegacyViewerHook() {
   });
   observer.observe(document.body, {childList: true, subtree: true});
   attachLegacyViewerAction();
+}
+
+type TalkMessageActionInput = {message?: {message?: unknown}};
+
+/**
+ * Nextcloud Talk 35's published OCA.Talk.registerMessageAction integration
+ * adds a native action to the chat message menu. It is hidden by Talk itself
+ * in classified conversations. Talk does not currently provide a per-message
+ * visibility predicate, so a non-link message simply receives a no-op notice.
+ */
+let talkActionRegistered = false;
+function registerTalkAction(): boolean {
+  if (talkActionRegistered) return true;
+  const talk = (window as unknown as {OCA?: {Talk?: {
+    registerMessageAction?: (action: {
+      label: string; icon: string; callback: (input: TalkMessageActionInput) => void
+    }) => void
+  }}}).OCA?.Talk;
+  if (typeof talk?.registerMessageAction !== 'function') return false;
+  talk.registerMessageAction({
+    label: 'Download linked URL into my Files',
+    icon: 'icon-download',
+    callback: ({message}) => {
+      const source = suggestTalkSource(message?.message);
+      if (!source) {
+        notify('Choose a Talk message containing exactly one HTTP(S) link.');
+        return;
+      }
+      // Never auto-download; show the same user-owned destination and
+      // engine/preset confirmation dialog as the native Files actions.
+      void openDialog(null, source);
+    },
+  });
+  talkActionRegistered = true;
+  return true;
+}
+
+function installTalkAction() {
+  // The Talk bundle may initialize after the native UI bridge. Bounded retry,
+  // only on Talk routes; no polling of messages, DOM scraping or bot install.
+  if (!/(?:\\/call(?:\\/|$)|\\/apps\\/spreed(?:\\/|$))/.test(window.location.pathname)) return;
+  if (registerTalkAction()) return;
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    attempts++;
+    if (registerTalkAction() || attempts >= 30) window.clearInterval(timer);
+  }, 1000);
 }
 
 function headerProgress() {
@@ -383,6 +442,6 @@ async function start() {
   // this independently for every authenticated call.
   try { await api<{user_id: string; entitled: boolean}>('/me'); }
   catch { return; }
-  styles(); registerActions(); registerProvenanceSidebar(); headerProgress(); installLegacyViewerHook();
+  styles(); registerActions(); registerProvenanceSidebar(); headerProgress(); installLegacyViewerHook(); installTalkAction();
 }
 void start();
