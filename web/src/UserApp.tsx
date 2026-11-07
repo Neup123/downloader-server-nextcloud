@@ -386,37 +386,114 @@ export default function UserApp() {
       </section>
     </div>}
 
-    {tabs === 'personal' && <section className="panel delivery-panel">
-      <h2>My settings</h2>
-      <p className="muted">These settings are stored in your Nextcloud account, not shared across users.</p>
-      <form onSubmit={event => void savePersonal(event)}>
-        <h3>Where your downloads go</h3><p className="muted">Delivered files appear in this folder in your own Nextcloud Files. The default is Downloads.</p>
-        <label>Destination folder<input value={personal.destination_folder}
-          onChange={event => setPersonal(old => ({ ...old, destination_folder: event.target.value }))} /></label>
-        <h3>Your defaults</h3><p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
-        <label>Default preset<select value={personal.default_preset}
-          onChange={event => setPersonal(old => ({ ...old, default_preset: event.target.value }))}>
-          <option value="">None</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
-        </select></label>
-        <h3>Files connection</h3><p className="muted" role="status">{personal.app_password_configured ? 'Connected ✓' : 'Not connected — create an app password to let Downloader deliver files.'}</p>
-        <p className="muted"><a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>, then paste it below.</p>
-        <label>My Nextcloud Files app password
-          <input type="password" autoComplete="new-password" value={appPassword}
-            onChange={event => setAppPassword(event.target.value)}
-            placeholder={personal.app_password_configured ? 'Stored securely; leave blank to keep' : 'Create one in Nextcloud personal Security settings'} />
-        </label>
-        <p className="secure-note">A dedicated Nextcloud app password authorizes WebDAV delivery to your own Files. It is stored as a sensitive Nextcloud preference and never shown again. The downloader service API key never reaches this page.</p>
-        <h3>Notifications</h3>
-        <p className="muted">Choose which download outcomes should send native Nextcloud notifications. Your download history is kept either way.</p>
-        <label className="check"><input type="checkbox" checked={personal.notify_finished !== false}
-          onChange={event => setPersonal(old => ({...old, notify_finished: event.target.checked}))} />
-          Notify me when a download finishes</label>
-        <label className="check"><input type="checkbox" checked={personal.notify_failed !== false}
-          onChange={event => setPersonal(old => ({...old, notify_failed: event.target.checked}))} />
-          Notify me when a download fails or is cancelled</label>
-        <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save my settings'}</button>
-      </form>
-    </section>}
+    {tabs === 'personal' && <div className="personal-settings">
+      <div className="personal-heading">
+        <h2>My settings</h2>
+        <p className="muted">Your settings belong to your Nextcloud account. They do not change anybody else's downloads.</p>
+        <div className="personal-save-state" role="status" aria-live="polite">
+          {personalValidationError || (personalSaveState === 'saved'
+            ? 'Saved ✓ Changes affect new downloads.'
+            : personalSaveState === 'pending' ? 'Changes will save automatically…'
+            : personalSaveState === 'saving' ? 'Saving changes…'
+            : personalSaveState === 'error' ? 'Changes not saved. Check your connection and retry.'
+            : 'Loading your settings…')}
+          {personalSaveState === 'error' && !personalValidationError &&
+            <button type="button" className="small secondary"
+              onClick={() => personalAutosave.current?.retry()}>Retry saving</button>}
+        </div>
+      </div>
+      <div className="personal-settings-grid">
+        <section className="panel personal-card" aria-label="Where your downloads go">
+          <div className="eyebrow">MY FILES</div><h3>Where your downloads go</h3>
+          <p className="muted">Delivered files appear in this folder in your own Nextcloud Files. The default is Downloads.</p>
+          <label>Destination folder
+            <input value={personal.destination_folder}
+              onChange={event => setPersonal(old => ({...old, destination_folder: event.target.value}))}
+              placeholder="Downloads" />
+          </label>
+          <button type="button" className="secondary personal-browse"
+            onClick={() => {setFolderPickerOpen(true);void browseFolders('');}}>
+            Browse my Files folders
+          </button>
+          {folderPickerOpen && <div className="personal-folder-picker" aria-label="Choose a Files folder">
+            <div className="folder-picker-head">
+              <strong>Folder: /{folderBrowserPath}</strong>
+              <button type="button" className="small secondary"
+                onClick={() => setFolderPickerOpen(false)}>Close</button>
+            </div>
+            <p className="muted">Only folders in your own Files are listed. Choose an existing folder.</p>
+            <div className="folder-picker-actions">
+              <button type="button" className="small secondary" disabled={folderBusy || !folderBrowserPath}
+                onClick={() => void browseFolders(folderBrowserPath.split('/').slice(0, -1).join('/'))}>
+                Parent folder
+              </button>
+              <button type="button" className="small primary" disabled={folderBusy}
+                onClick={() => pickFolder(folderBrowserPath)}>Use this folder</button>
+            </div>
+            {folderBusy ? <p role="status">Loading folders…</p> :
+              !folderOptions.length ? <p className="muted">No subfolders here.</p> :
+                <ul className="folder-options">
+                  {folderOptions.map(option => <li key={option.path}>
+                    <span>📁 {option.name}</span>
+                    <button type="button" className="small secondary"
+                      onClick={() => void browseFolders(option.path)}>Open</button>
+                  </li>)}
+                </ul>}
+            {folderHasMore && <button type="button" className="small secondary"
+              disabled={folderBusy} onClick={() => void browseFolders(folderBrowserPath, true)}>
+              Show more folders
+            </button>}
+          </div>}
+          <h3>Your defaults</h3>
+          <p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
+          <label>Default preset<select value={personal.default_preset}
+            onChange={event => setPersonal(old => ({...old, default_preset: event.target.value}))}>
+            <option value="">None</option>{presets.map(preset =>
+              <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
+          </select></label>
+        </section>
+        <section className="panel personal-card" aria-label="Files connection">
+          <div className="eyebrow">SECURE DELIVERY</div><h3>Files connection</h3>
+          <p className="muted" role="status">
+            {personal.app_password_configured
+              ? 'Connected ✓ Your downloads can be delivered to your own Files.'
+              : 'Not connected — create an app password to let Downloader deliver files.'}
+          </p>
+          <p className="muted">
+            <a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>,
+            then enter it here.
+          </p>
+          <form onSubmit={event => void connectFiles(event)}>
+            <label>My Nextcloud Files app password
+              <input type="password" autoComplete="new-password" value={appPassword}
+                onChange={event => setAppPassword(event.target.value)}
+                placeholder={personal.app_password_configured
+                  ? 'Stored securely; enter a new password only to replace it'
+                  : 'Paste your dedicated app password'} />
+            </label>
+            <button type="submit" className="primary" disabled={!appPassword || connectingFiles}>
+              {connectingFiles ? 'Connecting…'
+                : personal.app_password_configured ? 'Update Files connection' : 'Connect my Files'}
+            </button>
+          </form>
+          <p className="secure-note">The password is saved only when you press Connect.
+            It is stored as a sensitive Nextcloud preference and never shown again.
+            The downloader service API key never reaches this page.</p>
+        </section>
+        <section className="panel personal-card" aria-label="Notifications">
+          <div className="eyebrow">MY ALERTS</div><h3>Notifications</h3>
+          <p className="muted">Choose which download outcomes should send native Nextcloud notifications. Your download history is kept either way.</p>
+          <label className="check"><input type="checkbox" checked={personal.notify_finished !== false}
+            onChange={event => setPersonal(old => ({...old, notify_finished: event.target.checked}))} />
+            Notify me when a download finishes</label>
+          <label className="check"><input type="checkbox" checked={personal.notify_failed !== false}
+            onChange={event => setPersonal(old => ({...old, notify_failed: event.target.checked}))} />
+            Notify me when a download fails or is cancelled</label>
+          <p className="muted">Changes to notifications and your destination save automatically.
+            Already-running downloads keep their existing destination.</p>
+        </section>
+      </div>
+    </div>}
 
     {tabs === 'engines' && <div className="settings-layout">
       <section className="panel">
