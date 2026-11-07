@@ -4,8 +4,13 @@
  */
 import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@nextcloud/files';
 import { suggestTalkSource } from './talk-links.mjs';
+import { downloadTitle, downloadStatus, deliveredFilesQuery } from './download-labels.mjs';
 
-type Job = {id: string; url: string; status: string; progress?: {percent?: number}; error?: string | null};
+type Job = {
+  id: string; url: string; status: string; owner_id?: string; engine?: string;
+  progress?: {percent?: number}; error?: string | null;
+  output_files?: {filename: string; path?: string; verified?: boolean; file_id?: string | number}[];
+};
 type Preset = {id: string; name: string; engine: string};
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
@@ -308,8 +313,12 @@ function headerProgress() {
       if (!jobs.length) panel.append(node('p', 'No downloads yet.', 'dl-muted'));
       for (const job of jobs.slice(0, 10)) {
         const row = node('div', '', 'dl-job');
-        const title = node('span', job.status + ': ' + job.url);
-        title.title = job.url; row.append(title);
+        const title = node('a', downloadTitle(job), 'dl-job-title');
+        title.href = oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/') +
+          '?job=' + encodeURIComponent(job.id);
+        row.append(title);
+        row.append(node('div', downloadStatus(job), 'dl-job-state'));
+        if (job.engine) row.append(node('small', job.engine, 'dl-muted'));
         if (!TERMINAL.has(job.status)) {
           const p = node('progress');
           p.max = 100;
@@ -317,17 +326,25 @@ function headerProgress() {
           row.append(p);
         }
         if (job.status === 'failed' && job.error) row.append(node('small', job.error, 'dl-error'));
-        if (job.status !== 'completed') {
-          const operation = TERMINAL.has(job.status) ? 'retry' : 'cancel';
-          const action = node('button', operation === 'retry' ? 'Retry' : 'Cancel', 'dl-small');
-          action.type = 'button';
-          action.addEventListener('click', async () => {
-            action.disabled = true;
-            try { await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST'); await refresh(); }
-            catch (error) { notify(error instanceof Error ? error.message : 'Action failed'); action.disabled = false; }
-          });
-          row.append(action);
+        const actions = node('div', '', 'dl-job-actions');
+        const query = deliveredFilesQuery(job);
+        if (query) {
+          const fileLink = node('a', 'Open in Files', 'dl-small dl-link');
+          fileLink.href = oc()!.generateUrl('/apps/files/files') + query;
+          fileLink.target = '_blank'; fileLink.rel = 'noopener noreferrer';
+          actions.append(fileLink);
         }
+        const operation = job.status === 'completed' ? 'redeliver'
+          : TERMINAL.has(job.status) ? 'retry' : 'cancel';
+        const action = node('button', operation === 'retry' ? 'Try again'
+          : operation === 'redeliver' ? 'Re-deliver' : 'Cancel', 'dl-small');
+        action.type = 'button';
+        action.addEventListener('click', async () => {
+          action.disabled = true;
+          try { await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST'); await refresh(); }
+          catch (error) { notify(error instanceof Error ? error.message : 'Action failed'); action.disabled = false; }
+        });
+        actions.append(action); row.append(actions);
         panel.append(row);
       }
     } catch {
@@ -434,7 +451,9 @@ function styles() {
     'background:var(--color-main-background,#fff);box-shadow:0 5px 24px #0003}',
     '.dl-popover[hidden]{display:none}.dl-job{display:grid;gap:5px;padding:9px 0;',
     'border-bottom:1px solid var(--color-border,#ddd);font-size:12px}',
-    '.dl-job span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.dl-job-title{display:block;font-weight:600;overflow-wrap:anywhere}', 
+    '.dl-job-state{font-size:13px;color:var(--color-text-maxcontrast,#777)}',
+    '.dl-job-actions{display:flex;gap:8px;flex-wrap:wrap}',
     '.dl-job progress{width:100%}.dl-error{color:var(--color-error,#c33)}',
     '.dl-small{justify-self:end;padding:3px 6px}',
     '.dl-provenance-source{display:block;overflow-wrap:anywhere;margin:10px 0}',
