@@ -141,7 +141,9 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         await pref.set_value("destination_folder", folder)
     if "default_preset" in patch:
         value = patch["default_preset"]
-        if not isinstance(value, str) or len(value) > 36:
+        # Namespaced administrator-shared UUIDs ("shared:" + 36 chars) are
+        # selectable, but other unbounded IDs remain invalid.
+        if not isinstance(value, str) or len(value) > 64:
             raise HTTPException(status_code=422, detail="Invalid preset")
         await pref.set_value("default_preset", value)
     if "engine_settings" in patch:
@@ -169,6 +171,60 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
             await pref.delete("dav_app_password")
     return await read_user_preferences(context)
 
+
+
+SHARED_PRESET_PREFIX = "shared:"
+
+
+def normalize_shared_presets(records: Any) -> list[dict[str, Any]]:
+    """Allow only the Core administrator's explicitly approved public collection.
+
+    The ExApp fetches this collection server-side with its own Core token;
+    a browser never sends a raw Core preset ID and personal IDs cannot collide.
+    """
+    if not isinstance(records, list) or len(records) > 1000:
+        raise HTTPException(status_code=502, detail="Invalid shared preset list")
+    from uuid import UUID
+
+    result = []
+    for row in records:
+        if not isinstance(row, dict) or row.get("is_shared") is not True:
+            raise HTTPException(status_code=502, detail="Invalid shared preset record")
+        source_id = row.get("id")
+        engine = row.get("engine")
+        settings = row.get("settings")
+        name = row.get("name")
+        description = row.get("description", "")
+        try:
+            if not isinstance(source_id, str) or str(UUID(source_id)) != source_id:
+                raise ValueError("Invalid source ID")
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="Invalid shared preset ID") from exc
+        if (
+            engine not in ENGINES
+            or not isinstance(settings, dict) or len(json.dumps(settings)) > 16000
+            or not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
+            or not isinstance(description, str) or len(description) > 1000
+        ):
+            raise HTTPException(status_code=502, detail="Invalid shared preset fields")
+        # Treat the Core shared collection as a separately authenticated trust
+        # boundary. A malformed or unsafe record must not become a user option.
+        if any(settings.get(key) for key in ("cookies_file", "proxy", "extra_args")):
+            raise HTTPException(status_code=502, detail="Unsafe shared preset fields")
+        opts = settings.get("options")
+        if isinstance(opts, dict) and any(
+            marker in str(key).lower()
+            for key in opts
+            for marker in ("auth", "cookie", "token", "secret", "password", "header", "referer", "proxy")
+        ):
+            raise HTTPException(status_code=502, detail="Unsafe shared preset options")
+        result.append({
+            "id": SHARED_PRESET_PREFIX + source_id,
+            "name": name.strip(), "engine": engine,
+            "settings": settings, "description": description,
+            "is_shared": True,
+        })
+    return result
 
 
 async def read_user_presets(context: UserContext) -> list[dict[str, Any]]:
@@ -256,7 +312,10 @@ def nextcloud_webdav_base(nc: AsyncNextcloudApp) -> str:
     return origin.rstrip("/") + "/remote.php/dav"
 
 
-async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str, Any]:
+async def job_submission(
+    context: UserContext, data: dict[str, Any],
+    shared_presets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
@@ -277,8 +336,19 @@ async def job_submission(context: UserContext, data: dict[str, Any]) -> dict[str
     preset_id = data.get("preset_id") or prefs["default_preset"]
     selected = None
     if preset_id:
-        selected = next((preset for preset in await read_user_presets(context) if preset["id"] == preset_id), None)
+        if isinstance(preset_id, str) and preset_id.startswith(SHARED_PRESET_PREFIX):
+            selected = next(
+                (preset for preset in (shared_presets or []) if preset["id"] == preset_id),
+                None,
+            )
+        else:
+            selected = next(
+                (preset for preset in await read_user_presets(context) if preset["id"] == preset_id),
+                None,
+            )
         if selected is None:
+            # Revoked or guessed shared IDs fail just like another user's
+            # private IDs, without disclosing the existence of either.
             raise HTTPException(status_code=404, detail="Your preset was not found")
         if engine != "auto" and engine != selected["engine"]:
             raise HTTPException(status_code=422, detail="Preset engine does not match selected engine")

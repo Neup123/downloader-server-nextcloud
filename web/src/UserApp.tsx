@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
-type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string };
+type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
 type Download = {
   id: string; url: string; owner_id: string; engine: string; status: string;
   progress: { percent?: number; state?: string; speed?: string };
@@ -260,7 +260,7 @@ export default function UserApp() {
           <label>Preset (optional)<select value={presetId} onChange={event => setPresetId(event.target.value)}>
             <option value="">Use my default</option>
             {presets.filter(preset => engine === 'auto' || preset.engine === engine).map(preset =>
-              <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+              <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
           </select></label>
           <label>Folder in my Files<input value={folder} onChange={event => setFolder(event.target.value)}
             placeholder={personal.destination_folder || 'Root folder'} /></label>
@@ -310,7 +310,7 @@ export default function UserApp() {
         <h3>Your defaults</h3><p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
         <label>Default preset<select value={personal.default_preset}
           onChange={event => setPersonal(old => ({ ...old, default_preset: event.target.value }))}>
-          <option value="">None</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          <option value="">None</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
         </select></label>
         <h3>Files connection</h3><p className="muted" role="status">{personal.app_password_configured ? 'Connected ✓' : 'Not connected — create an app password to let Downloader deliver files.'}</p>
         <p className="muted"><a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>, then paste it below.</p>
@@ -335,7 +335,7 @@ export default function UserApp() {
     {tabs === 'engines' && <div className="settings-layout">
       <section className="panel">
         <h2>My presets</h2>
-        <p className="muted">Presets are private to your Nextcloud account and never modify the shared downloader service.</p>
+        <p className="muted">Presets you create here stay private to your Nextcloud account. Your administrator may also make safe shared presets available to entitled Downloader users; those are read-only.</p>
         <form onSubmit={event => void savePreset(event)}>
           <label>Name<input required maxLength={120} value={presetName} onChange={event => setPresetName(event.target.value)} /></label>
           <label>Engine<select value={presetEngine} onChange={event => setPresetEngine(event.target.value as Engine)}>
@@ -346,11 +346,13 @@ export default function UserApp() {
         </form>
         {presets.map(preset => <div className="output-row" key={preset.id}>
           <strong>{preset.name} ({preset.engine})</strong>
-          <button className="small secondary" onClick={() => {
-            setEditingPreset(preset.id); setPresetName(preset.name); setPresetEngine(preset.engine);
-            setPresetJson(JSON.stringify(preset.settings, null, 2));
-          }}>Edit</button>
-          <button className="small danger" onClick={() => void deletePreset(preset.id)}>Delete</button>
+          {preset.is_shared ? <span className="muted">Shared by administrator · Read-only</span> : <>
+            <button className="small secondary" onClick={() => {
+              setEditingPreset(preset.id); setPresetName(preset.name); setPresetEngine(preset.engine);
+              setPresetJson(JSON.stringify(preset.settings, null, 2));
+            }}>Edit</button>
+            <button className="small danger" onClick={() => void deletePreset(preset.id)}>Delete</button>
+          </>}
         </div>)}
       </section>
 
