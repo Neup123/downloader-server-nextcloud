@@ -113,3 +113,19 @@ Follow [NEXTCLOUD_INSTALL.md](NEXTCLOUD_INSTALL.md) for the versioned GHCR/AppAP
 ## Per-user Nextcloud 0.2.0
 
 After the administrator-only v0.1.0 baseline, the per-user Nextcloud version requires BOTH `ghcr.io/neup123/media-downloader-server:0.2.0` and `ghcr.io/neup123/downloader-server-nextcloud:0.2.0`. Do not mix a 0.2 ExApp with the 0.1 standalone core. The UI-only native PHP bridge is packaged as `downloader-bridge-0.2.0.zip` on the Nextcloud v0.2.0 GitHub Release. Read [NEXTCLOUD_PER_USER_INSTALL.md](NEXTCLOUD_PER_USER_INSTALL.md) for installation and verification.
+
+### Native administrator settings
+
+The signed AppAPI administrator landing page now serves a dedicated Nextcloud
+administrator dashboard. **Service connection** verifies the real Core engines
+server-side, displays the configured Core URL and whether a private API token is
+configured, but never returns the token to the browser. Change the URL or token
+through the ExApp's Nextcloud AppAPI deployment configuration, not in the
+browser. **Who can download** manages individual Nextcloud user and group IDs in
+the same AppAPI entitlement storage enforced independently on each per-user
+request. Without a grant, ordinary users cannot use the downloader.
+
+The standalone Core administrator page remains separate and continues to
+require the Core API key. A Nextcloud administrator must not be asked to paste
+that key into browser local storage. Acceptance against the operator's actual
+Nextcloud instance remains tracked in issue #19.
