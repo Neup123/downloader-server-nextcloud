@@ -16,7 +16,7 @@ test('Talk never guesses a source from ambiguous, invalid, credential-bearing or
   for (const message of [
     '', null, {}, 44, 'The document is at /remote.php/dav/files/alice/media.mp4',
     'ftp://example.org/test', 'https://example.org/one https://example.net/two',
-    'https://user:password@example.org/media', 'https://bad.invalid/%',
+    'https://user:password@example.org/media', 'https://[not-ipv6]/media',
     'x'.repeat(16385),
   ]) {
     assert.equal(suggestTalkSource(message), null, String(message).slice(0, 80));
