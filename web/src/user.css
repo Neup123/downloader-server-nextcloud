@@ -8,3 +8,20 @@
 .user-downloader .job-actions { gap: 8px; }
 .user-downloader label { max-width: 640px; }
 .user-downloader .delivery-panel { max-width: 770px; }
+
+.user-onboarding { margin: 16px 0; max-width: 820px; }
+.user-onboarding ol { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; list-style:none; padding:0; }
+.user-onboarding li { border:1px solid var(--color-border,#4b617e); border-radius:12px; padding:18px; }
+.user-onboarding li p { line-height:1.6; }
+.user-onboarding button { min-height:44px; }
+.user-downloader .delivery-panel h3 { margin:20px 0 5px; font-size:16px; }
+.user-downloader :focus-visible { outline:3px solid #b9d9ff; outline-offset:3px; }
+.user-loading { display:grid; gap:15px; margin:16px 0; }
+.skeleton { height:18px; border-radius:5px; background:#33435b; animation:skeleton-pulse 1.6s ease-in-out infinite; }
+.skeleton-title { width:55%; height:27px; }
+@keyframes skeleton-pulse { 50% { opacity:.45; } }
+@media(max-width:600px) {
+  .user-onboarding ol { grid-template-columns:1fr; }
+  .user-downloader .tabs button,.user-downloader .job-actions button { min-height:44px; }
+  .user-downloader .layout,.user-downloader .settings-layout { display:grid; grid-template-columns:1fr; }
+}
