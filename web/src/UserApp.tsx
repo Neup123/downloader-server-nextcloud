@@ -11,7 +11,7 @@ type Download = {
 type Personal = {
   destination_folder: string; default_preset: string;
   engine_settings: Record<string, Record<string, unknown>>; app_password_configured: boolean;
-  first_download_verified?: boolean;
+  first_download_verified?: boolean; notify_finished?: boolean; notify_failed?: boolean;
 };
 const TYPES: Engine[] = ['auto', 'yt-dlp', 'aria2c', 'gallery-dl', 'generic', 'you-get', 'svtplay-dl', 'get-sauce'];
 const API = window.location.pathname.replace(/\/user\/?$/, '/user/api');
@@ -56,6 +56,7 @@ export default function UserApp() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [personal, setPersonal] = useState<Personal>({
     destination_folder: 'Downloads', default_preset: '', engine_settings: {}, app_password_configured: false,
+    notify_finished: true, notify_failed: true,
   });
   const [appPassword, setAppPassword] = useState('');
   const [engineJson, setEngineJson] = useState('{}');
@@ -139,6 +140,8 @@ export default function UserApp() {
       const newSettings = await request<Personal>('/settings', json('PUT', {
         destination_folder: personal.destination_folder,
         default_preset: personal.default_preset,
+        notify_finished: personal.notify_finished !== false,
+        notify_failed: personal.notify_failed !== false,
         ...(appPassword ? { app_password: appPassword } : {}),
       }));
       setPersonal(newSettings);
@@ -317,6 +320,14 @@ export default function UserApp() {
             placeholder={personal.app_password_configured ? 'Stored securely; leave blank to keep' : 'Create one in Nextcloud personal Security settings'} />
         </label>
         <p className="secure-note">A dedicated Nextcloud app password authorizes WebDAV delivery to your own Files. It is stored as a sensitive Nextcloud preference and never shown again. The downloader service API key never reaches this page.</p>
+        <h3>Notifications</h3>
+        <p className="muted">Choose which download outcomes should send native Nextcloud notifications. Your download history is kept either way.</p>
+        <label className="check"><input type="checkbox" checked={personal.notify_finished !== false}
+          onChange={event => setPersonal(old => ({...old, notify_finished: event.target.checked}))} />
+          Notify me when a download finishes</label>
+        <label className="check"><input type="checkbox" checked={personal.notify_failed !== false}
+          onChange={event => setPersonal(old => ({...old, notify_failed: event.target.checked}))} />
+          Notify me when a download fails or is cancelled</label>
         <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save my settings'}</button>
       </form>
     </section>}

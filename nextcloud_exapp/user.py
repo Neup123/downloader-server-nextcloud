@@ -123,13 +123,16 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
                             if name in ENGINES and isinstance(options, dict)},
         "app_password_configured": bool(await preferences.get_value("dav_app_password", "")),
         "first_download_verified": await preferences.get_value("first_download_verified", "0") == "1",
+        "notify_finished": await preferences.get_value("notify_finished", "1") != "0",
+        "notify_failed": await preferences.get_value("notify_failed", "1") != "0",
     }
 
 
 async def write_user_preferences(context: UserContext, patch: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(patch, dict):
         raise HTTPException(status_code=422, detail="Invalid personal settings")
-    allowed = {"destination_folder", "default_preset", "engine_settings", "app_password"}
+    allowed = {"destination_folder", "default_preset", "engine_settings", "app_password",
+               "notify_finished", "notify_failed"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
     pref = context.nc.preferences_ex
@@ -150,6 +153,12 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         ):
             raise HTTPException(status_code=422, detail="Invalid per-engine preferences")
         await pref.set_value("engine_settings", json.dumps(settings, separators=(",", ":")))
+    for name in ("notify_finished", "notify_failed"):
+        if name in patch:
+            value = patch[name]
+            if not isinstance(value, bool):
+                raise HTTPException(status_code=422, detail="Notification preference must be on or off")
+            await pref.set_value(name, "1" if value else "0")
     if "app_password" in patch:
         password = patch["app_password"]
         if not isinstance(password, str) or len(password) > 1024:
