@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import subprocess
 
-# Preserve the Nextcloud-specific README and branch-cleanup implementation.
+# Preserve Nextcloud-owned README, branch cleanup and legacy Nextcloud-aware
+# standalone UI adapter. The new signed admin page is web/src/AdminApp.tsx;
+# core web/src/App.tsx is intentionally *not* the served ExApp admin entrypoint.
+# Existing downstream App.tsx still contains Nextcloud-only session/proxy paths
+# and must not be overwritten automatically in an unrelated core UI sync.
+# Revisit removing that legacy page after native admin browser acceptance.
 DOWNSTREAM = frozenset({
     "README.md",
+    "web/src/App.tsx",
     "scripts/cleanup_merged_branches.py",
     "tests/test_cleanup_equivalent_branches.py",
 })

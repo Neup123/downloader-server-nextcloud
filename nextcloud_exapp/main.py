@@ -111,7 +111,7 @@ if DIST.is_dir():
 
 @APP.get("/")
 async def dashboard(_admin: UserContext = Depends(require_admin)):
-    return FileResponse(DIST / "index.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    return FileResponse(DIST / "admin.html", media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 @APP.get("/api-reference")
@@ -393,6 +393,30 @@ async def user_cookie_upload(filename: str, request: Request,
 async def user_cookie_delete(filename: str, context: UserContext = Depends(require_user)):
     name = scoped_cookie_filename(context.user_id, filename)
     return await core_json("DELETE", "cookies/" + name)
+
+
+@APP.get("/admin/api/connection")
+async def admin_connection_status(admin: UserContext = Depends(require_admin)):
+    """Verify the actual core connection without ever sending its key to the browser."""
+    settings = config()
+    try:
+        engines = await core_json("GET", "engines")
+        if not isinstance(engines, list):
+            raise HTTPException(status_code=502, detail="Invalid core engine response")
+        ready = sum(1 for item in engines if isinstance(item, dict) and item.get("installed") is True)
+        return {
+            "connected": True, "core_origin": settings.origin,
+            "token_configured": True, "engines_ready": ready,
+            "message": "Connected to Downloader Server",
+        }
+    except HTTPException:
+        # Preserve admin-only visibility of the configured origin, but do not
+        # return upstream error bodies, token contents, or internal traces.
+        return {
+            "connected": False, "core_origin": settings.origin,
+            "token_configured": True, "engines_ready": 0,
+            "message": "Cannot reach Downloader Server with the configured credentials",
+        }
 
 
 @APP.get("/admin/api/entitlements")
