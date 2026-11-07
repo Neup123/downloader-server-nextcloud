@@ -6,13 +6,13 @@ If the target cannot deploy AppAPI ExApps, use the separately tested [official E
 ## Release images
 
 - Standalone Downloader Server: ghcr.io/neup123/media-downloader-server:0.3.1
-- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.2
-- Native UI-only PHP bridge: downloader-bridge-0.5.2.zip attached to the Nextcloud v0.5.2 GitHub Release.
+- Nextcloud AppAPI ExApp: ghcr.io/neup123/downloader-server-nextcloud:0.5.3
+- Native UI-only PHP bridge: downloader-bridge-0.5.3.zip attached to the Nextcloud v0.5.3 GitHub Release.
 
-The v0.5.2 release additionally enforces administrator permissions inside the ExApp backend; use it instead of v0.5.0 for new deployments.
+The v0.5.3 release retains administrator protections and adds a native Talk link action plus the bridge's first-use destination fix; use the matching versioned bridge ZIP.
 
 The v0.1.0 release remains the administrator-only baseline and cannot accept
-per-user job submissions. **Core 0.3.1 and ExApp 0.5.2 are required** for the
+per-user job submissions. **Core 0.3.1 and ExApp 0.5.3 are required** for the
 per-user UI. Never write directly into Nextcloud's data directory.
 
 ## Step 1 — verify connectivity and published tags
@@ -20,7 +20,7 @@ per-user UI. Never write directly into Nextcloud's data directory.
 On the Docker host, pull the images:
 
     docker pull ghcr.io/neup123/media-downloader-server:0.3.1
-    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.2
+    docker pull ghcr.io/neup123/downloader-server-nextcloud:0.5.3
 
 For private GHCR packages give the AppAPI Deploy Daemon a read-only registry
 credential, or make the package public. Do not reuse the downloader API token
@@ -92,9 +92,9 @@ use the reachable public HTTPS `DOWNLOADER_WEBDAV_ORIGIN` setting described
 below. If the host cannot route to that HTTPS origin, do **not** disable
 the egress policy: the real-install test must report the blocker.
 
-## Step 3 — register the 0.5.2 ExApp
+## Step 3 — register the 0.5.3 ExApp
 
-Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.2
+Download the appinfo/info.xml attached to the tagged Nextcloud v0.5.3
 release. In the Nextcloud AppAPI administrator page, select the tested
 Deploy Daemon and register the ExApp using that manifest. Supply environment
 variables on the server only:
@@ -138,13 +138,15 @@ commit**, and that Docker has a single valid GHCR digest for the image.
 From this repository, with the downloaded release `info.xml`:
 
 ```sh
+release_sha="$(gh release view v0.5.3 --repo Neup123/downloader-server-nextcloud \
+  --json targetCommitish --jq .targetCommitish)"
 python3 scripts/verify_deployed_exapp.py \
   --manifest info.xml \
-  --expected-source 10d050fb08e8124cba2e702f0e484ce25b105954
+  --expected-source "$release_sha"
 ```
 
-The SHA above is the **v0.5.2 release target**; use the corresponding exact
-release target SHA for any later version. For stronger independent attestation,
+The `release_sha` variable is the GitHub Release's exact target commit. Do not
+reuse the commit from an earlier release or substitute the mutable branch head. For stronger independent attestation,
 take `container_image_digest` from the matching source-SHA publisher
 workflow's `image-provenance.json` artifact and add
 `--expected-digest ghcr.io/neup123/downloader-server-nextcloud@sha256:...`.
@@ -172,7 +174,7 @@ core APP_API_TOKEN. The defaults are private and user-scoped.
 
 ## Step 5 — install native Files/header UI integration
 
-Extract downloader-bridge-0.5.2.zip under the instance's custom_apps
+Extract downloader-bridge-0.5.3.zip under the instance's custom_apps
 directory, producing custom_apps/downloader_bridge/appinfo/info.xml and
 custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
@@ -206,9 +208,9 @@ on the operator's actual Nextcloud deployment.
 
 ## Limits
 
-The Nextcloud 0.5.2 integration includes per-user jobs, personal settings,
+The Nextcloud 0.5.3 integration includes per-user jobs, personal settings,
 Files/+New/Viewer and progress UI, failure notifications, provenance details,
 Dashboard, unified search, and native Activity entries. The standalone core remains version 0.3.1.
 Nextcloud's background jobs must be enabled for Activity events.
-Talk link integration is deliberately deferred until a production instance is verified.
+The native Talk 35 message menu now offers an opt-in download action for messages containing exactly one HTTP(S) link; no download begins before confirmation. Verify the menu in the operator's real Nextcloud/Talk browser before claiming target acceptance.
 Files without stored provenance cannot be re-downloaded without supplying their source URL.
