@@ -244,3 +244,30 @@ The shared feature requires a Core deployment containing the new opt-in
 endpoint; it is **not** included in older tagged Core v0.3.1. It does not
 remove the need to verify a real Nextcloud target, AppAPI/HaRP routing,
 TLS/WebDAV delivery and entitlement behavior under #19.
+
+
+### Visual personal settings and safe automatic saving
+
+The Nextcloud **My settings** page groups three tasks: **Where your downloads go**
+(including **Your defaults**), **Files connection**, and **Notifications**.
+The destination folder may be typed or selected using **Browse my Files folders**.
+The picker reads only existing directories from the signed-in, entitled
+Nextcloud user's own Files through a read-only, paginated endpoint.
+It does not create folders and never accepts another user's ID or file path.
+
+Changing a destination, default preset or notification toggle saves
+automatically and shows **Saving… / Saved ✓ / Changes not saved** with retry.
+Changes affect new downloads, not already-running transfers. Invalid
+destination paths never enter the autosave queue. An initial preferences
+read does **not** write them back to Nextcloud.
+
+**Passwords are not autosaved.** Creating or replacing the dedicated
+WebDAV app password requires an explicit **Connect my Files** action.
+This patch changes only the sensitive credential field; ordinary autosave
+patches contain only destination, default preset and notification booleans,
+so they cannot silently clear or expose the password. The Core API token
+is never sent to the user's browser.
+
+On a missing or inaccessible Nextcloud Files folder, select an existing
+folder using the picker; the default first-use Downloads folder may also
+be created by the signed submission flow as documented above.
