@@ -27,3 +27,19 @@ test('Provenance remains owner-scoped and readable with download date and engine
   }
   assert.ok(!bridge.includes('window.localStorage.setItem("APP_API_TOKEN"'));
 });
+
+test('Dashboard shows the Core-like job card structure and expanded details with signed actions', () => {
+  for (const part of [
+    'job-card job-', 'job-card-head', 'job-card-icon', 'job-card-info',
+    'job-card-title', 'job-card-state', 'job-card-meta', 'progress-track',
+    'progress-fill', 'job-actions', 'job-card-details', 'Technical log (advanced)',
+    'Delivered files', '✓ Verified', 'Open in Files', 'aria-expanded',
+    'downloadSymbol(job)', 'downloadAmount(', 'downloadStatus(job)',
+  ]) {
+    assert.ok(dashboard.includes(part), 'Missing matching card element: '+part);
+  }
+  assert.match(dashboard, /deliveredFilesQuery\(job\)/);
+  assert.match(dashboard, /await api\('\/jobs\/'.*operation, 'POST'\)/s);
+  assert.doesNotMatch(dashboard, /innerHTML\s*=/);
+  assert.match(dashboard, /--color-main-background/);
+});

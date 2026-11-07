@@ -41,6 +41,23 @@ own jobs through the signed ExApp, shows progress, cancel/retry and recent histo
 No download logic or file bytes are handled by this bridge.
 
 
+The Dashboard's last-three jobs now use the same structural **JobCard** pattern
+as the standalone Download/Library screen: content-type icon, human title,
+plain status with percent and speed, engine/downloaded size, visible progress,
+verified Files action, Cancel/Try again/Re-deliver, and an expandable Details
+area containing verified file names and the advanced technical log. The card
+is styled with Nextcloud's native theme variables, so it remains usable in
+light/dark themes and on narrow Dashboard columns. Its shared status/title
+helpers also feed the ambient header popover. All action requests remain
+owner-signed ExApp calls. Verified Files links are constructed for the current
+owner only; private DAV endpoints and credentials never enter the widget.
+
+Native Nextcloud Notifications and Activity remain platform-native views
+rather than rendering React cards inside notifications; they use the same
+human download-status semantics and link to a verified file when available.
+The Talk menu action, native Files context action, and provenance sidebar
+already use the matching language and confirmation flow.
+
 ## Unified search
 
 Native Nextcloud Search registers a **Downloads** category containing only the
