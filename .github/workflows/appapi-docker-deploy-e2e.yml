@@ -204,6 +204,10 @@ jobs:
             downloader-appapi-nextcloud php occ user:add --password-from-env alice
           docker exec --user www-data -e OC_PASS="$NEXTCLOUD_APP_PASSWORD" \
             downloader-appapi-nextcloud php occ user:add --password-from-env bob
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ group:add downloader-allowed
+          docker exec --user www-data downloader-appapi-nextcloud \
+            php occ group:adduser downloader-allowed alice
 
           exapp_env="$(docker inspect nc_app_downloader-server-nextcloud \
             --format '{{range .Config.Env}}{{println .}}{{end}}')"
@@ -284,7 +288,7 @@ jobs:
 
           with urlopen(signed_request(
               "admin", "/admin/api/entitlements", method="PUT",
-              payload={"allowed_users": "alice"}
+              payload={"allowed_users": "alice", "allowed_groups": "downloader-allowed"}
           ), timeout=45) as response:
               allowed = json.load(response)
           assert "alice" in allowed["allowed_users"]
@@ -322,6 +326,25 @@ jobs:
           ), timeout=30) as response:
               configured = json.load(response)
           assert configured["app_password_configured"] is True
+
+          # The signed admin dashboard may see only a boolean for Alice and
+          # group membership; not her sensitive DAV preference or its value.
+          with urlopen(signed_request("admin", "/admin/api/files-connections"), timeout=40) as response:
+              readiness = json.load(response)
+          alice_rows = [x for x in readiness["users"] if x["user_id"] == "alice"]
+          assert len(alice_rows) == 1 and alice_rows[0]["connection"] == "connected", readiness
+          assert "downloader-allowed" in alice_rows[0]["via_groups"], readiness
+          groups = {x["name"]: x for x in readiness["groups"]}
+          assert groups["downloader-allowed"]["connected"] >= 1, readiness
+          assert "ci-only-unused-dav-secret" not in str(readiness), "Admin response leaked credential"
+          assert "bob" not in {row["user_id"] for row in readiness["users"]}
+          try:
+              urlopen(signed_request("alice", "/admin/api/files-connections"), timeout=20)
+          except HTTPError as exc:
+              assert exc.code == 403, exc.code
+          else:
+              raise AssertionError("Non-admin Alice accessed the admin Files readiness report")
+          print("Real AppAPI admin: entitled user+group Files status, no secret, nonadmin forbidden")
 
           # The mock core DOES NOT download. Its POST response is an
           # independent gate that the ExApp's real nc_py_api Files calls
