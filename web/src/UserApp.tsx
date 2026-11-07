@@ -11,6 +11,7 @@ type Download = {
 type Personal = {
   destination_folder: string; default_preset: string;
   engine_settings: Record<string, Record<string, unknown>>; app_password_configured: boolean;
+  first_download_verified?: boolean;
 };
 const TYPES: Engine[] = ['auto', 'yt-dlp', 'aria2c', 'gallery-dl', 'generic', 'you-get', 'svtplay-dl', 'get-sauce'];
 const API = window.location.pathname.replace(/\/user\/?$/, '/user/api');
@@ -60,6 +61,7 @@ export default function UserApp() {
   const [engineJson, setEngineJson] = useState('{}');
   const [cookies, setCookies] = useState<{filename: string}[]>([]);
   const [busy, setBusy] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
   const reload = useCallback(async () => {
     try {
@@ -86,7 +88,9 @@ export default function UserApp() {
         setCookies(await request<{filename: string}[]>('/cookies'));
         await reload();
       } catch (error) {
-        if (mounted) setMessage(error instanceof Error ? error.message : 'Could not initialize Downloader');
+        if (mounted) setMessage(error instanceof Error ? error.message : 'Could not open Downloader. Try again.');
+      } finally {
+        if (mounted) setInitializing(false);
       }
     }
     void initialize();
@@ -95,6 +99,11 @@ export default function UserApp() {
   }, [reload]);
   const active = useMemo(() => jobs.find(job => job.id === selected), [jobs, selected]);
   const running = jobs.filter(job => !TERMINAL.has(job.status));
+  const hasVerifiedDownload = Boolean(personal.first_download_verified)
+    || jobs.some(job => job.status === 'completed' && job.output_files?.length
+      && job.output_files.every(file => file.verified));
+  const showGuide = Boolean(me) && (!personal.app_password_configured || !hasVerifiedDownload);
+  const exampleUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -110,7 +119,7 @@ export default function UserApp() {
       setTab('downloads');
       setMessage('Download submitted into your Nextcloud Files.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Submission failed');
+      setMessage(error instanceof Error ? error.message : 'Could not start this download. Check your Files connection and try again.');
     } finally { setBusy(false); }
   }
   async function action(job: Download, op: 'cancel' | 'retry' | 'redeliver') {
@@ -134,7 +143,7 @@ export default function UserApp() {
       }));
       setPersonal(newSettings);
       setAppPassword('');
-      setMessage('Personal settings saved.');
+      setMessage('Saved ✓ Your new downloads will use these settings.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not save preferences');
     } finally { setBusy(false); }
@@ -212,15 +221,34 @@ export default function UserApp() {
       <div className="top-actions"><span className="user-running">{running.length} active</span></div>
     </header>
     {message && <p className="notice" role="status">{message}</p>}
+    {initializing && <section className="panel user-loading" role="status" aria-label="Loading Downloader">
+      <div className="skeleton skeleton-title" /><div className="skeleton" /><div className="skeleton" />
+    </section>}
+    {showGuide && <section className="panel user-onboarding" aria-label="Get started with Downloader">
+      <h2>Get started with Downloader</h2>
+      <p className="muted">Two steps to your first verified download.</p>
+      <ol>
+        <li><strong>{personal.app_password_configured ? '✓ ' : '① '}Connect your Files</strong>
+          <p>Connect a dedicated Nextcloud app password so downloads go into your own Files.</p>
+          {!personal.app_password_configured && <button type="button" className="primary" onClick={() => setTab('personal')}>Connect your Files</button>}
+        </li>
+        <li><strong>{hasVerifiedDownload ? '✓ ' : '② '}Download something first</strong>
+          <p>Try a small public example PDF. You can choose another link at any time.</p>
+          {personal.app_password_configured && !hasVerifiedDownload &&
+            <button type="button" className="primary" onClick={() => { setUrl(exampleUrl); setTab('downloads'); }}>Use example download</button>}
+        </li>
+      </ol>
+      <p className="muted">The guide disappears after your first verified file delivery.</p>
+    </section>}
     <nav className="tabs" aria-label="Downloader sections">
-      <button className={tabs === 'downloads' ? 'active' : ''} onClick={() => setTab('downloads')}>Downloads</button>
-      <button className={tabs === 'personal' ? 'active' : ''} onClick={() => setTab('personal')}>Personal settings</button>
-      <button className={tabs === 'engines' ? 'active' : ''} onClick={() => setTab('engines')}>My engine settings</button>
+      <button className={tabs === 'downloads' ? 'active' : ''} onClick={() => setTab('downloads')}>Download</button>
+      <button className={tabs === 'personal' ? 'active' : ''} onClick={() => setTab('personal')}>My settings</button>
+      <button className={tabs === 'engines' ? 'active' : ''} onClick={() => setTab('engines')}>Advanced</button>
     </nav>
 
     {tabs === 'downloads' && <div className="layout">
       <section className="panel submit-panel">
-        <div className="eyebrow">NEW DOWNLOAD</div><h2>Download into my Files</h2>
+        <div className="eyebrow">NEW DOWNLOAD</div><h2>Download</h2>
         <form onSubmit={event => void submit(event)}>
           <label>Media URL<input value={url} onChange={event => setUrl(event.target.value)} placeholder="Paste a downloadable URL" required /></label>
           <label>Engine<select value={engine} onChange={event => setEngine(event.target.value as Engine)}>
@@ -270,22 +298,26 @@ export default function UserApp() {
     </div>}
 
     {tabs === 'personal' && <section className="panel delivery-panel">
-      <h2>My Files and download defaults</h2>
+      <h2>My settings</h2>
       <p className="muted">These settings are stored in your Nextcloud account, not shared across users.</p>
       <form onSubmit={event => void savePersonal(event)}>
-        <label>Default destination subfolder<input value={personal.destination_folder}
+        <h3>Where your downloads go</h3><p className="muted">Delivered files appear in this folder in your own Nextcloud Files. The default is Downloads.</p>
+        <label>Destination folder<input value={personal.destination_folder}
           onChange={event => setPersonal(old => ({ ...old, destination_folder: event.target.value }))} /></label>
+        <h3>Your defaults</h3><p className="muted">Choose a preset for new downloads; you can still change it for each link.</p>
         <label>Default preset<select value={personal.default_preset}
           onChange={event => setPersonal(old => ({ ...old, default_preset: event.target.value }))}>
           <option value="">None</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
         </select></label>
+        <h3>Files connection</h3><p className="muted" role="status">{personal.app_password_configured ? 'Connected ✓' : 'Not connected — create an app password to let Downloader deliver files.'}</p>
+        <p className="muted"><a href="/settings/user/security" target="_blank" rel="noreferrer">Create an app password in Nextcloud Security</a>, then paste it below.</p>
         <label>My Nextcloud Files app password
           <input type="password" autoComplete="new-password" value={appPassword}
             onChange={event => setAppPassword(event.target.value)}
             placeholder={personal.app_password_configured ? 'Stored securely; leave blank to keep' : 'Create one in Nextcloud personal Security settings'} />
         </label>
         <p className="secure-note">A dedicated Nextcloud app password authorizes WebDAV delivery to your own Files. It is stored as a sensitive Nextcloud preference and never shown again. The downloader service API key never reaches this page.</p>
-        <button className="primary" disabled={busy}>Save my settings</button>
+        <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save my settings'}</button>
       </form>
     </section>}
 
