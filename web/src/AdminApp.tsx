@@ -5,6 +5,18 @@ type Connection = {
   engines_ready: number; message: string;
 };
 type Entitlements = {allowed_users: string; allowed_groups: string};
+type ConnectionUser = {
+  user_id: string; via_groups: string[]; explicit: boolean;
+  connection: 'connected' | 'not_connected' | 'unknown';
+};
+type GroupConnection = {
+  name: string; members_checked: number;
+  connected: number; not_connected: number; unknown: number; partial: boolean;
+};
+type FilesConnections = {
+  users: ConnectionUser[]; groups: GroupConnection[];
+  partial: boolean; scan_limit: number;
+};
 const ROOT = window.location.pathname.replace(/\/+$/, '');
 const TOKEN = (window as unknown as {OC?: {requestToken?: string}}).OC?.requestToken;
 async function request<T>(path:string,init:RequestInit={}):Promise<T> {
@@ -53,6 +65,9 @@ export default function AdminApp(){
   const [checking,setChecking]=useState(false);
   const [saving,setSaving]=useState(false);
   const [dirty,setDirty]=useState(false);
+  const [filesConnections,setFilesConnections]=useState<FilesConnections|null>(null);
+  const [connectionsBusy,setConnectionsBusy]=useState(false);
+  const [connectionError,setConnectionError]=useState('');
   const check=useCallback(async()=>{
     setChecking(true);
     try{setConnection(await request<Connection>('/connection'));}
@@ -74,6 +89,18 @@ export default function AdminApp(){
       }).finally(()=>{if(live)setLoading(false)});
     return ()=>{live=false};
   },[]);
+  async function refreshFilesConnections() {
+    setConnectionsBusy(true);
+    setConnectionError('');
+    try {
+      const current=await request<FilesConnections>('/files-connections');
+      setFilesConnections(current);
+    } catch(error) {
+      setConnectionError(error instanceof Error ? error.message :
+        'Could not check users’ Files connection status.');
+    } finally {setConnectionsBusy(false);}
+  }
+
   async function save(event:FormEvent){
     event.preventDefault();setSaving(true);
     try{
@@ -82,6 +109,7 @@ export default function AdminApp(){
       })});
       setUsers(members(result.allowed_users));setGroups(members(result.allowed_groups));
       setDirty(false);setMessage('Saved ✓ Access changes now apply to Nextcloud users.');
+      setFilesConnections(null);
     }catch(error){setMessage(error instanceof Error?error.message:'Could not save access.');}
     finally{setSaving(false);}
   }
@@ -122,6 +150,53 @@ export default function AdminApp(){
         <MemberEditor title="Groups" items={groups} onChange={items=>{setGroups(items);setDirty(true)}}/>
         <button type="submit" className="primary" disabled={saving||!dirty}>{saving?'Saving…':'Save access'}</button>
       </form>
+      <section className="admin-readiness" aria-label="Entitled users Files connection status">
+        <div className="admin-readiness-heading">
+          <div><h3>Files connection status</h3>
+            <p className="muted">Check which people granted access have connected their own Files.
+              Only the connection state is shown; app passwords stay private.</p></div>
+          <button type="button" className="secondary" disabled={connectionsBusy||dirty}
+            onClick={()=>void refreshFilesConnections()}>
+            {connectionsBusy?'Checking…':'Check Files connections'}</button>
+        </div>
+        {dirty&&<p className="muted">Save your access changes before checking current users.</p>}
+        {connectionError&&<p className="admin-notice" role="alert">{connectionError}
+          {' '}Try again to refresh the results.</p>}
+        {filesConnections&&<>
+          {filesConnections.partial&&<p className="admin-notice" role="status">
+            Partial group results: Nextcloud could not list everyone or this installation has
+            more than {filesConnections.scan_limit} users. A missing row does not mean disconnected.
+          </p>}
+          {!filesConnections.users.length&&!filesConnections.groups.length
+            ? <p className="muted">No individual entitlements or group members are available to check.</p>
+            : <>
+              <h4>People with access</h4>
+              <div className="admin-chips admin-status-list">
+                {filesConnections.users.map(person=><div key={person.user_id}
+                  className="admin-connection-person">
+                  <strong>{person.user_id}</strong>
+                  <span className={'admin-connection-state '+person.connection}>
+                    {person.connection==='connected'?'Connected ✓'
+                      :person.connection==='not_connected'?'Not connected':'Status unavailable'}
+                  </span>
+                  {person.via_groups.length>0&&<small className="muted">
+                    via {person.via_groups.join(', ')}</small>}
+                </div>)}
+              </div>
+              {!!filesConnections.groups.length&&<>
+                <h4>Entitled groups</h4>
+                <div className="admin-group-list">
+                  {filesConnections.groups.map(group=><p key={group.name}>
+                    <strong>{group.name}</strong> — {group.connected} connected,
+                    {' '}{group.not_connected} not connected,
+                    {' '}{group.unknown} unavailable
+                    {group.partial?' · partial scan':''}
+                  </p>)}
+                </div>
+              </>}
+            </>}
+        </>}
+      </section>
     </section>}
     <footer className="muted">Downloader Server · Nextcloud AppAPI administrator settings</footer>
   </main>;
