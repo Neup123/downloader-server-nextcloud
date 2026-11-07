@@ -338,6 +338,36 @@ jobs:
               assert b"collection" in response.read().lower()
           print("Real AppAPI + Nextcloud Files: first-use /Downloads created in Alice's own Files")
 
+          # The visual folder picker calls this signed, owner-scoped read-only
+          # endpoint; verify actual nc_py_api listdir against Nextcloud DAV.
+          with urlopen(signed_request("alice", "/user/api/folders"), timeout=30) as response:
+              root_folders = json.load(response)
+          assert root_folders["path"] == ""
+          assert {"name": "Downloads", "path": "Downloads"} in root_folders["folders"], root_folders
+          with urlopen(signed_request("alice", "/user/api/folders?path=Downloads"), timeout=30) as response:
+              nested_folders = json.load(response)
+          assert nested_folders["path"] == "Downloads", nested_folders
+          for disallowed in (
+              "/user/api/folders?path=..%2FPrivate",
+              "/user/api/folders?offset=-1",
+          ):
+              try:
+                  urlopen(signed_request("alice", disallowed), timeout=20)
+              except HTTPError as exc:
+                  assert exc.code == 422, (disallowed, exc.code)
+              else:
+                  raise AssertionError("Invalid folder-picker parameters were accepted")
+
+          with urlopen(signed_request(
+              "alice", "/user/api/settings", method="PUT",
+              payload={"destination_folder": "Downloads", "notify_finished": False}
+          ), timeout=30) as response:
+              changed = json.load(response)
+          assert changed["destination_folder"] == "Downloads"
+          assert changed["notify_finished"] is False
+          assert changed["app_password_configured"] is True, "Ordinary preference patch erased credential"
+          print("Real signed Nextcloud Files picker and partial nonsecret autosave: PASS")
+
           try:
               urlopen(signed_request("bob", "/user/api/me"), timeout=20)
           except HTTPError as exc:
