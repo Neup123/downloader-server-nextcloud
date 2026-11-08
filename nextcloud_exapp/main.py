@@ -21,7 +21,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 from nextcloud_exapp.user import (
     UserContext, require_user, require_admin, admin_files_connection_status, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
-    normalize_shared_presets, SHARED_PRESET_PREFIX, validate_folder,
+    normalize_shared_presets, SHARED_PRESET_PREFIX, built_in_presets, validate_folder,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
@@ -325,7 +325,7 @@ async def selected_shared_presets(context: UserContext, data: dict) -> list[dict
 @APP.get("/user/api/presets")
 async def user_presets(context: UserContext = Depends(require_user)):
     personal = [{**item, "is_shared": False} for item in await read_user_presets(context)]
-    return personal + await read_shared_presets()
+    return built_in_presets() + personal + await read_shared_presets()
 
 
 @APP.post("/user/api/presets", status_code=201)
