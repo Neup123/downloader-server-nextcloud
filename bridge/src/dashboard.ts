@@ -1,5 +1,6 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
+import { filesJobRequest } from './files-dialog-payload.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
 type Job = {
   id: string; url: string; status: string; created_at: string;
@@ -106,14 +107,28 @@ function renderDashboard(element: HTMLElement) {
     }
     submit.disabled = true; feedback.textContent = 'Submitting download…';
     try {
-      // Deliberately no folder property: signed ExApp default Files setting
-      // controls destination and may auto-create /Downloads on first use.
-      await api('/jobs', 'POST', {url: value, engine: 'auto'});
+      // Use the same owner-scoped payload and ExApp submission path as the
+      // working native Files dialog. A null folder retains the signed user's
+      // own default, including first-use /Downloads creation.
+      const files = await api<{app_password_configured:boolean}>('/settings');
+      if (!files.app_password_configured) {
+        throw new Error("Your Files aren't connected yet. Connect Files in Downloader settings, then retry.");
+      }
+      const created = await api<Job>('/jobs', 'POST', filesJobRequest(value, null));
+      if (!created || !created.id) throw new Error('The download was not confirmed. Retry from Files.');
       field.value = '';
-      feedback.textContent = 'Download started. Follow its progress below.';
+      feedback.textContent = 'Download queued. Follow its progress below.';
+      window.dispatchEvent(new Event('downloader:job-queued'));
       await refresh();
     } catch (error) {
-      feedback.textContent = error instanceof Error ? error.message : 'Could not start download.';
+      const reason = error instanceof Error ? error.message : '';
+      feedback.textContent = /credentials unavailable|app password|reconnect files/i.test(reason)
+        ? 'Your Files connection needs attention. Open Downloader settings, reconnect Files, and try again.'
+        : /destination folder|cannot open destination/i.test(reason)
+          ? 'Your download folder is unavailable. Choose a folder in Downloader settings and retry.'
+          : /401|403|not authorized|unauthorized/i.test(reason)
+            ? 'Downloader is not available for this account. Ask your Nextcloud administrator.'
+            : reason || 'Could not start download. Try again from Files.';
     } finally { submit.disabled = false; }
   });
   element.replaceChildren(area);
