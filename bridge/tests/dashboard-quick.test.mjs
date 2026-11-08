@@ -8,8 +8,10 @@ const bridge = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8'
 test('Dashboard allows opt-in quick download without credentials or changing own Files folder', () => {
   assert.match(dashboard, /Quick download link/);
   assert.match(dashboard, /quick\.addEventListener\('submit'/);
-  assert.match(dashboard, /await api\('\/jobs', 'POST', \{url: value, engine: 'auto'\}\)/);
-  assert.doesNotMatch(dashboard, /folder:.*destination|app_password|X-API-Key|DOWNLOADER_API_TOKEN/);
+  assert.match(dashboard, /await api<Job>\('\/jobs', 'POST', filesJobRequest\(value, null\)\)/);
+  assert.doesNotMatch(dashboard, /folder:.*destination|X-API-Key|DOWNLOADER_API_TOKEN/);
+  assert.match(dashboard, /app_password_configured/);
+  assert.match(dashboard, /downloader:job-queued/);
   assert.match(dashboard, /submit\.disabled = true/);
   assert.match(dashboard, /role', 'status'/);
   assert.match(dashboard, /\.slice\(0, 3\)/);
