@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = [
     {"user_id": "alice", "allowed_users": "", "allowed_groups": "", "user_groups": []},
     {"user_id": "alice", "allowed_users": "alice", "allowed_groups": "", "user_groups": []},
-    {"user_id": "bob", "allowed_users": " alice, bob\\n charlie ", "allowed_groups": "", "user_groups": []},
+    {"user_id": "bob", "allowed_users": " alice, bob\n charlie ", "allowed_groups": "", "user_groups": []},
     {"user_id": "alice", "allowed_users": "alice2", "allowed_groups": "", "user_groups": []},
     {"user_id": "alice", "allowed_users": "", "allowed_groups": " staff ", "user_groups": ["staff"]},
     {"user_id": "alice", "allowed_users": "", "allowed_groups": "staff", "user_groups": ["admin"]},
@@ -27,9 +27,9 @@ FIXTURES = [
     {"user_id": "alice", "allowed_users": "", "allowed_groups": "staff", "user_groups": ["staff"],
      "membership_unavailable": True},
     {"user_id": "ALICE", "allowed_users": "alice", "allowed_groups": "staff", "user_groups": []},
-    {"user_id": "alice", "allowed_users": ",\\r\\n,  ", "allowed_groups": "  , ", "user_groups": []},
-    {"user_id": "", "allowed_users": ",\\n", "allowed_groups": "", "user_groups": []},
-    {"user_id": "user-012", "allowed_users": "user-01\\ruser-012", "allowed_groups": "", "user_groups": []},
+    {"user_id": "alice", "allowed_users": ",\r\n,  ", "allowed_groups": "  , ", "user_groups": []},
+    {"user_id": "", "allowed_users": ",\n", "allowed_groups": "", "user_groups": []},
+    {"user_id": "user-012", "allowed_users": "user-01\ruser-012", "allowed_groups": "", "user_groups": []},
 ]
 
 
