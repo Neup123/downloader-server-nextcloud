@@ -21,8 +21,11 @@ from fastapi import HTTPException, Request
 from nc_py_api import NextcloudException
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
+from app.job_states import TERMINAL_STATUSES
+
 DEFAULT_FOLDER = "Downloads"
-TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
+# Preserve the string API contract while sourcing the vocabulary from Core.
+TERMINAL_STATES = frozenset(status.value for status in TERMINAL_STATUSES)
 ENGINES = frozenset({"yt-dlp", "aria2c", "gallery-dl", "generic", "you-get", "svtplay-dl", "get-sauce"})
 PRIVILEGED_CORE_ROUTES = frozenset({"settings", "delivery", "cookies", "engine-rules"})
 
