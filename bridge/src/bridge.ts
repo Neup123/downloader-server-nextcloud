@@ -392,7 +392,7 @@ function headerProgress(ownerId: string) {
 
       panel.replaceChildren(node('h3', 'My downloads'));
       const fullLink = node('a', 'Open history', 'dl-link');
-      fullLink.href = oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/');
+      fullLink.href = oc()!.generateUrl('/apps/downloader_bridge/library');
       panel.append(fullLink);
       if (!jobs.length) panel.append(node('p', 'No downloads yet.', 'dl-muted'));
 
@@ -410,7 +410,7 @@ function headerProgress(ownerId: string) {
 
         const row = node('div', '', 'dl-job');
         const title = node('a', downloadTitle(job), 'dl-job-title');
-        title.href = oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/') +
+        title.href = oc()!.generateUrl('/apps/downloader_bridge/library') +
           '?job=' + encodeURIComponent(job.id);
         row.append(title, node('div', downloadStatus(job), 'dl-job-state'));
         if (job.engine) row.append(node('small', job.engine, 'dl-muted'));
