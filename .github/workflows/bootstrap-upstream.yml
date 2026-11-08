@@ -132,6 +132,17 @@ jobs:
           # Host-level acceptance code is core-owned as well: it must be
           # imported intact, never replaced with a downstream-only copy.
           git diff --exit-code upstream/main -- LICENSE app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md
+          # Core's legacy App.tsx is deliberately different in this ExApp
+          # adaptation; all other upstream web/src files must be exact.
+          # Enumerate upstream paths rather than excluding all of web/src:
+          # newly added shared UI modules become protected automatically.
+          git cat-file -e upstream/main:web/src/App.tsx
+          mapfile -t shared_ui < <(
+            git ls-tree -r --name-only upstream/main -- web/src |
+              grep -vFx 'web/src/App.tsx'
+          )
+          test "${#shared_ui[@]}" -gt 0
+          git diff --exit-code upstream/main -- "${shared_ui[@]}"
           python -m compileall -q app scripts tests nextcloud_exapp
           # The reviewed downstream module manifest excludes core-only tests,
           # including ones already imported into downstream Git ancestry.
