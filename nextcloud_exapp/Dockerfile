@@ -20,11 +20,11 @@ WORKDIR /app
 COPY nextcloud_exapp/requirements.lock /app/requirements.lock
 COPY nextcloud_exapp/requirements.hashed.lock /app/requirements.hashed.lock
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requirements.hashed.lock
-# The signed gateway consumes only Core's canonical status vocabulary.
-# Do not ship the downloader's workers, credentials or other Core runtime here.
-COPY app/job_states.py /app/app/job_states.py
+# The Core job-state vocabulary is generated into the standalone ExApp's
+# small Python leaf module at source review time and checked for parity in CI.
+# Never copy any Core service source into this independently deployed image.
 COPY nextcloud_exapp/*.py /app/nextcloud_exapp/
-RUN python -c "from app.job_states import TERMINAL_STATUSES; assert {'completed', 'failed', 'cancelled'} == set(TERMINAL_STATUSES)"
+RUN python -c "from nextcloud_exapp.job_state_contract import TERMINAL_STATES; assert TERMINAL_STATES"
 COPY --from=web-build /web/dist/ /app/nextcloud_exapp/dist/
 USER exapp
 EXPOSE 9080
