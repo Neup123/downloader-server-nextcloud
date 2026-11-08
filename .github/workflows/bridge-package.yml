@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "bridge/**"
+      - "app/job_states.py"
+      - "scripts/bridge_job_state_contract.py"
       - ".github/workflows/bridge-package.yml"
   pull_request:
     paths:
       - "bridge/**"
+      - "app/job_states.py"
+      - "scripts/bridge_job_state_contract.py"
       - ".github/workflows/bridge-package.yml"
   workflow_dispatch:
 
@@ -32,6 +36,8 @@ jobs:
           npm run build
           test -s js/bridge.js
           test -s js/dashboard.js
+      - name: Verify native PHP contract is generated from imported Core source
+        run: python3 -m scripts.bridge_job_state_contract --check
       - name: Check native PHP syntax
         run: |
           php -l bridge/lib/AppInfo/Application.php
@@ -42,6 +48,8 @@ jobs:
           php -l bridge/lib/Activity/Provider.php
           php -l bridge/lib/BackgroundJob/ActivitySync.php
           php -l bridge/lib/EntitlementPolicy.php
+          php -l bridge/lib/JobStateContract.php
+          php -l bridge/tests/job-state-contract.php
           php -l bridge/tests/entitlement-contract.php
       - name: Create installable native Nextcloud app
         run: |
