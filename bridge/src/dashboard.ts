@@ -242,7 +242,33 @@ function renderDashboard(element: HTMLElement) {
     refreshing = true;
     try {
       const jobs = await api<Job[]>('/jobs?limit=50');
+      // A refresh must update data without changing what the reader opened.
+      // Capture the live DOM immediately before replacement, so even scroll
+      // changes during an in-flight request are retained.
+      const scroll = list.scrollTop;
+      const menus = new Set([...list.querySelectorAll<HTMLElement>('.job-row')]
+        .filter(row => row.querySelector<HTMLDetailsElement>('.job-menu')?.open)
+        .map(row => row.dataset.jobId || ''));
+      const focused = document.activeElement?.closest<HTMLElement>('.job-row');
+      const focusId = focused?.dataset.jobId;
+      const focusMenu = focused?.querySelector<HTMLDetailsElement>('.job-menu')?.contains(document.activeElement) ?? false;
       list.replaceChildren(...(jobs.length ? jobs.map(rowFor) : [elem('p', 'No downloads yet.')]));
+      for (const row of list.querySelectorAll<HTMLElement>('.job-row')) {
+        if (menus.has(row.dataset.jobId || '')) {
+          const menu = row.querySelector<HTMLDetailsElement>('.job-menu');
+          if (menu) menu.open = true;
+        }
+      }
+      list.scrollTop = scroll;
+      // Restore keyboard interaction to the same menu when it still exists.
+      if (focusId && focusMenu) {
+        for (const row of list.querySelectorAll<HTMLElement>('.job-row')) {
+          if (row.dataset.jobId === focusId) {
+            row.querySelector<HTMLElement>('.job-menu summary')?.focus({preventScroll: true});
+            break;
+          }
+        }
+      }
     } catch {
       list.replaceChildren(elem('p', 'Downloader is temporarily unavailable.'));
     } finally {
