@@ -34,6 +34,35 @@ landed on `main`. The verified core source was imported into this repository\'s 
 
 Do not edit or duplicate core-owned files here unless a documented Nextcloud-specific delta requires it. Prefer AppAPI packaging metadata, Nextcloud integration code, and deployment configuration in clearly separated paths.
 
+### Explicit shared UI ownership and intentional legacy adapter split
+
+The web UI is **not** an untracked fork. Core owns all files in
+`web/src/` that are present in Core, with **one explicit exception**:
+`web/src/App.tsx`. Core's `App.tsx` is the standalone administrator UI
+and uses the Core API/token. The Nextcloud adaptation retains a historical
+Nextcloud-aware version with a build-mode switch, session-scoped API routing,
+and different connection screens; copying the Core file over it would
+silently break those authentication/integration assumptions. It is **not**
+the native signed user or administration entrypoint: the ExApp uses
+`web/src/UserApp.tsx` through `user-main.tsx`, and
+`web/src/AdminApp.tsx` through `admin-main.tsx`.
+
+The remaining ExApp-only modules (including `exapp-path.ts`,
+`first-run.ts`, and the native personal/admin styles) are created and
+maintained **only** downstream. Conversely, every other source path that
+exists under upstream Core `web/src/` is automatically enumerated from the
+fetched Core commit and must compare byte-for-byte to the downstream
+merge. Both the read-only merge preview and the publishing sync enforce
+this, and `scripts/record_core_sync.py` rechecks the same inventory after
+the accepted push to main. A new shared Core UI module becomes protected
+without adding it manually to a static path list.
+
+Do not manually cherry-pick a shared UI change or edit a protected module
+downstream. If the legacy `App.tsx` needs equivalent behavior, port the
+specific behavior deliberately with Core and ExApp UI tests. A future removal
+of the legacy adapter is a separate, browser-tested migration; do not
+treat its present divergence as accidental drift or silently overwrite it.
+
 ## Verified upstream synchronization and test ownership
 
 The downstream repository imports verified core `main` through the shared Git
