@@ -25,6 +25,7 @@ class ReadOnlyMergePreviewTests(unittest.TestCase):
             "git diff --exit-code upstream/main",
             "git worktree add --detach /tmp/verified-upstream-core upstream/main",
             "python -m pytest -q",
+            "python3 -m scripts.bridge_job_state_contract --check",
             "scripts/run_downstream_acceptance.py",
             "docker build --tag downloader-server:nextcloud-upstream-preview .",
         ):
@@ -42,6 +43,10 @@ class ReadOnlyMergePreviewTests(unittest.TestCase):
             ROOT / ".github/workflows/verify-upstream-merge.yml"
         ).read_text(encoding="utf-8")
         for content in (live, preview):
+            self.assertLess(
+                content.index("python3 -m scripts.bridge_job_state_contract --check"),
+                content.index("python3 scripts/run_downstream_acceptance.py"),
+            )
             self.assertIn("python3 scripts/run_downstream_acceptance.py", content)
             self.assertIn("git diff --exit-code upstream/main", content)
             self.assertIn("scripts/resolve_upstream_conflicts.py", content)
