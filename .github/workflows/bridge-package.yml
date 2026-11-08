@@ -36,11 +36,14 @@ jobs:
           npm run build
           test -s js/bridge.js
           test -s js/dashboard.js
+          test -s js/library.js
       - name: Verify native PHP contract is generated from imported Core source
         run: python3 -m scripts.bridge_job_state_contract --check
       - name: Check native PHP syntax
         run: |
           php -l bridge/lib/AppInfo/Application.php
+          php -l bridge/lib/Controller/LibraryController.php
+          php -l bridge/appinfo/routes.php
           php -l bridge/lib/Listener/AssetsListener.php
           php -l bridge/lib/Dashboard/DownloadsWidget.php
           php -l bridge/lib/Search/DownloadsProvider.php
@@ -54,7 +57,7 @@ jobs:
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js package/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates package/downloader_bridge/
           cp bridge/README.md package/downloader_bridge/
           cd package
           zip -q -r ../downloader-bridge-0.5.3.zip downloader_bridge
