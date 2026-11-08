@@ -89,7 +89,7 @@ function start() {
       retry.hidden=false;
     }finally{
       saving=false;
-      if(Object.keys(dirty).length&&!retry.hidden===false){
+      if(Object.keys(dirty).length && retry.hidden){
         timer=window.setTimeout(()=>{void save();},450);
       }
     }
