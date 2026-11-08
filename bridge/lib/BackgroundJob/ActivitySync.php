@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace OCA\DownloaderBridge\BackgroundJob;
 
+use OCA\DownloaderBridge\EntitlementPolicy;
 use OCP\Activity\IManager;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
@@ -86,17 +87,11 @@ final class ActivitySync extends TimedJob {
     }
 
     private function isEntitled(string $uid): bool {
-        $list = (string)$this->appConfig->getValueString(self::APP, 'allowed_users', '', lazy: true);
-        $users = array_map('trim', preg_split('/[,\r\n]+/', $list) ?: []);
-        if (in_array($uid, $users, true)) {
-            return true;
-        }
-        $list = (string)$this->appConfig->getValueString(self::APP, 'allowed_groups', '', lazy: true);
-        foreach (array_filter(array_map('trim', preg_split('/[,\r\n]+/', $list) ?: [])) as $group) {
-            if ($this->groupManager->isInGroup($uid, $group)) {
-                return true;
-            }
-        }
-        return false;
+        return EntitlementPolicy::allows(
+            $uid,
+            (string)$this->appConfig->getValueString(self::APP, 'allowed_users', '', lazy: true),
+            (string)$this->appConfig->getValueString(self::APP, 'allowed_groups', '', lazy: true),
+            fn (string $user, string $group): bool => $this->groupManager->isInGroup($user, $group),
+        );
     }
 }
