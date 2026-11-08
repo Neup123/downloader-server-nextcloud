@@ -50,6 +50,7 @@ def validate_record(
         "source_ancestry_verified": True,
         "core_owned_files_byte_identical": True,
         "core_owned_paths": list(CORE_OWNED_PATHS),
+        "shared_core_ui": "all upstream web/src source files except intentional web/src/App.tsx",
         "acceptance": {
             "full_upstream_python_tests": "passed",
             "reviewed_nextcloud_python_tests": "passed",
@@ -85,6 +86,7 @@ def validate_revalidation_record(
         "source_ancestry_verified": True,
         "core_owned_files_byte_identical": True,
         "core_owned_paths": list(CORE_OWNED_PATHS),
+        "shared_core_ui": "all upstream web/src source files except intentional web/src/App.tsx",
         "acceptance": {
             "full_upstream_python_tests": "passed",
             "reviewed_nextcloud_python_tests": "passed",
@@ -97,6 +99,28 @@ def validate_revalidation_record(
 
 def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], text=True).strip()
+
+
+# B's legacy App.tsx includes Nextcloud session/proxy behavior and is an
+# intentionally separate adapter; its signed user/admin entrypoints are
+# UserApp.tsx and AdminApp.tsx. Every other file Core owns in web/src must
+# remain byte-identical in the downstream merge.
+INTENTIONAL_WEB_DIVERGENCE = "web/src/App.tsx"
+
+
+def core_shared_web_paths(core_sha: str) -> tuple[str, ...]:
+    """Enumerate upstream-owned UI files dynamically; include newly added ones."""
+    if SHA.fullmatch(core_sha) is None:
+        raise ValueError("Core source revision is not a SHA")
+    items = tuple(git("ls-tree", "-r", "--name-only", core_sha, "--", "web/src").splitlines())
+    if INTENTIONAL_WEB_DIVERGENCE not in items or len(items) < 2:
+        raise ValueError("Core UI ownership inventory is missing or truncated")
+    if len(set(items)) != len(items) or any(
+        not item.startswith("web/src/") or item.startswith("-")
+        for item in items
+    ):
+        raise ValueError("Invalid Core UI inventory")
+    return tuple(item for item in items if item != INTENTIONAL_WEB_DIVERGENCE)
 
 
 def accepted_sync_record() -> dict:
@@ -114,7 +138,7 @@ def accepted_sync_record() -> dict:
         check=False, capture_output=True, timeout=10,
     ).returncode == 0
     byte_parity = subprocess.run(
-        ["git", "diff", "--quiet", core, merged, "--", *CORE_OWNED_PATHS],
+        ["git", "diff", "--quiet", core, merged, "--", *CORE_OWNED_PATHS, *core_shared_web_paths(core)],
         check=False, capture_output=True, timeout=15,
     ).returncode == 0
     return validate_record(
@@ -136,7 +160,7 @@ def accepted_main_revalidation_record() -> dict:
         check=False, capture_output=True, timeout=10,
     ).returncode == 0
     parity = subprocess.run(
-        ["git", "diff", "--quiet", core, current, "--", *CORE_OWNED_PATHS],
+        ["git", "diff", "--quiet", core, current, "--", *CORE_OWNED_PATHS, *core_shared_web_paths(core)],
         check=False, capture_output=True, timeout=15,
     ).returncode == 0
     return validate_revalidation_record(
