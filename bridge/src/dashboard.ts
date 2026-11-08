@@ -40,26 +40,26 @@ async function api<T>(url: string, method = 'GET', data?: object): Promise<T> {
 }
 /** Core JobCard structure, styled with native Nextcloud colors and focus cues. */
 const CARD_STYLE = `
-.downloader-dashboard-content .job-list{display:grid;gap:12px;margin-top:12px}
-.downloader-dashboard-content .job-card{background:var(--color-main-background,#fff);color:var(--color-main-text,#222);
-  border:1px solid var(--color-border,#aaa);border-radius:13px;padding:16px;min-width:0}
-.downloader-dashboard-content .job-card-head{display:flex;gap:13px;align-items:flex-start}
-.downloader-dashboard-content .job-card-icon{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;
-  border-radius:10px;background:var(--color-background-dark,#eee);font-size:20px}
-.downloader-dashboard-content .job-card-info{flex:1;min-width:0}
-.downloader-dashboard-content .job-card-title{font-size:15px;font-weight:600;overflow-wrap:anywhere}
-.downloader-dashboard-content .job-card-state{font-size:13px;line-height:1.5;margin-top:3px;overflow-wrap:anywhere}
-.downloader-dashboard-content .job-card-meta{color:var(--color-text-maxcontrast,#666);font-size:12px;margin-top:5px}
-.downloader-dashboard-content .progress-track{height:6px;margin-top:13px;background:var(--color-background-dark,#ddd);border-radius:10px;overflow:hidden}
-.downloader-dashboard-content .progress-fill{height:100%;background:var(--color-primary,#377bd1);border-radius:10px}
-.downloader-dashboard-content .job-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
-.downloader-dashboard-content .job-actions :is(button,a){display:inline-flex;align-items:center;min-height:44px;padding:7px 10px}
-.downloader-dashboard-content .job-card-details{border-top:1px solid var(--color-border,#aaa);margin-top:13px;padding-top:13px;font-size:13px}
-.downloader-dashboard-content .job-card-details .output-row{display:flex;gap:12px;flex-wrap:wrap;margin:7px 0}
-.downloader-dashboard-content .job-card-details details{margin-top:10px}
-.downloader-dashboard-content .job-card-details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto}
+.downloader-dashboard-content{min-width:0;max-width:100%;overflow:hidden;color:var(--color-main-text,#222)}
+.downloader-dashboard-content .job-list{display:grid;gap:0;max-height:380px;overflow-y:auto;overflow-x:hidden;min-height:0;margin-top:8px}
+.downloader-dashboard-content .job-row{display:flex;gap:10px;align-items:center;min-width:0;padding:8px 2px;border-bottom:1px solid var(--color-border,#ddd)}
+.downloader-dashboard-content .job-card-icon{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px;background:var(--color-background-dark,#eee);font-size:18px}
+.downloader-dashboard-content .job-card-info{flex:1;min-width:0;display:grid;gap:2px}
+.downloader-dashboard-content .job-card-title{display:block;max-width:100%;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.downloader-dashboard-content .job-card-state{display:block;max-width:100%;font-size:12px;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.downloader-dashboard-content .job-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto}
+.downloader-dashboard-content .job-actions button,.downloader-dashboard-content .job-actions summary{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;list-style:none}
+.downloader-dashboard-content .job-actions :is(button,summary):hover{background:var(--color-background-hover,#ddd)}
+.downloader-dashboard-content .job-menu{position:relative}
+.downloader-dashboard-content .job-menu summary::-webkit-details-marker{display:none}
+.downloader-dashboard-content .job-menu-items{position:absolute;z-index:100;right:0;top:100%;width:max-content;min-width:160px;padding:5px;display:grid;gap:2px;border:1px solid var(--color-border,#aaa);border-radius:9px;background:var(--color-main-background,#fff);box-shadow:0 6px 24px #0003}
+.downloader-dashboard-content .job-menu-items button{width:100%;min-height:34px;display:block;text-align:start;padding:6px 10px;font-size:12px}
+.downloader-dashboard-content .mini-progress{width:100%;height:3px}
 .downloader-dashboard-content :is(button,a,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
-@media(max-width:480px){.downloader-dashboard-content .job-card{padding:12px}.downloader-dashboard-content .job-actions :is(button,a){flex:1 1 auto}}
+.downloader-widget-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(540px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;padding:22px;border:1px solid var(--color-border,#aaa);border-radius:12px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
+.downloader-widget-dialog::backdrop{background:#0008}
+.downloader-widget-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}
+.downloader-widget-dialog .job-modal-actions{display:flex;justify-content:flex-end;gap:8px}
 `;
 
 function renderDashboard(element: HTMLElement) {
@@ -133,122 +133,135 @@ function renderDashboard(element: HTMLElement) {
   });
   element.replaceChildren(area);
   let active = true;
-  async function refresh() {
-    if (!active || !element.isConnected) return;
+  let refreshing = false;
+  async function runAction(job: Job, action: 'cancel'|'retry'|'redeliver') {
     try {
-      const jobs = await api<Job[]>('/jobs?limit=3');
-      list.replaceChildren();
-      if (!jobs.length) {
-        list.append(elem('p', 'No downloads yet.'));
-        return;
-      }
-      for (const job of jobs.slice(0, 3)) {
-        // Identical semantics and class structure to the Core Download/Library
-        // JobCard; native Nextcloud styling preserves its theme.
-        const row = elem('article');
-        row.className = 'job-card job-' + job.status;
-        row.setAttribute('data-job-id', job.id);
-        const head = elem('div'); head.className = 'job-card-head';
-        const icon = elem('span', downloadSymbol(job)); icon.className = 'job-card-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        const info = elem('div'); info.className = 'job-card-info';
-        const title = elem('a', downloadTitle(job));
-        title.className = 'job-card-title';
-        title.href = host.OC!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/') +
-          '?job=' + encodeURIComponent(job.id);
-        title.setAttribute('aria-label', 'Details for ' + downloadTitle(job));
-        const state = elem('div', downloadStatus(job)); state.className = 'job-card-state';
-        const metadata = elem('div', job.engine || 'Automatic'); metadata.className = 'job-card-meta';
-        if (!TERMINAL.has(job.status) && job.progress?.downloaded_bytes !== undefined) {
-          metadata.append(elem('span', ' · ' + downloadAmount(job.progress.downloaded_bytes) + ' downloaded'));
-        }
-        info.append(title, state, metadata);
-        head.append(icon, info); row.append(head);
-
-        if (!TERMINAL.has(job.status)) {
-          const track = elem('div'); track.className = 'progress-track';
-          track.setAttribute('role', 'progressbar');
-          track.setAttribute('aria-label', 'Download progress for ' + downloadTitle(job));
-          const percent = Number(job.progress?.percent);
-          if (Number.isFinite(percent)) {
-            track.setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, percent))));
-          }
-          track.setAttribute('aria-valuemin', '0');
-          track.setAttribute('aria-valuemax', '100');
-          const fill = elem('div'); fill.className = 'progress-fill';
-          fill.style.width = String(Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + '%';
-          track.append(fill); row.append(track);
-        }
-        const actions = elem('div'); actions.className = 'job-actions';
-        const query = deliveredFilesQuery(job);
-        if (query) {
-          const files = elem('a', 'Open in Files');
-          files.className = 'job-card-file-link';
-          files.href = host.OC!.generateUrl('/apps/files/files') + query;
-          files.target = '_blank'; files.rel = 'noopener noreferrer';
-          actions.append(files);
-        }
-        const operation = job.status === 'completed' ? 'redeliver'
-          : TERMINAL.has(job.status) ? 'retry' : 'cancel';
-        const action = elem('button', operation === 'retry' ? 'Try again'
-          : operation === 'redeliver' ? 'Re-deliver' : 'Cancel');
-        action.type = 'button';
-        action.addEventListener('click', async () => {
-          action.disabled = true;
-          try {
-            await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST');
-            await refresh();
-          } catch (error) {
-            action.disabled = false;
-            feedback.textContent = error instanceof Error ? error.message : 'Download action failed.';
-          }
-        });
-        actions.append(action);
-        const detailsToggle = elem('button', 'Details');
-        detailsToggle.type = 'button';
-        detailsToggle.setAttribute('aria-expanded', 'false');
-        const details = elem('div'); details.className = 'job-card-details'; details.hidden = true;
-        if (job.output_files?.length) {
-          details.append(elem('strong', 'Delivered files'));
-          for (const file of job.output_files) {
-            const item = elem('div'); item.className = 'output-row';
-            item.append(elem('span', file.filename),
-              elem('span', downloadAmount(file.size_bytes)),
-              elem('span', file.verified ? '✓ Verified' : 'Not verified'));
-            details.append(item);
-          }
-        }
-        if (job.error) details.append(elem('p', job.error));
-        const log = elem('details');
-        const label = elem('summary', 'Technical log (advanced)');
-        const raw = elem('pre', job.log_text || 'No log output yet.');
-        log.append(label, raw); details.append(log);
-        detailsToggle.addEventListener('click', () => {
-          details.hidden = !details.hidden;
-          detailsToggle.textContent = details.hidden ? 'Details' : 'Hide details';
-          detailsToggle.setAttribute('aria-expanded', String(!details.hidden));
-        });
-        actions.append(detailsToggle);
-        row.append(actions, details);
-        list.append(row);
-      }
-    } catch {
-      // PHP entitlement additionally hides this widget before it is rendered.
-      list.replaceChildren(elem('p', 'Downloader is unavailable.'));
-      active = false;
+      await api('/jobs/' + encodeURIComponent(job.id) + '/' + action, 'POST');
+      feedback.textContent = action === 'cancel' ? 'Download cancelled.' : 'Download queued.';
+      await refresh();
+    } catch (error) {
+      feedback.textContent = error instanceof Error ? error.message : 'Could not update this download.';
     }
   }
-  window.addEventListener('downloader:job-queued', () => { void refresh(); });
-  window.addEventListener('downloader:jobs-updated', () => { void refresh(); });
+  async function copySource(job: Job) {
+    try {
+      await navigator.clipboard.writeText(job.url);
+      feedback.textContent = 'Source link copied.';
+    } catch { feedback.textContent = 'Unable to copy source link in this browser.'; }
+  }
+  function showDetails(job: Job) {
+    const dialog = elem('dialog');
+    dialog.className = 'downloader-widget-dialog';
+    const heading = elem('h2', downloadTitle(job));
+    heading.id = 'downloader-widget-modal-heading';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    const status = elem('p', downloadStatus(job));
+    const source = elem('p', 'Source: ' + job.url);
+    source.style.overflowWrap = 'anywhere';
+    dialog.append(heading, status, source);
+    if (job.error) dialog.append(elem('p', job.error));
+    if (job.output_files?.length) {
+      dialog.append(elem('h3', 'Delivered files'));
+      for (const file of job.output_files) {
+        dialog.append(elem('p', file.filename + ' · ' + downloadAmount(file.size_bytes) +
+          (file.verified ? ' · Verified' : ' · Not verified')));
+      }
+    }
+    const log = elem('details');
+    log.append(elem('summary', 'Technical log (advanced)'), elem('pre', job.log_text || 'No log output yet.'));
+    dialog.append(log);
+    const actions = elem('div'); actions.className = 'job-modal-actions';
+    const close = elem('button', 'Close'); close.type = 'button';
+    close.addEventListener('click', () => dialog.close());
+    actions.append(close); dialog.append(actions);
+    document.body.append(dialog);
+    dialog.addEventListener('close', () => dialog.remove(), {once: true});
+    dialog.showModal();
+  }
+  function rowFor(job: Job) {
+    const row = elem('article');
+    row.className = 'job-row job-' + job.status;
+    row.setAttribute('data-job-id', job.id);
+    const icon = elem('span', downloadSymbol(job)); icon.className = 'job-card-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    const info = elem('div'); info.className = 'job-card-info';
+    const title = elem('button', downloadTitle(job)); title.className = 'job-card-title';
+    title.style.cssText = 'border:0;padding:0;background:transparent;color:inherit;text-align:start;cursor:pointer';
+    title.title = downloadTitle(job);
+    title.addEventListener('click', () => showDetails(job));
+    const state = elem('span', downloadStatus(job)); state.className = 'job-card-state';
+    state.title = downloadStatus(job);
+    info.append(title, state);
+    if (!TERMINAL.has(job.status)) {
+      const progress = elem('progress'); progress.className = 'mini-progress';
+      progress.max = 100;
+      progress.value = Math.max(0, Math.min(100, Number(job.progress?.percent || 0)));
+      progress.setAttribute('aria-label', 'Progress for ' + downloadTitle(job));
+      info.append(progress);
+    }
+    const actions = elem('div'); actions.className = 'job-actions';
+    const operation = job.status === 'completed' ? 'redeliver'
+      : TERMINAL.has(job.status) ? 'retry' : 'cancel';
+    const rerun = elem('button', operation === 'redeliver' ? '↻' : operation === 'retry' ? '⟳' : '×');
+    rerun.type = 'button';
+    rerun.title = operation === 'redeliver' ? 'Deliver again'
+      : operation === 'retry' ? 'Try again' : 'Cancel download';
+    rerun.setAttribute('aria-label', rerun.title);
+    rerun.addEventListener('click', () => {void runAction(job, operation);});
+    actions.append(rerun);
+    const more = elem('details'); more.className = 'job-menu';
+    const summary = elem('summary', '⋮');
+    summary.title = 'More actions';
+    summary.setAttribute('aria-label', 'More actions for ' + downloadTitle(job));
+    const menu = elem('div'); menu.className = 'job-menu-items';
+    function item(label: string, click: () => void) {
+      const button = elem('button', label); button.type = 'button'; button.title = label;
+      button.addEventListener('click', () => {more.open = false; click();});
+      menu.append(button);
+    }
+    const query = deliveredFilesQuery(job);
+    if (query) item('Open in Files', () => {
+      window.location.href = host.OC!.generateUrl('/apps/files/files') + query;
+    });
+    item('View details', () => showDetails(job));
+    item('Copy source link', () => {void copySource(job);});
+    item('Remove from history', () => {void (async () => {
+      try {
+        await api('/jobs/' + encodeURIComponent(job.id) + '/hide', 'POST');
+        feedback.textContent = 'Removed from your history. Files remain untouched.';
+        await refresh();
+      } catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Could not remove history entry.';}
+    })();});
+    more.append(summary, menu); actions.append(more);
+    row.append(icon, info, actions);
+    return row;
+  }
+
+  async function refresh() {
+    if (!active || !element.isConnected || refreshing) return;
+    refreshing = true;
+    try {
+      const jobs = await api<Job[]>('/jobs?limit=50');
+      list.replaceChildren(...(jobs.length ? jobs.map(rowFor) : [elem('p', 'No downloads yet.')]));
+    } catch {
+      list.replaceChildren(elem('p', 'Downloader is temporarily unavailable.'));
+    } finally {
+      refreshing = false;
+    }
+  }
+  window.addEventListener('downloader:job-queued', () => {void refresh();});
+  window.addEventListener('downloader:jobs-updated', () => {void refresh();});
   void refresh();
   const timer = window.setInterval(() => {
     if (!active || !element.isConnected) {
+      active = false;
       window.clearInterval(timer);
       return;
     }
     void refresh();
   }, 5000);
 }
+
 function register() {
   host.OCA?.Dashboard?.register('downloader_bridge', renderDashboard);
 }
