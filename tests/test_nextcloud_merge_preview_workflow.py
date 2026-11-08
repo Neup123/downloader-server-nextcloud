@@ -29,6 +29,8 @@ class ReadOnlyMergePreviewTests(unittest.TestCase):
             "docker build --tag downloader-server:nextcloud-upstream-preview .",
         ):
             self.assertIn(expected, content)
+        self.assertIn("git cat-file -e upstream/main:app/job_states.py", content)
+        self.assertIn("test -s app/job_states.py", content)
         for prohibited in ("git push", "gh pr merge", "git commit -m"):
             self.assertNotIn(prohibited, content)
 
