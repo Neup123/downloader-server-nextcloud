@@ -47,8 +47,8 @@ def parse_wheel_hash_lock(source: str) -> dict[str, tuple[str, str, tuple[str, .
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        pending += " " + line.removesuffix("\\\\").strip()
-        if line.endswith("\\\\"):
+        pending += " " + line.removesuffix(chr(92)).strip()
+        if line.endswith(chr(92)):
             continue
         logical.append(pending.strip())
         pending = ""
