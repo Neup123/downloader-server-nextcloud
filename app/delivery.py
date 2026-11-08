@@ -351,7 +351,7 @@ def _delivery_title(files: list[Path], job: Job | None) -> str:
         raw = unquote(parsed.path.rstrip("/").split("/")[-1]) or parsed.hostname or ""
     if not raw and files:
         raw = files[0].stem
-    raw = re.sub(r'[\\/:*?"<>|\\x00-\\x1f]', "_", raw).strip(" .")
+    raw = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", raw).strip(" .")
     return (raw[:90].strip(" .") or "Download")
 
 
