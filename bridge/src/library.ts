@@ -182,7 +182,7 @@ function main() {
     return row;
   }
   async function load(reset=false){
-    if (reset) {generation++;offset=0;list.replaceChildren();}
+    if (reset) {generation++;offset=0;}
     const current=generation;
     if (busy && !reset) return;
     if (offset===null) return;
@@ -193,7 +193,10 @@ function main() {
       const params=new URLSearchParams({limit:'50',offset:String(at),state:state.value,q:search.value.trim()});
       const page=await api<Page>('/library?'+params.toString());
       if (current!==generation) return;
-      list.append(...page.jobs.map(renderJob));
+      const scroll = reset ? list.scrollTop : 0;
+      if (reset) list.replaceChildren(...page.jobs.map(renderJob));
+      else list.append(...page.jobs.map(renderJob));
+      if (reset) list.scrollTop = scroll;
       offset=page.next_offset;
       more.hidden=offset===null;
       if (!list.children.length && offset===null) list.append(el('p','Nothing here yet. Your downloads will appear here.'));
@@ -203,7 +206,13 @@ function main() {
     }finally{busy=false;more.disabled=false;}
   }
   const selectedJob=new URLSearchParams(window.location.search).get('job');
-  if(selectedJob){feedback.textContent='Open a download from the history list to view details.';}
+  if (selectedJob && /^[a-zA-Z0-9_-]{1,100}$/.test(selectedJob)) {
+    // Verified job lookup uses the signed ExApp owner gate; this is not a
+    // generic Core UI link or a guessed file path.
+    void api<Job>('/jobs/'+encodeURIComponent(selectedJob)).then(showModal).catch(()=>{
+      feedback.textContent='That download is unavailable for this account.';
+    });
+  }
   let searchDebounce:number|undefined;
   search.addEventListener('input',()=>{
     window.clearTimeout(searchDebounce);
