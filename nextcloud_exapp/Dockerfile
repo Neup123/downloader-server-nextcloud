@@ -18,7 +18,8 @@ RUN groupadd --system --gid 10001 exapp \
     && chown exapp:exapp /nc_app_downloader-server-nextcloud_data
 WORKDIR /app
 COPY nextcloud_exapp/requirements.lock /app/requirements.lock
-RUN pip install --no-cache-dir --only-binary=:all: -r /app/requirements.lock
+COPY nextcloud_exapp/requirements.hashed.lock /app/requirements.hashed.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requirements.hashed.lock
 COPY nextcloud_exapp/*.py /app/nextcloud_exapp/
 COPY --from=web-build /web/dist/ /app/nextcloud_exapp/dist/
 USER exapp
