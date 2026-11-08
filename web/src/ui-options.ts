@@ -14,3 +14,22 @@ export function formatFromQuality(value: string): string | null {
 export function validPresetSettings(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/** Per-download preference: preserve a resolution ceiling even when a format is preferred. */
+export function selectedMediaFormat(quality = 'default', container = 'auto'): string | null {
+  if (quality === 'default' && container === 'auto') return null;
+  const height = quality === '1080' ? 1080 : quality === '720' ? 720 : null;
+  if (quality === 'audio') {
+    return container === 'mp4' ? 'bestaudio[ext=m4a]/bestaudio'
+      : container === 'webm' ? 'bestaudio[ext=webm]/bestaudio'
+      : 'bestaudio/best';
+  }
+  const heightFilter = height === null ? '' : '[height<=' + height + ']';
+  const normal = height === null ? 'bv*+ba/b'
+    : 'bestvideo' + heightFilter + '+bestaudio/best' + heightFilter;
+  if (container === 'auto') return normal;
+  const videoExt = container === 'mp4' ? 'mp4' : 'webm';
+  const audioExt = container === 'mp4' ? 'm4a' : 'webm';
+  return 'bestvideo' + heightFilter + '[ext=' + videoExt + ']+bestaudio[ext='
+    + audioExt + ']/best' + heightFilter + '[ext=' + videoExt + ']/' + normal;
+}
