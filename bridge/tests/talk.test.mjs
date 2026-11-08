@@ -33,9 +33,11 @@ test('Native Talk action is registered only after signed entitlement, with confi
   assert.doesNotMatch(callback, /api\('\/jobs', 'POST'/, 'Message clicks must never auto-submit jobs');
 });
 
-test('Unchanged implicit Files destination is omitted so first-use Downloads creation works', () => {
-  assert.match(bridge, /folder === null \? settings!\.destination_folder : folder/);
-  assert.match(bridge, /folder === null && destination\.value\.trim\(\) === originalDestination/);
-  assert.match(bridge, /\? \{\} : \{folder: destination\.value\}/);
-  assert.match(bridge, /api<\{destination_folder: string\}>\('\/settings'\)/);
+test('Native Files/Viewer/Talk preserve implicit default destination without a second prompt', () => {
+  const payloadSource = readFileSync(new URL('../src/files-dialog-payload.mjs', import.meta.url), 'utf8');
+  assert.match(bridge, /openDialog\(folder: string \| null/);
+  assert.match(bridge, /filesJobRequest\(url\.value\.trim\(\), folder,/);
+  assert.match(payloadSource, /if \(folder !== null\) payload\.folder = folder/);
+  const dialog = bridge.slice(bridge.indexOf('async function openDialog('), bridge.indexOf('function registerActions()'));
+  assert.doesNotMatch(dialog, /label\('Destination/);
 });
