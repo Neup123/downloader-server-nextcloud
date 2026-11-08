@@ -10,7 +10,7 @@ import unittest
 
 from app.job_states import JobStatus, TERMINAL_STATUSES
 from nextcloud_exapp.user import TERMINAL_STATES
-from scripts.bridge_job_state_contract import OUTPUT, render
+from scripts.bridge_job_state_contract import OUTPUT, PYTHON_OUTPUT, render, render_python
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class NativeCoreJobStatusContractTests(unittest.TestCase):
     def test_generated_php_file_is_exact_reflection_of_core(self):
         self.assertEqual(OUTPUT.read_text(encoding="utf-8"), render())
+        self.assertEqual(PYTHON_OUTPUT.read_text(encoding="utf-8"), render_python())
+        self.assertNotIn("from app.", PYTHON_OUTPUT.read_text(encoding="utf-8"))
         subprocess.run(
             [sys.executable, "-m", "scripts.bridge_job_state_contract", "--check"],
             cwd=ROOT, check=True, capture_output=True, text=True, timeout=15,
@@ -41,6 +43,8 @@ class NativeCoreJobStatusContractTests(unittest.TestCase):
         self.assertEqual(php_result["all"], all_states)
         self.assertEqual(php_result["terminal"], terminal)
         self.assertEqual(set(TERMINAL_STATES), set(terminal))
+        from nextcloud_exapp.job_state_contract import ALL_STATES
+        self.assertEqual(ALL_STATES, frozenset(all_states))
         self.assertEqual(
             php_result["checks"],
             [isinstance(sample, str) and sample in TERMINAL_STATES for sample in samples],
