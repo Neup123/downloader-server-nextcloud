@@ -430,3 +430,36 @@ If any merge, Python test, downstream Nextcloud test, Docker build, or AppAPI
 deployment step fails, the sync does **not** publish an ExApp image. An
 external target upgrade still requires administrator approval, native AppAPI
 Test Deploy and digest reconciliation; publication alone is not deployment.
+
+
+## Durable onboarding, search freshness and connection-status semantics
+
+First verified download is a one-way milestone stored in the **signed owner's**
+Nextcloud preferences. The ExApp's persistent background job tracker now
+records it when that owner's completed job has a **nonempty, fully verified**
+file manifest — no browser or history GET is required. A history GET may
+reconcile older verified jobs that predate the tracker; it never grants the
+milestone based on queued, failed, empty, unverified or foreign-owner jobs.
+The preference is written only if it has not already reached `1`.
+
+The tracker has two independent durable flags for each known submitted job:
+`notified` (whether native notification was sent or intentionally opted out)
+and `index_synced` (whether that terminal state and onboarding milestone
+reached Nextcloud preferences). A failed search-index/preference update
+**does not resend a notification**. It is retried on the next poll after
+restart, with an additive schema migration for existing tracker rows.
+A successful terminal index update normally appears without reopening the
+Downloader page. The index remains a bounded **last 100** metadata entries,
+not a full history database; jobs submitted before tracking, an offline
+ExApp, or entries aged out of the cap can require the next authenticated
+history visit to refresh. The native Activity bridge reads that same
+per-user index, so its publication is eventually consistent rather than
+an exactly-once immediate completion signal.
+
+The administration **Files connection** snapshot is diagnostic, not an
+authorization decision. `connected` means a credential preference was
+read; `not_connected` means a successful read found none; `unknown`
+means the read failed and must **not** be interpreted as disconnected.
+The scan is capped at 250 users and returns `partial` (including at
+group level) when the directory is unavailable or truncated. Do not
+infer complete group coverage or leak any app passwords from this view.
