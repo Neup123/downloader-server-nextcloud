@@ -30,7 +30,7 @@ final class Provider implements IProvider {
         $title = is_string($params['title'] ?? null) ? $params['title'] : 'Download';
         $event->setParsedSubject($label . ': ' . mb_substr($title, 0, 180));
         $event->setLink($this->urls->getAbsoluteURL(
-            '/apps/app_api/proxy/downloader-server-nextcloud/user/?job='
+            '/apps/downloader_bridge/library?job='
             . rawurlencode((string)$event->getObjectId()),
         ));
         $event->setIcon($this->urls->imagePath('core', 'actions/download.svg'));
