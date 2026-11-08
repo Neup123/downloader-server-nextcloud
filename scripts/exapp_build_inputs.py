@@ -39,6 +39,39 @@ def parse_pin_file(source: str) -> dict[str, tuple[str, str]]:
     return pins
 
 
+def parse_wheel_hash_lock(source: str) -> dict[str, tuple[str, str, tuple[str, ...]]]:
+    """Parse only pinned wheel requirements with a reviewed SHA-256 allowlist."""
+    logical: list[str] = []
+    pending = ""
+    for raw in source.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        pending += " " + line.removesuffix("\\\\").strip()
+        if line.endswith("\\\\"):
+            continue
+        logical.append(pending.strip())
+        pending = ""
+    if pending or not logical:
+        raise ValueError("Unfinished or empty Python artifact hash lock")
+    result: dict[str, tuple[str, str, tuple[str, ...]]] = {}
+    for entry in logical:
+        tokens = entry.split()
+        if len(tokens) < 2:
+            raise ValueError("Every pinned distribution must include a wheel hash")
+        spec = parse_pin_file(tokens[0])
+        if len(spec) != 1:
+            raise ValueError("Invalid wheel hash requirement")
+        name, (version, extras) = next(iter(spec.items()))
+        hashes = tokens[1:]
+        if name in result or len(set(hashes)) != len(hashes):
+            raise ValueError("Duplicate package or artifact digest")
+        if not all(re.fullmatch(r"--hash=sha256:[0-9a-f]{64}", item) for item in hashes):
+            raise ValueError("Only explicit SHA-256 wheel digests are allowed")
+        result[name] = (version, extras, tuple(hashes))
+    return result
+
+
 def prepare_build_inputs(root: Path, source_sha: str) -> dict:
     if not SOURCE.fullmatch(source_sha):
         raise ValueError("Source SHA must be exactly 40 lowercase hex characters")
@@ -47,17 +80,26 @@ def prepare_build_inputs(root: Path, source_sha: str) -> dict:
     bases = {stage: (name, digest) for name, digest, stage in BASE.findall(docker_text)}
     if set(bases) != {"web-build", "runtime"} or docker_text.count("FROM ") != 2:
         raise ValueError("Both ExApp build stages must use known digest-pinned images")
-    if "pip install --no-cache-dir --only-binary=:all: -r /app/requirements.lock" not in docker_text:
+    if "pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requirements.hashed.lock" not in docker_text:
         raise ValueError("ExApp runtime must install wheels using exact version lock")
     if "npm ci --no-audit --no-fund" not in docker_text:
         raise ValueError("ExApp Node dependencies must use npm ci with package-lock")
     if "COPY nextcloud_exapp/requirements.lock /app/requirements.lock" not in docker_text:
-        raise ValueError("ExApp Docker build must install the reviewed Python lock")
+        raise ValueError("ExApp Docker build must retain the exact version lock")
+    if "COPY nextcloud_exapp/requirements.hashed.lock /app/requirements.hashed.lock" not in docker_text:
+        raise ValueError("ExApp Docker build must use reviewed wheel hashes")
 
     direct_path = root / "nextcloud_exapp/requirements.txt"
     lock_path = root / "nextcloud_exapp/requirements.lock"
     direct = parse_pin_file(direct_path.read_text())
     pinned = parse_pin_file(lock_path.read_text())
+    wheel_lock_path = root / "nextcloud_exapp/requirements.hashed.lock"
+    wheel_pins = parse_wheel_hash_lock(wheel_lock_path.read_text(encoding="utf-8"))
+    if set(wheel_pins) != set(pinned):
+        raise ValueError("Wheel hash lock must cover every exact Python pin")
+    for name, (version, extras) in pinned.items():
+        if wheel_pins[name][:2] != (version, extras):
+            raise ValueError("Wheel hash lock differs from exact version pin")
     for name, entry in direct.items():
         if pinned.get(name) != entry:
             raise ValueError("ExApp direct dependency differs from locked version or extras")
@@ -75,11 +117,12 @@ def prepare_build_inputs(root: Path, source_sha: str) -> dict:
         "base_images": {stage: f"docker.io/library/{name}@sha256:{value}" for stage, (name, value) in sorted(bases.items())},
         "dockerfile_sha256": hashlib.sha256(dockerfile).hexdigest(),
         "python_lock_sha256": digest(lock_path),
+        "python_wheel_lock_sha256": digest(wheel_lock_path),
         "npm_lock_sha256": digest(node_path),
         "python_dependency_count": len(pinned),
         "base_images_digest_pinned": True,
         "python_versions_fully_pinned": True,
-        "python_wheel_hashes_verified": False,
+        "python_wheel_hashes_verified": True,
         "native_appapi_manifest_digest_pinned": False,
     }
 
