@@ -26,6 +26,7 @@ class Job(Base):
     # Trusted gateway-only fields. The encrypted token is NEVER included in JobOut.
     owner_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     delivery_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_subfolder: Mapped[str | None] = mapped_column(String(100), nullable=True)
     engine: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued", index=True)
     overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
@@ -55,6 +56,7 @@ class Preset(Base):
     engine: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     settings: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -111,12 +113,23 @@ def initialize_database(engine) -> None:
     # Additive migration of existing pre-Nextcloud standalone databases.
     # Never drop or recreate the jobs table: users may have active downloads.
     columns = {column["name"] for column in inspect(engine).get_columns("jobs")}
+    preset_columns = {column["name"] for column in inspect(engine).get_columns("presets")}
     with engine.begin() as connection:
         if "owner_id" not in columns:
             connection.execute(text("ALTER TABLE jobs ADD COLUMN owner_id VARCHAR(255)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_owner_id ON jobs (owner_id)"))
         if "delivery_token" not in columns:
             connection.execute(text("ALTER TABLE jobs ADD COLUMN delivery_token TEXT"))
+        if "delivery_subfolder" not in columns:
+            connection.execute(text(
+                "ALTER TABLE jobs ADD COLUMN delivery_subfolder VARCHAR(100)"
+            ))
+        # Existing presets were private to the standalone administrator; they
+        # must never become visible to Nextcloud users without an explicit grant.
+        if "is_shared" not in preset_columns:
+            connection.execute(text(
+                "ALTER TABLE presets ADD COLUMN is_shared BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
 
 
 def make_session_factory(engine):

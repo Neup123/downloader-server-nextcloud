@@ -92,20 +92,111 @@ def run_browser_acceptance() -> None:
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+            # Scalar must render from our local pinned build in a real browser.
+            # Test the actual docs page, not only the checked-in YAML source.
+            docs = browser.new_page(viewport={"width": 360, "height": 780})
+            try:
+                docs.goto(BASE_URL + "/api-reference", wait_until="domcontentloaded", timeout=30000)
+                docs.get_by_role("heading", name="Downloader Server — API reference").wait_for()
+                docs.get_by_text("X-API-Key", exact=False).first.wait_for()
+                docs.wait_for_function(
+                    "() => !!document.querySelector('#scalar-reference')?.firstElementChild",
+                    timeout=20000,
+                )
+                assert docs.evaluate(
+                    "() => document.documentElement.scrollWidth <= window.innerWidth + 1"
+                ), "Scalar reference has horizontal overflow at 360px"
+            finally:
+                docs.close()
+            print("Real Chromium: pinned Scalar API reference intro, auth and mobile render PASS", flush=True)
             assert page.locator("header input[type=password]").count() == 0
             page.get_by_role("button", name="My settings", exact=True).click()
+            # Real browser locale switch exercises direction and persisted UI state.
+            page.locator(".language-settings select").select_option("he")
+            assert page.locator("html").get_attribute("dir") == "rtl"
+            assert page.locator("html").get_attribute("lang") == "he"
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="ספריית ההורדות", exact=True
+            ).wait_for()
+            page.reload(wait_until="domcontentloaded")
+            assert page.get_by_label("שפה").input_value() == "he"
+            assert page.locator(".language-settings option").count() == 2
+            page.locator(".language-settings select").select_option("en")
+            assert page.locator("html").get_attribute("dir") == "ltr"
+            assert page.locator("html").get_attribute("lang") == "en"
+            assert page.locator(".language-settings select").input_value() == "en"
+            # A bad key yields a human recovery action, not a raw HTTP error.
+            page.get_by_label("API key").fill("invalid-browser-key")
+            page.get_by_role("button", name="Connect", exact=True).click()
+            page.get_by_text("Could not connect. Check the API key and server availability.").wait_for()
+            page.get_by_role("button", name="Review settings", exact=True).click()
+            assert page.get_by_label("API key").evaluate("(element) => element === document.activeElement")
             page.get_by_label("API key").fill(API_TOKEN)
             with page.expect_response(
                 lambda r: r.url.endswith("/engines/aria2c/settings")
                 and r.request.method == "GET", timeout=30000
             ):
                 page.get_by_role("button", name="Connect", exact=True).click()
+            # The download hero is the first main content after navigation.
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="Download", exact=True
+            ).click()
+            assert page.locator(".layout > section").first.get_attribute("class").find("submit-panel") >= 0
+            assert page.locator(".submit-panel form button.download-submit").count() == 1
+            if page.locator(".first-run").count():
+                assert page.locator(".submit-panel").evaluate(
+                    "(hero) => Boolean(hero.compareDocumentPosition(document.querySelector('.first-run')) & Node.DOCUMENT_POSITION_FOLLOWING)"
+                )
             page.get_by_role("navigation", name="Main navigation").get_by_role("button", name="Administration", exact=True).click()
             with page.expect_response(
                 lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "GET",
                 timeout=30000
             ):
                 page.get_by_role("navigation", name="Administration sections").get_by_role("button", name="Delivery").click()
+            # Non-sensitive delivery-mode selection autosaves without ever submitting
+            # credentials from the form. Restore WebDAV before the download E2E.
+            assert api.get("/delivery").json()["mode"] == "webdav"
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "PUT",
+                timeout=30000
+            ) as local_mode:
+                page.get_by_label("Delivery mode").select_option("local")
+            assert local_mode.value.status == 200
+            assert local_mode.value.request.post_data_json["app_password"] is None
+            assert api.get("/delivery").json()["mode"] == "local"
+            page.get_by_text("Saved ✓ The new mode applies to new deliveries only.", exact=True).wait_for()
+            assert page.get_by_role("button", name="Save delivery settings").count() == 0
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "PUT",
+                timeout=30000
+            ) as restored_webdav:
+                page.get_by_label("Delivery mode").select_option("webdav")
+            assert restored_webdav.value.status == 200
+            assert api.get("/delivery").json()["mode"] == "webdav"
+            assert page.get_by_role("button", name="Save delivery settings").count() == 0
+
+            # A configured WebDAV folder is not a credential: it autosaves after
+            # debounce, and a second edit restores the original destination.
+            original_folder = api.get("/delivery").json()["folder"]
+            folder_input = page.get_by_label("Destination folder")
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "PUT",
+                timeout=30000
+            ) as folder_saved:
+                folder_input.fill(original_folder + "-browser-check")
+            assert folder_saved.value.status == 200
+            assert folder_saved.value.request.post_data_json["app_password"] is None
+            assert api.get("/delivery").json()["folder"] == original_folder + "-browser-check"
+            page.get_by_text("Saved ✓ Changes affect new deliveries.", exact=True).wait_for()
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/delivery") and r.request.method == "PUT",
+                timeout=30000
+            ) as folder_restored:
+                folder_input.fill(original_folder)
+            assert folder_restored.value.status == 200
+            assert api.get("/delivery").json()["folder"] == original_folder
+            assert page.get_by_role("button", name="Save delivery settings").count() == 0
+
             with page.expect_response(
                 lambda r: r.url.endswith("/api/v1/delivery/test")
                 and r.request.method == "POST", timeout=30000
@@ -116,30 +207,39 @@ def run_browser_acceptance() -> None:
             assert payload["verified"] and payload["cleaned_up"]
             page.get_by_role("navigation", name="Administration sections").get_by_role("button", name="Engines").click()
 
-            yt_panel = page.locator("section.panel").filter(
-                has=page.get_by_role("heading", name="yt-dlp", exact=True)
-            )
+            picker = page.get_by_role("navigation", name="Download engines")
+            assert picker.get_by_role("button").count() == 7, "Engine list missing"
+            assert page.locator("section.engine-editor").count() == 1, "More than one engine editor"
+            picker.locator('[data-engine-select="yt-dlp"]').click()
+            yt_panel = page.locator('section.engine-editor[data-engine="yt-dlp"]')
             yt_panel.locator(".quality-control summary").click()
-            yt_panel.get_by_label("Format selector", exact=True).fill(YTDLP_GLOBAL)
+            # Autosave is triggered by a real field edit; hydration must not PUT.
             with page.expect_response(
                 lambda r: r.url.endswith("/engines/yt-dlp/settings")
                 and r.request.method == "PUT", timeout=30000
             ) as saved:
-                yt_panel.get_by_role("button", name="Save yt-dlp defaults").click()
+                yt_panel.get_by_label("Format selector", exact=True).fill(YTDLP_GLOBAL)
             assert saved.value.status == 200
             assert fetch_settings(api, "yt-dlp")["format"] == YTDLP_GLOBAL
+            assert yt_panel.get_by_role("button", name="Save yt-dlp defaults").count() == 0
 
-            aria_panel = page.locator("section.panel").filter(
-                has=page.get_by_role("heading", name="aria2c", exact=True)
-            )
-            aria_panel.get_by_label("Connections per server", exact=True).fill(ARIA_GLOBAL)
+            picker.locator('[data-engine-select="aria2c"]').click()
+            assert page.locator("section.engine-editor").count() == 1
+            aria_panel = page.locator('section.engine-editor[data-engine="aria2c"]')
             with page.expect_response(
                 lambda r: r.url.endswith("/engines/aria2c/settings")
                 and r.request.method == "PUT", timeout=30000
             ) as saved:
-                aria_panel.get_by_role("button", name="Save aria2c defaults").click()
+                aria_panel.get_by_label("Connections per server", exact=True).fill(ARIA_GLOBAL)
             assert saved.value.status == 200
             assert fetch_settings(api, "aria2c")["options"]["max-connection-per-server"] == ARIA_GLOBAL
+            assert aria_panel.get_by_role("button", name="Save aria2c defaults").count() == 0
+
+            picker.locator('[data-engine-select="gallery-dl"]').click()
+            gallery_panel = page.locator('section.engine-editor[data-engine="gallery-dl"]')
+            assert gallery_panel.get_by_label("Advanced extractor options (JSON object)").is_hidden()
+            gallery_panel.get_by_text("Advanced — site-specific gallery options").click()
+            assert gallery_panel.get_by_label("Advanced extractor options (JSON object)").is_visible()
 
             page.get_by_role("button", name="Download", exact=True).click()
             form = page.locator("section.submit-panel form")
@@ -164,6 +264,283 @@ def run_browser_acceptance() -> None:
             )
             verify_webdav_bytes(aria_job)
             print("Real Chromium: aria2c global + per-job settings + WebDAV PASS", flush=True)
+
+            # Standalone one-off destination uses the SAVED WebDAV connection,
+            # never a user-supplied host or password. Real Chromium submits it
+            # and the downloader writes bytes into the requested subfolder.
+            form.locator('input[type="url"]').fill(SOURCE_URL)
+            form.get_by_label("Folder for this download (optional)").fill("Research")
+            research_job = submitted_job(
+                page, api, "aria2c",
+                {"options.max-connection-per-server": ARIA_OVERRIDE},
+            )
+            assert research_job["delivery_subfolder"] == "Research", research_job
+            saved_root = api.get("/delivery").json()["folder"].strip("/")
+            assert all("/" + saved_root + "/Research/" in urlsplit(item["path"]).path
+                       for item in research_job["output_files"]), research_job
+            verify_webdav_bytes(research_job)
+            assert not form.get_by_label("Folder for this download (optional)").input_value()
+            print("Real Chromium: one-off destination subfolder + verified Nextcloud WebDAV bytes PASS", flush=True)
+
+            # Both screens must use the same locale-aware job card for verified jobs.
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="My settings", exact=True
+            ).click()
+            page.locator(".language-settings select").select_option("he")
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="הורדה", exact=True
+            ).click()
+            page.get_by_text("הועבר ✓ אומת", exact=True).first.wait_for()
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="ההגדרות שלי", exact=True
+            ).click()
+            page.get_by_label("שפה").select_option("en")
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="Download", exact=True
+            ).click()
+            # Phase #106: exercise the real built UI at narrow mobile width.
+            # A document that silently scrolls sideways cannot be used at 360px.
+            page.set_viewport_size({"width": 360, "height": 780})
+            nav = page.get_by_role("navigation", name="Main navigation")
+            for screen in ("Download", "Library", "Administration"):
+                nav.get_by_role("button", name=screen, exact=True).click()
+                assert page.evaluate(
+                    "() => document.documentElement.scrollWidth <= window.innerWidth + 1"
+                ), f"{screen} overflows the 360px viewport"
+                assert page.locator("body").is_visible()
+            page.get_by_role("navigation", name="Administration sections").get_by_role(
+                "button", name="Engines", exact=True
+            ).click()
+            assert page.evaluate(
+                "() => document.documentElement.scrollWidth <= window.innerWidth + 1"
+            ), "Administration engine editor overflows the 360px viewport"
+            nav.get_by_role("button", name="Download", exact=True).click()
+            mobile_form = page.locator("section.submit-panel form")
+            url_input = mobile_form.locator('input[type="url"]')
+            url_input.focus()
+            page.keyboard.type(SOURCE_URL)
+            assert url_input.input_value() == SOURCE_URL
+            submit_button = mobile_form.locator("button.download-submit")
+            page.wait_for_function(
+                "() => !!document.querySelector('section.submit-panel button.download-submit')"
+                " && !document.querySelector('section.submit-panel button.download-submit').disabled",
+                timeout=15000,
+            )
+            submit_button.focus()
+            assert submit_button.evaluate("(el) => document.activeElement === el")
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/jobs") and r.request.method == "POST",
+                timeout=30000
+            ) as keyboard_submission:
+                page.keyboard.press("Enter")
+            assert keyboard_submission.value.status == 202
+            keyboard_job = await_completion(api, keyboard_submission.value.json()["id"], "aria2c")
+            verify_webdav_bytes(keyboard_job)
+            nav.get_by_role("button", name="Library", exact=True).click()
+            assert page.evaluate(
+                "() => document.documentElement.scrollWidth <= window.innerWidth + 1"
+            ), "Library overflows at 360px after delivered file"
+            page.get_by_text("Delivered ✓ Verified", exact=True).first.wait_for(timeout=20000)
+            page.set_viewport_size({"width": 1440, "height": 1000})
+            print("Real Chromium: 360px Download/Library/Administration + keyboard submission/WebDAV PASS", flush=True)
+
+            # The same real browser exercises Automation routing cards, not
+            # mocked DOM snapshots. Rule order must persist in the core DB.
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="Administration", exact=True
+            ).click()
+            page.get_by_role("navigation", name="Administration sections").get_by_role(
+                "button", name="Automation", exact=True
+            ).click()
+            routing_form = page.locator("#rule-editor form")
+            routing_form.get_by_label("Website").fill("routing.example.org")
+            routing_form.get_by_label("Download with").select_option("yt-dlp")
+            routing_form.get_by_label("Note (optional)").fill("Preferred video downloader")
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules")
+                and r.request.method == "POST", timeout=30000
+            ) as first_created:
+                routing_form.get_by_role("button", name="Add site rule").click()
+            assert first_created.value.status == 201
+            first_id = first_created.value.json()["id"]
+            page.locator('.rule-card[data-rule-id="' + first_id + '"]').wait_for()
+
+            routing_form.get_by_label("Website").fill("routing.example.org")
+            routing_form.get_by_label("Download with").select_option("aria2c")
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/order")
+                and r.request.method == "PUT", timeout=30000
+            ) as created_order:
+                routing_form.get_by_role("button", name="Add site rule").click()
+            assert created_order.value.status == 200
+            rows = api.get("/engine-rules").json()
+            assert len(rows) == 2 and rows[0]["engine"] == "aria2c"
+            assert rows[0]["priority"] > rows[1]["priority"]
+            second_id = rows[0]["id"]
+
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/order")
+                and r.request.method == "PUT", timeout=30000
+            ) as reordered:
+                page.locator('.rule-card[data-rule-id="' + second_id + '"]').get_by_role(
+                    "button", name="Move routing.example.org down"
+                ).click()
+            assert reordered.value.status == 200
+            rows = api.get("/engine-rules").json()
+            assert [row["id"] for row in rows] == [first_id, second_id]
+
+            # Verify the actual HTML drag/drop interaction, not only
+            # the Move up/down keyboard/touch alternative.
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/order")
+                and r.request.method == "PUT", timeout=30000
+            ) as dragged_order:
+                page.locator('.rule-card[data-rule-id="' + second_id + '"] .rule-drag').drag_to(
+                    page.locator('.rule-card[data-rule-id="' + first_id + '"]'),
+                    target_position={"x": 18, "y": 6},
+                )
+            assert dragged_order.value.status == 200
+            rows = api.get("/engine-rules").json()
+            assert [row["id"] for row in rows] == [second_id, first_id]
+
+            page.locator('.rule-card[data-rule-id="' + second_id + '"]').get_by_text(
+                "Advanced", exact=True
+            ).click()
+            assert page.locator('.rule-card[data-rule-id="' + second_id + '"]').get_by_text(
+                "Priority", exact=False
+            ).count() >= 1
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/" + second_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as toggled:
+                page.locator('.rule-card[data-rule-id="' + second_id + '"]').get_by_role(
+                    "checkbox"
+                ).uncheck()
+            assert toggled.value.status == 200
+            rows = api.get("/engine-rules").json()
+            assert next(row for row in rows if row["id"] == second_id)["enabled"] is False
+            # Editing a saved routing rule must never require a Save click.
+            page.locator('.rule-card[data-rule-id="' + second_id + '"]').get_by_role(
+                "button", name="Edit", exact=True
+            ).click()
+            assert routing_form.get_by_role("button", name="Update site rule").count() == 0
+            rule_puts = []
+            def collect_rule_put(request):
+                if request.method == "PUT" and request.url.endswith("/api/v1/engine-rules/" + second_id):
+                    rule_puts.append(request)
+            page.on("request", collect_rule_put)
+            page.wait_for_timeout(1100)
+            assert not rule_puts, "Hydrating a saved rule issued a PUT"
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/" + second_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as updated_rule:
+                routing_form.get_by_label("Note (optional)").fill("Automatically updated routing note")
+            assert updated_rule.value.status == 200
+            page.get_by_text("Saved ✓ Changes affect new downloads.", exact=True).wait_for()
+            assert next(row for row in api.get("/engine-rules").json()
+                if row["id"] == second_id)["description"] == "Automatically updated routing note"
+            routing_form.get_by_text("Advanced — URL path and numeric priority").click()
+            before_invalid = len(rule_puts)
+            routing_form.get_by_label("URL path prefix").fill("invalid-path")
+            page.get_by_text("Enter a website, a path starting with /", exact=False).wait_for()
+            page.wait_for_timeout(1050)
+            assert len(rule_puts) == before_invalid, "Invalid path was saved"
+            assert routing_form.get_by_role("button", name="Finish editing").is_disabled()
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/engine-rules/" + second_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as recovered_rule:
+                routing_form.get_by_label("URL path prefix").fill("/media")
+            assert recovered_rule.value.status == 200
+            page.get_by_text("Saved ✓ Changes affect new downloads.", exact=True).wait_for()
+            routing_form.get_by_role("button", name="Finish editing").click()
+            page.remove_listener("request", collect_rule_put)
+            print("Real Chromium: routing-rule hydration + autosave + validation PASS", flush=True)
+
+            print("Real Chromium: site rule creation + order + toggle PASS", flush=True)
+
+            # Saved preset edits autosave against the running Core API.
+            # Creation is an explicit action; editing an existing preset is not.
+            page.get_by_role("navigation", name="Main navigation").get_by_role(
+                "button", name="My settings", exact=True
+            ).click()
+            preset_form = page.locator("#preset-editor form")
+            preset_form.get_by_label("Preset name").fill("Chromium site preset")
+            preset_form.get_by_label("Description").fill("Initial browser preset")
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/presets")
+                and r.request.method == "POST", timeout=30000
+            ) as created_preset:
+                preset_form.get_by_role("button", name="Create preset").click()
+            assert created_preset.value.status == 201, created_preset.value.text()
+            preset_id = created_preset.value.json()["id"]
+            preset_row = page.locator("article.job").filter(has_text="Chromium site preset")
+            preset_row.get_by_role("button", name="Edit", exact=True).click()
+            assert preset_form.get_by_role("button", name="Update preset").count() == 0
+            assert preset_form.get_by_role("button", name="Save preset").count() == 0
+
+            # Hydrating the editor from the saved snapshot must not write to Core.
+            preset_puts = []
+            def collect_preset_put(request):
+                if request.method == "PUT" and request.url.endswith("/api/v1/presets/" + preset_id):
+                    preset_puts.append(request)
+            page.on("request", collect_preset_put)
+            page.wait_for_timeout(1100)
+            assert preset_puts == [], "Existing preset hydration caused an unexpected PUT"
+
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/presets/" + preset_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as edited_preset:
+                preset_form.get_by_label("Description").fill("Automatically saved edit")
+            assert edited_preset.value.status == 200
+            page.get_by_text("Saved ✓ Changes affect new downloads.", exact=True).wait_for()
+            actual = api.get("/presets").json()
+            assert next(row for row in actual if row["id"] == preset_id)["description"] == "Automatically saved edit"
+
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/presets/" + preset_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as shared_preset:
+                preset_form.get_by_label("Available to everyone (Nextcloud)").check()
+            assert shared_preset.value.status == 200
+            assert preset_id in {row["id"] for row in api.get("/presets/shared").json()}
+
+            # Invalid advanced JSON must not silently save or report success.
+            preset_form.get_by_text("Edit as JSON (advanced)").click()
+            before_invalid = len(preset_puts)
+            preset_form.get_by_label("Settings JSON").fill("{invalid")
+            page.get_by_text("Invalid preset settings.", exact=False).wait_for()
+            page.wait_for_timeout(1000)
+            assert len(preset_puts) == before_invalid, "Invalid JSON caused a preset PUT"
+            assert preset_form.get_by_role("button", name="Finish editing").is_disabled()
+            with page.expect_response(
+                lambda r: r.url.endswith("/api/v1/presets/" + preset_id)
+                and r.request.method == "PUT", timeout=30000
+            ) as recovered_preset:
+                preset_form.get_by_label("Settings JSON").fill('{"format":"best"}')
+            assert recovered_preset.value.status == 200
+            page.get_by_text("Saved ✓ Changes affect new downloads.", exact=True).wait_for()
+            preset_form.get_by_role("button", name="Finish editing").click()
+            page.remove_listener("request", collect_preset_put)
+            print("Real Chromium: private preset create + autosave + share + validation PASS", flush=True)
+
+            # Legacy bookmarks must open the new home, not an unrelated tab.
+            page.goto(BASE_URL + "/#routing", wait_until="domcontentloaded")
+            page.get_by_role("navigation", name="Administration sections").get_by_role(
+                "button", name="Automation", exact=True
+            ).wait_for(timeout=30000)
+            assert page.url.endswith("#administration"), page.url
+            assert page.locator("#rule-editor").is_visible()
+            page.goto(BASE_URL + "/#presets", wait_until="domcontentloaded")
+            page.get_by_role("heading", name="Saved presets").wait_for(timeout=30000)
+            assert page.url.endswith("#my-settings"), page.url
+            page.goto(BASE_URL + "/#engines", wait_until="domcontentloaded")
+            page.get_by_role("navigation", name="Download engines").wait_for(timeout=30000)
+            assert page.url.endswith("#administration"), page.url
+            print("Real Chromium: legacy route redirects PASS", flush=True)
+
             print("BROWSER ENGINE SETTINGS ACCEPTANCE: PASS", flush=True)
         except Exception:
             page.screenshot(path="browser-failure.png", full_page=True)

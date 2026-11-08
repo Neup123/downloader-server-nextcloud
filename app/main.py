@@ -26,7 +26,7 @@ from app.discovery import PreviewError, inspect_ytdlp
 from app.options_catalog import get_catalog
 from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make_engine, make_session_factory, initialize_database, append_log, utcnow
 from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery, verify_delivery_destination
-from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn
+from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn
 from app.security import UnsafeUrlError, preflight_source_dns, validate_target_url
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
 
@@ -224,6 +224,14 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         rows = session.scalars(select(Preset).order_by(Preset.engine, Preset.name)).all()
         return [preset_to_dict(row) for row in rows]
 
+    @app.get("/api/v1/presets/shared", tags=["settings"])
+    def list_shared_presets(_: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        """Only deliberately shared presets may cross into Nextcloud user settings."""
+        rows = session.scalars(
+            select(Preset).where(Preset.is_shared.is_(True)).order_by(Preset.engine, Preset.name)
+        ).all()
+        return [preset_to_dict(row) for row in rows]
+
     @app.post("/api/v1/presets", status_code=201, tags=["settings"])
     def create_preset(payload: PresetInput, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
         try:
@@ -235,11 +243,14 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         )
         if duplicate:
             raise HTTPException(status_code=409, detail="A preset with this name already exists for the selected engine")
+        if payload.is_shared:
+            validate_shared_preset_settings(settings_value)
         row = Preset(
             name=payload.name,
             engine=payload.engine,
             settings=settings_value,
             description=payload.description,
+            is_shared=payload.is_shared,
         )
         session.add(row)
         session.commit()
@@ -264,10 +275,13 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         )
         if duplicate:
             raise HTTPException(status_code=409, detail="A preset with this name already exists for the selected engine")
+        if payload.is_shared:
+            validate_shared_preset_settings(settings_value)
         row.name = payload.name
         row.engine = payload.engine
         row.settings = settings_value
         row.description = payload.description
+        row.is_shared = payload.is_shared
         row.updated_at = utcnow()
         session.commit()
         session.refresh(row)
@@ -311,6 +325,34 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         session.commit()
         session.refresh(row)
         return engine_rule_to_dict(row)
+
+    @app.put("/api/v1/engine-rules/order", tags=["settings"])
+    def reorder_engine_rules(
+        payload: EngineRuleOrderInput, _: bool = Depends(authenticate),
+        session: Session = Depends(db_session),
+    ):
+        """Atomically assign distinct priorities in display order.
+
+        Reordering always sends every rule ID, including disabled rules.
+        Reject stale/partial snapshots before any mutation. Priorities run from
+        1000 down to 0; this preserves the existing strict priority-first
+        routing matcher without changing the worker or URL matching contract.
+        """
+        rows = session.scalars(select(EngineRule)).all()
+        identities = {rule.id: rule for rule in rows}
+        if len(rows) > 1001:
+            raise HTTPException(status_code=422, detail="Cannot reorder more than 1001 rules")
+        if len(payload.ids) != len(rows) or set(payload.ids) != set(identities):
+            raise HTTPException(
+                status_code=409,
+                detail="The routing table has changed. Reload the rules before reordering.",
+            )
+        for position, rule_id in enumerate(payload.ids):
+            rule = identities[rule_id]
+            rule.priority = 1000 - position
+            rule.updated_at = utcnow()
+        session.commit()
+        return [engine_rule_to_dict(identities[rule_id]) for rule_id in payload.ids]
 
     @app.put("/api/v1/engine-rules/{rule_id}", tags=["settings"])
     def update_engine_rule(rule_id: str, payload: EngineRuleInput, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
@@ -754,6 +796,26 @@ def validate_engine_settings(engine: str, values: dict, partial: bool = False) -
     raise ValueError("Unsupported engine")
 
 
+def validate_shared_preset_settings(settings: dict) -> None:
+    """Public-to-entitled users: never expose cookies, proxy URLs or CLI flags."""
+    for name in ("cookies_file", "proxy", "extra_args"):
+        if settings.get(name):
+            raise HTTPException(
+                status_code=422,
+                detail="Shared presets cannot contain cookies, proxies or custom arguments",
+            )
+    options = settings.get("options", {})
+    if isinstance(options, dict) and any(
+        marker in str(name).lower()
+        for name in options
+        for marker in ("auth", "cookie", "token", "secret", "password", "header", "referer", "proxy")
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Shared presets cannot contain private site access options",
+        )
+
+
 def preset_to_dict(row: Preset) -> dict:
     return {
         "id": row.id,
@@ -761,6 +823,7 @@ def preset_to_dict(row: Preset) -> dict:
         "engine": row.engine,
         "settings": row.settings or {},
         "description": row.description,
+        "is_shared": bool(row.is_shared),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -849,6 +912,11 @@ def build_job(payload: JobCreate, session: Session, config: Settings) -> Job:
 
     encrypted_delivery = None
     if payload.owner_id:
+        if payload.delivery_subfolder is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Nextcloud user destinations are selected by the trusted gateway",
+            )
         if payload.delivery is None:
             raise HTTPException(status_code=422, detail="Per-user jobs require a WebDAV delivery destination")
         try:
@@ -862,6 +930,7 @@ def build_job(payload: JobCreate, session: Session, config: Settings) -> Job:
         url=url,
         owner_id=payload.owner_id,
         delivery_token=encrypted_delivery,
+        delivery_subfolder=payload.delivery_subfolder,
         engine=engine,
         status="queued",
         overrides=overrides,
@@ -874,6 +943,7 @@ def job_to_dict(job: Job) -> dict:
         "id": job.id,
         "url": job.url,
         "owner_id": job.owner_id,
+        "delivery_subfolder": job.delivery_subfolder,
         "engine": job.engine,
         "status": job.status,
         "overrides": job.overrides or {},
