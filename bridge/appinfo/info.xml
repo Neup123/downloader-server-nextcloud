@@ -13,7 +13,8 @@
   <settings>
     <personal>OCA\DownloaderBridge\Settings\PersonalSettings</personal>
     <personal-section>OCA\DownloaderBridge\Settings\PersonalSection</personal-section>
-  </settings>\n  <activity>
+  </settings>
+  <activity>
     <settings><setting>OCA\DownloaderBridge\Activity\Setting</setting></settings>
     <providers><provider>OCA\DownloaderBridge\Activity\Provider</provider></providers>
   </activity>
