@@ -131,6 +131,12 @@ jobs:
           # No downstream edits to core-owned backend contracts are permitted.
           # Host-level acceptance code is core-owned as well: it must be
           # imported intact, never replaced with a downstream-only copy.
+          # Core #134 publishes the canonical status vocabulary. Require its
+          # exact source from the tested upstream revision before importing
+          # downstream consumer contracts, rather than copying a hand-edited
+          # Nextcloud version or silently keeping legacy constants.
+          git cat-file -e upstream/main:app/job_states.py
+          test -s app/job_states.py
           git diff --exit-code upstream/main -- LICENSE app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md
           # Core's legacy App.tsx is deliberately different in this ExApp
           # adaptation; all other upstream web/src files must be exact.

@@ -56,6 +56,10 @@ jobs:
             echo "Unresolved merge conflicts remain" >&2
             exit 1
           fi
+          # Refuse imports that lack Core's canonical job-state vocabulary.
+          # Downstream Python and native PHP consumer parity depends on it.
+          git cat-file -e upstream/main:app/job_states.py
+          test -s app/job_states.py
           # Only Nextcloud-owned workflow and README changes may diverge.
           git restore --source=HEAD --staged --worktree README.md .github/workflows
           git diff --exit-code upstream/main -- \
