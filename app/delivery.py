@@ -338,6 +338,42 @@ async def verify_delivery_destination(
                 "message": "WebDAV delivery path, byte readback and cleanup all succeeded"}
 
 
+def _delivery_title(files: list[Path], job: Job | None) -> str:
+    """A safe human-readable multi-file folder name (never a job UUID).
+
+    Output names usually contain a media title; for generic multi-file sources
+    prefer the URL's last path segment or host instead.
+    """
+    from urllib.parse import urlsplit
+    raw = ""
+    if job is not None:
+        parsed = urlsplit(job.url)
+        raw = unquote(parsed.path.rstrip("/").split("/")[-1]) or parsed.hostname or ""
+    if not raw and files:
+        raw = files[0].stem
+    raw = re.sub(r'[\\/:*?"<>|\\x00-\\x1f]', "_", raw).strip(" .")
+    return (raw[:90].strip(" .") or "Download")
+
+
+def _suffixed_filename(name: str, index: int) -> str:
+    if index == 0:
+        return name
+    source = Path(name)
+    return f"{source.stem} ({index}){source.suffix}"
+
+
+async def _webdav_unique_folder(client: httpx.AsyncClient, parent: str, title: str) -> str:
+    """MKCOL is atomic: never reuse an unrelated existing destination folder."""
+    for index in range(101):
+        candidate = parent + "/" + quote(_suffixed_filename(title, index), safe="")
+        response = await client.request("MKCOL", candidate)
+        if response.status_code == 201:
+            return candidate
+        if response.status_code != 405:
+            raise _delivery_failure(response.status_code, "Could not create download folder")
+    raise DeliveryError("Too many folders with the same download title")
+
+
 async def deliver_files(
     files: list[Path],
     job_id: str,
@@ -459,7 +495,9 @@ async def deliver_files(
     folder_parts = [p for p in data["folder"].split("/") if p]
     if any(part in {".", ".."} or "\\x00" in part for part in folder_parts):
         raise DeliveryError("WebDAV destination folder must not contain dot segments or NUL bytes")
-    prefix_parts = folder_parts + [job_id]
+    # Existing standalone deliveries deliberately preserve their established
+    # job folders. Nextcloud per-user deliveries use the chosen folder itself.
+    prefix_parts = folder_parts if per_user else folder_parts + [job_id]
     output = []
     client_options = {
         "timeout": httpx.Timeout(60.0, connect=15.0),
@@ -488,10 +526,16 @@ async def deliver_files(
                     raise DeliveryError("Nextcloud destination folder is missing; select an existing folder and retry")
             else:
                 await _ensure_webdav_collection(client, current, "WebDAV directory creation failed")
+        if per_user and len(files) > 1:
+            current = await _webdav_unique_folder(client, current, _delivery_title(files, job))
         created_folders = set()
         for source in files:
             await check_cancelled()
             relative = _relative_output(source, job_id, settings)
+            # A single media output goes directly inside the selected folder,
+            # even if the downloader used internal workspace subdirectories.
+            if per_user and len(files) == 1:
+                relative = Path(relative.name)
             parent_url = current
             for segment in relative.parts[:-1]:
                 await check_cancelled()
@@ -499,8 +543,6 @@ async def deliver_files(
                 if parent_url not in created_folders:
                     await _ensure_webdav_collection(client, parent_url, "WebDAV nested directory creation failed")
                     created_folders.add(parent_url)
-            target = parent_url + "/" + quote(relative.name, safe="")
-
             async def file_chunks(path: Path):
                 with path.open("rb") as stream:
                     while True:
@@ -510,13 +552,37 @@ async def deliver_files(
                             break
                         yield chunk
 
-            response = await client.put(
-                target,
-                content=file_chunks(source),
-                headers={"Content-Type": "application/octet-stream"},
-            )
-            if response.status_code not in {200, 201, 204}:
-                raise _delivery_failure(response.status_code, f"WebDAV PUT failed for {source.name}")
+            # PUT with If-None-Match prevents replacing another user's
+            # existing file. Retry only collisions, suffixing like Nextcloud.
+            for suffix in range(101):
+                await check_cancelled()
+                target_name = _suffixed_filename(relative.name, suffix) if per_user else relative.name
+                target = parent_url + "/" + quote(target_name, safe="")
+                response = await client.put(
+                    target,
+                    content=file_chunks(source),
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        **({"If-None-Match": "*"} if per_user else {}),
+                    },
+                )
+                if per_user and response.status_code in {409, 412}:
+                    # 412 is a collision. 409 may also mean a missing parent:
+                    # only retry if the current target exists.
+                    if response.status_code == 409:
+                        exists = await client.request("PROPFIND", target, headers={"Depth": "0"})
+                        if exists.status_code != 207:
+                            raise _delivery_failure(response.status_code, "WebDAV parent folder unavailable")
+                    continue
+                if response.status_code not in {200, 201, 204}:
+                    raise _delivery_failure(response.status_code, f"WebDAV PUT failed for {source.name}")
+                if per_user and response.status_code != 201:
+                    # Conditional new-file PUT must create a new resource.
+                    # Do not silently claim that an existing file was replaced.
+                    raise DeliveryError("Nextcloud did not confirm a new file was created")
+                break
+            else:
+                raise DeliveryError("Too many files with the same name in the destination")
             await check_cancelled()
             verify = await client.request(
                 "PROPFIND",
@@ -531,7 +597,7 @@ async def deliver_files(
             if remote_size != expected_size:
                 raise DeliveryError(f"WebDAV size verification failed for {source.name}: expected {expected_size}, got {remote_size}")
             item = {
-                "filename": source.name,
+                "filename": target_name,
                 "size_bytes": expected_size,
                 "path": target,
                 "delivery": "webdav",
