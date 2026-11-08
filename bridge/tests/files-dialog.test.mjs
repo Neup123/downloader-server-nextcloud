@@ -34,7 +34,7 @@ test('dialog is modal, themed and accessible, with optional controls collapsed',
 });
 test('no download UI uses blocking browser alert, and submits via signed ExApp', () => {
   assert.doesNotMatch(source, /window\.alert\(/);
-  assert.match(source, /Notification\.showTemporary/);
+  assert.match(source, /Notification\?\.showTemporary/);
   assert.match(section, /filesJobRequest\(url\.value\.trim\(\), folder, engines\.value, preset\.value\)/);
   assert.match(source, /registerFileAction/);
   assert.match(source, /addNewFileMenuEntry/);
