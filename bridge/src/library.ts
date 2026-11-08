@@ -82,6 +82,10 @@ function main() {
   }
   stateLabel.append(state);controls.append(nameLabel,stateLabel);
   const actions = el('div');actions.className = 'library-actions';
+  const settingsLink = el('a','My settings');
+  settingsLink.href = oc()!.generateUrl('/settings/user/downloader');
+  settingsLink.style.cssText = 'display:inline-flex;align-items:center;padding:8px;';
+  actions.append(settingsLink);
   const retryAll = el('button','Retry all failed');
   const clearAll = el('button','Clear history');
   actions.append(retryAll,clearAll);
