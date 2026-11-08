@@ -52,7 +52,7 @@ def test_clear_history_is_explicit_and_only_hides_terminal_owned_records():
         if kwargs["params"]["state"] == "delivered":
             return [{"id":"done","owner_id":"alice","status":"completed"}]
         if kwargs["params"]["state"] == "failed":
-            return [{"id":"failed","owner_id":"alice","status":"failed"}]
+            return [{"id":"33333333-3333-4333-8333-333333333333","owner_id":"alice","status":"failed"}]
         raise AssertionError(kwargs)
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(side_effect=core)):
         result = asyncio.run(clear_owner_history(request,ctx))
@@ -72,12 +72,12 @@ def test_retry_all_failed_rechecks_owner_and_resets_each_tracker_id():
     async def core(method, path, **kwargs):
         if path == "jobs":
             assert kwargs["params"]["owner_id"] == "alice"
-            return [{"id":"failed","owner_id":"alice","status":"failed"}]
-        if path == "jobs/failed" and method == "GET":
-            return {"id":"failed","owner_id":"alice","status":"failed"}
-        if path == "jobs/failed/retry" and method == "POST":
-            return {"id":"failed","owner_id":"alice","status":"queued"}
+            return [{"id":"33333333-3333-4333-8333-333333333333","owner_id":"alice","status":"failed"}]
+        if path == "jobs/33333333-3333-4333-8333-333333333333" and method == "GET":
+            return {"id":"33333333-3333-4333-8333-333333333333","owner_id":"alice","status":"failed"}
+        if path == "jobs/33333333-3333-4333-8333-333333333333/retry" and method == "POST":
+            return {"id":"33333333-3333-4333-8333-333333333333","owner_id":"alice","status":"queued"}
         raise AssertionError((method,path,kwargs))
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(side_effect=core)):
         result = asyncio.run(retry_owner_failed(request,ctx))
-    assert result == {"retried":1} and reset == ["failed"]
+    assert result == {"retried":1} and reset == ["33333333-3333-4333-8333-333333333333"]
