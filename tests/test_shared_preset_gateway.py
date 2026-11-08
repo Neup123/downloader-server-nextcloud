@@ -15,7 +15,7 @@ from starlette.requests import Request
 
 from nextcloud_exapp.main import read_shared_presets, user_presets, user_submit
 from nextcloud_exapp.user import (
-    UserContext, job_submission, normalize_shared_presets, read_user_presets,
+    UserContext, job_submission, normalize_shared_presets, read_user_presets, built_in_presets,
     save_user_preset, write_user_preferences,
 )
 
@@ -102,10 +102,12 @@ def test_personal_list_stays_owner_scoped_and_shared_is_read_only():
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(return_value=[public_record()])):
         alice_list = asyncio.run(user_presets(alice))
         bob_list = asyncio.run(user_presets(bob))
-    assert len(alice_list) == 2 and len(bob_list) == 1
-    assert alice_list[0]["id"] == private["id"]
-    assert alice_list[0]["is_shared"] is False
-    assert bob_list[0]["id"] == G_ID and bob_list[0]["is_shared"] is True
+    assert len(alice_list) == 2 + len(built_in_presets())
+    assert len(bob_list) == 1 + len(built_in_presets())
+    assert alice_list[0]["id"] == "builtin:best"
+    assert alice_list[-2]["id"] == private["id"]
+    assert alice_list[-2]["is_shared"] is False
+    assert bob_list[-1]["id"] == G_ID and bob_list[-1]["is_shared"] is True
     assert private["id"] not in str(bob_list)
     assert asyncio.run(read_user_presets(bob)) == []
 
