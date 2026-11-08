@@ -44,6 +44,8 @@ const CARD_STYLE = `
 .downloader-dashboard-content .job-list{display:grid;gap:0;max-height:380px;overflow-y:auto;overflow-x:hidden;min-height:0;margin-top:8px}
 .downloader-dashboard-content .job-row{display:flex;gap:10px;align-items:center;min-width:0;padding:8px 2px;border-bottom:1px solid var(--color-border,#ddd)}
 .downloader-dashboard-content .job-card-icon{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px;background:var(--color-background-dark,#eee);font-size:18px}
+.downloader-dashboard-content .job-card-icon img{display:block;max-width:100%;max-height:100%;object-fit:cover;border-radius:8px;position:absolute;inset:0;width:32px;height:32px}
+.downloader-dashboard-content .job-card-icon{position:relative;overflow:hidden}
 .downloader-dashboard-content .job-card-info{flex:1;min-width:0;display:grid;gap:2px}
 .downloader-dashboard-content .job-card-title{display:block;max-width:100%;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .downloader-dashboard-content .job-card-state{display:block;max-width:100%;font-size:12px;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -184,6 +186,23 @@ function renderDashboard(element: HTMLElement) {
     row.setAttribute('data-job-id', job.id);
     const icon = elem('span', downloadSymbol(job)); icon.className = 'job-card-icon';
     icon.setAttribute('aria-hidden', 'true');
+    // A verified Nextcloud file ID is all that is needed for a signed-in
+    // user's native preview. Do not use arbitrary remote thumbnail URLs.
+    const verifiedFile = (job.output_files || []).find(file =>
+      file.verified && file.file_id !== undefined
+      && /^\\d{1,32}$/.test(String(file.file_id)));
+    if (verifiedFile) {
+      const preview = elem('img');
+      preview.alt = '';
+      preview.loading = 'lazy';
+      preview.width = 32;
+      preview.height = 32;
+      preview.src = host.OC!.generateUrl('/core/preview') + '?fileId='
+        + encodeURIComponent(String(verifiedFile.file_id)) + '&x=96&y=96&a=true';
+      preview.addEventListener('error', () => preview.remove(), {once: true});
+      icon.append(preview);
+    }
+
     const info = elem('div'); info.className = 'job-card-info';
     const title = elem('button', downloadTitle(job)); title.className = 'job-card-title';
     title.style.cssText = 'border:0;padding:0;background:transparent;color:inherit;text-align:start;cursor:pointer';
