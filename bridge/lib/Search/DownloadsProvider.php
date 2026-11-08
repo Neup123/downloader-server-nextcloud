@@ -75,7 +75,7 @@ final class DownloadsProvider implements IProvider {
             }
             $filename = count($filenames) > 0 ? implode(', ', array_slice($filenames, 0, 2)) : $title;
             $subline = trim($status . ' · ' . $engine . ' · ' . $filename);
-            $route = '/apps/app_api/proxy/downloader-server-nextcloud/user/?job='
+            $route = '/apps/downloader_bridge/library?job='
                 . rawurlencode($item['id']);
             $url = $this->urlGenerator->getAbsoluteURL($route);
             $results[] = new SearchResultEntry(
