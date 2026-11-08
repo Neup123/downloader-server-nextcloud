@@ -263,6 +263,30 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
 
 
 
+# Stable, read-only options are shipped by this Nextcloud ExApp, not seeded
+# in the administrator's Core database or another user's private preferences.
+BUILTIN_PRESETS = (
+    {"id": "builtin:best", "name": "Best quality", "engine": "yt-dlp",
+     "description": "Best available video and audio quality.",
+     "settings": {"format": "bv*+ba/b"}, "is_builtin": True},
+    {"id": "builtin:audio", "name": "Audio only", "engine": "yt-dlp",
+     "description": "Choose an audio-only stream when available.",
+     "settings": {"format": "bestaudio/best"}, "is_builtin": True},
+    {"id": "builtin:720", "name": "Up to 720p", "engine": "yt-dlp",
+     "description": "Limit video resolution to 720p.",
+     "settings": {"format": "bestvideo[height<=720]+bestaudio/best[height<=720]"}, "is_builtin": True},
+    {"id": "builtin:small", "name": "Small file", "engine": "yt-dlp",
+     "description": "Prefer the smallest available video stream.",
+     "settings": {"format": "worst[height<=480]/worst"}, "is_builtin": True},
+)
+
+
+def built_in_presets() -> list[dict[str, Any]]:
+    """Return copies so no consumer mutates the shared definitions."""
+    return [{**item, "settings": dict(item["settings"]), "is_shared": False}
+            for item in BUILTIN_PRESETS]
+
+
 SHARED_PRESET_PREFIX = "shared:"
 
 
@@ -430,6 +454,10 @@ async def job_submission(
             selected = next(
                 (preset for preset in (shared_presets or []) if preset["id"] == preset_id),
                 None,
+            )
+        elif isinstance(preset_id, str) and preset_id.startswith("builtin:"):
+            selected = next(
+                (preset for preset in built_in_presets() if preset["id"] == preset_id), None,
             )
         else:
             selected = next(
