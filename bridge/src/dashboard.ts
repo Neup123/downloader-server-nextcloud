@@ -190,7 +190,7 @@ function renderDashboard(element: HTMLElement) {
     // user's native preview. Do not use arbitrary remote thumbnail URLs.
     const verifiedFile = (job.output_files || []).find(file =>
       file.verified && file.file_id !== undefined
-      && /^\\d{1,32}$/.test(String(file.file_id)));
+      && /^\d{1,32}$/.test(String(file.file_id)));
     if (verifiedFile) {
       const preview = elem('img');
       preview.alt = '';
