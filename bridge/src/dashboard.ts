@@ -223,6 +223,8 @@ function renderDashboard(element: HTMLElement) {
       active = false;
     }
   }
+  window.addEventListener('downloader:job-queued', () => { void refresh(); });
+  window.addEventListener('downloader:jobs-updated', () => { void refresh(); });
   void refresh();
   const timer = window.setInterval(() => {
     if (!active || !element.isConnected) {
