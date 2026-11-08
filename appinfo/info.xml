@@ -5,7 +5,7 @@
     <summary>Per-user download jobs delivered to your Nextcloud Files</summary>
     <description>Nextcloud AppAPI gateway to the separately deployed Downloader Server. It does not run downloads inside Nextcloud.</description>
     <version>0.5.3</version>
-    <licence>MIT</licence>
+    <licence>BUSL-1.1</licence>
     <author>Neup123</author>
     <namespace>DownloaderServer</namespace>
     <category>tools</category>
