@@ -101,8 +101,9 @@ class ExAppBuildInputsTests(unittest.TestCase):
             self.assertTrue(all(item.startswith("--hash=sha256:") for item in hashed[name][2]))
         for tampered in (
             "fastapi==0.139.2",
-            "fastapi==0.139.2 \\\n --hash=sha256:invalid",
-            "fastapi==0.139.2 \\\n --hash=sha256:" + "a" * 64 + " --index-url=https://untrusted.invalid",
+            "fastapi==0.139.2 " + chr(92) + chr(10) + " --hash=sha256:invalid",
+            "fastapi==0.139.2 " + chr(92) + chr(10)
+            + " --hash=sha256:" + "a" * 64 + " --index-url=https://untrusted.invalid",
         ):
             with self.subTest(tampered=tampered), self.assertRaises(ValueError):
                 parse_wheel_hash_lock(tampered)
