@@ -16,8 +16,8 @@ test('native Library belongs to Nextcloud and never loads standalone Core UI',()
 test('Library exposes owner-only search, filter, pagination and native actions',()=>{
   for(const feature of ['Search downloads','Name or source link','All downloads',
     'Active','Delivered','Failed or cancelled','Show more downloads',
-    'Retry all failed','Clear history','files_retained','View details',
-    'Open in Files','downloader-library-modal','dialog.showModal()']){
+    'Retry all failed','Clear history','Files were not deleted','View details',
+    'Open in Files','downloader-library-modal','dlg.showModal()']){
     assert.ok(source.includes(feature),feature);
   }
   assert.match(source,/URLSearchParams/);
