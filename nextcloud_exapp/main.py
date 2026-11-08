@@ -404,10 +404,14 @@ async def hide_user_job(job_id: str, context: UserContext = Depends(require_user
 
 @APP.get("/user/api/jobs")
 async def user_jobs(limit: int = 50, status: str | None = None,
+                    offset: int = 0, q: str = "", state: str = "all",
                     context: UserContext = Depends(require_user)):
-    if not 1 <= limit <= 200:
-        raise HTTPException(status_code=422, detail="Limit must be between 1 and 200")
-    params = {"owner_id": context.user_id, "limit": limit}
+    if not 1 <= limit <= 200 or not 0 <= offset <= 10000:
+        raise HTTPException(status_code=422, detail="Invalid downloads page")
+    if state not in {"all", "active", "delivered", "failed"} or len(q) > 128:
+        raise HTTPException(status_code=422, detail="Invalid Library filter")
+    params = {"owner_id": context.user_id, "limit": limit, "offset": offset,
+              "state": state, "q": q}
     if status:
         params["status"] = status
     rows = await core_json("GET", "jobs", params=params)
@@ -427,6 +431,56 @@ async def user_jobs(limit: int = 50, status: str | None = None,
         # Search indexing must never block jobs or their delivery.
         pass
     return owned
+
+
+async def _visible_owner_jobs(context: UserContext, state: str) -> list[dict]:
+    """Retrieve a bounded snapshot of own jobs; no cross-user bulk operations."""
+    owned: list[dict] = []
+    for offset in range(0, 2000, 200):
+        rows = await core_json("GET", "jobs", params={
+            "owner_id": context.user_id, "limit": 200, "offset": offset,
+            "state": state,
+        })
+        if not isinstance(rows, list):
+            raise HTTPException(status_code=502, detail="Invalid download history")
+        owned.extend(own_job(job, context.user_id) for job in rows)
+        if len(rows) < 200:
+            break
+    else:
+        raise HTTPException(status_code=422, detail="Too many downloads to update together")
+    return owned
+
+
+@APP.post("/user/api/jobs/retry-failed")
+async def retry_owner_failed(request: Request, context: UserContext = Depends(require_user)):
+    failed = await _visible_owner_jobs(context, "failed")
+    results = []
+    for job in failed:
+        identifier = scoped_core_path(job["id"])
+        # Current owner/status is rechecked to prevent stale bulk retries.
+        current = own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
+        if current.get("status") not in {"failed", "cancelled"}:
+            continue
+        response = await core_json("POST", "jobs/" + identifier + "/retry")
+        own_job(response, context.user_id)
+        request.app.state.job_tracker.reset(identifier)
+        results.append(identifier)
+    return {"retried": len(results)}
+
+
+@APP.post("/user/api/jobs/clear-history")
+async def clear_owner_history(request: Request, context: UserContext = Depends(require_user)):
+    data = await request.json()
+    if not isinstance(data, dict) or data.get("confirm") is not True:
+        raise HTTPException(status_code=422, detail="Confirm clearing history explicitly")
+    completed = await _visible_owner_jobs(context, "delivered")
+    failures = await _visible_owner_jobs(context, "failed")
+    hidden = await hidden_history_ids(context)
+    hidden.update(job["id"] for job in completed + failures)
+    if len(hidden) > 2000:
+        raise HTTPException(status_code=422, detail="Too many history entries to clear")
+    await context.nc.preferences_ex.set_value("hidden_history", json.dumps(sorted(hidden)))
+    return {"hidden": len(completed) + len(failures), "files_retained": True}
 
 
 @APP.post("/user/api/jobs", status_code=202)
