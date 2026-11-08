@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { PersonalAutosave, type SaveStatus } from './personal-autosave';
+import { PresetOptionEditor } from './PresetOptionEditor';
+import { selectedMediaFormat } from './ui-options';
 import './personal-settings.css';
 import { firstDownloadVerified, showFirstRunGuide } from './first-run';
 
 type Engine = 'auto' | 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
-type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean };
+type Preset = { id: string; name: string; engine: Engine; settings: Record<string, unknown>; description?: string; is_shared?: boolean; is_builtin?: boolean };
 type Download = {
   id: string; url: string; owner_id: string; engine: string; status: string;
   progress: { percent?: number; state?: string; speed?: string };
@@ -71,6 +73,8 @@ export default function UserApp() {
   const [url, setUrl] = useState(() => new URLSearchParams(window.location.search).get('url') || '');
   const [engine, setEngine] = useState<Engine>('auto');
   const [presetId, setPresetId] = useState('');
+  const [quality, setQuality] = useState('default');
+  const [formatChoice, setFormatChoice] = useState('auto');
   const [presetName, setPresetName] = useState('');
   const [presetEngine, setPresetEngine] = useState<Engine>('yt-dlp');
   const [presetJson, setPresetJson] = useState('{}');
@@ -175,8 +179,10 @@ export default function UserApp() {
     setBusy(true);
     setMessage('');
     try {
+      const selectedFormat = selectedMediaFormat(quality, formatChoice);
       const job = await request<Download>('/jobs', json('POST', {
         url, engine, preset_id: presetId || undefined, ...(folder ? {folder} : {}),
+        ...(selectedFormat ? {overrides: {format: selectedFormat}} : {}),
       }));
       setUrl('');
       setJobs(items => [job, ...items]);
@@ -342,16 +348,32 @@ export default function UserApp() {
         <div className="eyebrow">NEW DOWNLOAD</div><h2>Download</h2>
         <form onSubmit={event => void submit(event)}>
           <label>Media URL<input value={url} onChange={event => setUrl(event.target.value)} placeholder="Paste a downloadable URL" required /></label>
-          <label>Engine<select value={engine} onChange={event => setEngine(event.target.value as Engine)}>
-            {TYPES.map(item => <option key={item} value={item}>{item === 'auto' ? 'Automatic' : item}</option>)}
-          </select></label>
-          <label>Preset (optional)<select value={presetId} onChange={event => setPresetId(event.target.value)}>
-            <option value="">Use my default</option>
-            {presets.filter(preset => engine === 'auto' || preset.engine === engine).map(preset =>
-              <option key={preset.id} value={preset.id}>{preset.name}{preset.is_shared ? ' · Shared by administrator' : ' · My preset'}</option>)}
-          </select></label>
-          <label>Folder in my Files<input value={folder} onChange={event => setFolder(event.target.value)}
-            placeholder={personal.destination_folder || 'Root folder'} /></label>
+          <details className="download-options">
+            <summary>Options</summary>
+            <p className="muted">Automatic picks the right downloader. Most downloads need no changes.</p>
+            <label>Engine<select value={engine} onChange={event => setEngine(event.target.value as Engine)}>
+              {TYPES.map(item => <option key={item} value={item}>{item === 'auto' ? 'Automatic' : item}</option>)}
+            </select></label>
+            <label>Preset (optional)<select value={presetId} onChange={event => setPresetId(event.target.value)}>
+              <option value="">Use my default</option>
+              {presets.filter(preset => engine === 'auto' || preset.engine === engine).map(preset =>
+                <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </select></label>
+            <label>Quality<select value={quality} onChange={event => setQuality(event.target.value)}>
+              <option value="default">Use preset or automatic quality</option>
+              <option value="best">Best quality</option>
+              <option value="1080">Up to 1080p</option>
+              <option value="720">Up to 720p</option>
+              <option value="audio">Audio only</option>
+            </select></label>
+            <label>Preferred format<select value={formatChoice} onChange={event => setFormatChoice(event.target.value)}>
+              <option value="auto">Best available format</option>
+              <option value="mp4">Prefer MP4 (M4A for audio)</option>
+              <option value="webm">Prefer WebM</option>
+            </select></label>
+            <label>Folder in my Files<input value={folder} onChange={event => setFolder(event.target.value)}
+              placeholder={personal.destination_folder || 'Root folder'} /></label>
+          </details>
           <p className="muted">Only your own Files. Existing destination folders only. Failed uploads stay visible here with a reason.</p>
           <button disabled={busy || !me} className="primary">Download to my Files</button>
         </form>
@@ -500,18 +522,22 @@ export default function UserApp() {
     {tabs === 'engines' && <div className="settings-layout">
       <section className="panel">
         <h2>My presets</h2>
-        <p className="muted">Presets you create here stay private to your Nextcloud account. Your administrator may also make safe shared presets available to entitled Downloader users; those are read-only.</p>
+        <p className="muted">Start with a built-in preset, or save your own options. Shared and built-in presets are read-only.</p>
         <form onSubmit={event => void savePreset(event)}>
           <label>Name<input required maxLength={120} value={presetName} onChange={event => setPresetName(event.target.value)} /></label>
           <label>Engine<select value={presetEngine} onChange={event => setPresetEngine(event.target.value as Engine)}>
             {TYPES.filter(type => type !== 'auto').map(type => <option key={type} value={type}>{type}</option>)}
           </select></label>
-          <label>Preset settings JSON<textarea rows={6} value={presetJson} onChange={event => setPresetJson(event.target.value)} /></label>
+          <PresetOptionEditor engine={presetEngine} settingsText={presetJson} fields={[]}
+            onChange={setPresetJson} onError={setMessage} />
+          <details className="advanced-options"><summary>Edit as JSON (advanced)</summary>
+            <label>Preset settings JSON<textarea rows={6} value={presetJson} onChange={event => setPresetJson(event.target.value)} /></label>
+          </details>
           <button className="primary">{editingPreset ? 'Update my preset' : 'Save my preset'}</button>
         </form>
         {presets.map(preset => <div className="output-row" key={preset.id}>
           <strong>{preset.name} ({preset.engine})</strong>
-          {preset.is_shared ? <span className="muted">Shared by administrator · Read-only</span> : <>
+          {preset.is_shared || preset.is_builtin ? <span className="muted">{preset.is_builtin ? 'Built-in · Ready to use' : 'Shared by administrator · Read-only'}</span> : <>
             <button className="small secondary" onClick={() => {
               setEditingPreset(preset.id); setPresetName(preset.name); setPresetEngine(preset.engine);
               setPresetJson(JSON.stringify(preset.settings, null, 2));
@@ -523,16 +549,18 @@ export default function UserApp() {
 
       <section className="panel">
         <h2>My engine options</h2>
-        <p className="muted">Set engine-specific job overrides as JSON. These affect only your own new jobs and do not change service-wide settings.</p>
+        <p className="muted">Most users can choose quality and format for each download. Technical engine defaults are optional.</p>
         <form onSubmit={event => void saveEngines(event)}>
-          <label>Engine defaults JSON<textarea rows={15} value={engineJson} onChange={event => setEngineJson(event.target.value)} /></label>
-          <p className="muted">Example: {JSON.stringify({'yt-dlp': {'format': 'best'}})}.</p>
-          <button className="primary" disabled={busy}>Save my engine defaults</button>
+          <details className="advanced-options"><summary>Edit as JSON (advanced)</summary>
+            <label>Engine defaults JSON<textarea rows={15} value={engineJson} onChange={event => setEngineJson(event.target.value)} /></label>
+            <p className="muted">Only edit engine defaults if you need technical per-engine settings.</p>
+            <button className="primary" disabled={busy}>Save my engine defaults</button>
+          </details>
         </form>
       </section>
       <section className="panel">
         <h2>My cookies</h2>
-        <p className="muted">Upload Netscape-format cookies for your own download jobs. Set the filename in the engine defaults JSON.</p>
+        <p className="muted">Advanced site authentication: upload a Netscape-format cookie file for your own download jobs.</p>
         <label>Upload cookie file<input type="file" accept=".txt" onChange={event => void uploadCookies(event.target.files?.[0])} /></label>
         {!cookies.length && <p className="muted">No cookie files added.</p>}
         {cookies.map(cookie => <div className="output-row" key={cookie.filename}>
