@@ -22,7 +22,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("git worktree add --detach /tmp/downloader-core-acceptance upstream/main", content)
         self.assertIn("(cd /tmp/downloader-core-acceptance && python -m pytest -q)", content)
         self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
-        self.assertIn("git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md", content)
+        self.assertIn("git diff --exit-code upstream/main -- LICENSE app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md", content)
         self.assertIn("python3 scripts/run_downstream_acceptance.py", content)
         # Only an explicit reviewed manifest can establish downstream test
         # ownership; the core test may already be present in HEAD history.
@@ -33,7 +33,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertNotIn('"tests/test_audited_core_legacy_cleanup.py"', selector)
         self.assertNotIn('"tests/test_audited_*.py"', selector)
         self.assertLess(
-            content.index("git diff --exit-code upstream/main -- app"),
+            content.index("git diff --exit-code upstream/main -- LICENSE app"),
             content.index("git push origin HEAD:main"),
         )
 
