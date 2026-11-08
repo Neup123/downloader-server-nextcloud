@@ -17,6 +17,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import TERMINAL_STATES, delivery_notification
 from nextcloud_exapp.search_index import update_index
+from nextcloud_exapp.onboarding import reconcile_first_verified
 
 CoreGet = Callable[[str], Awaitable[dict]]
 
@@ -73,8 +74,14 @@ class JobTracker:
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
-                notified INTEGER NOT NULL DEFAULT 0
+                notified INTEGER NOT NULL DEFAULT 0,
+                index_synced INTEGER NOT NULL DEFAULT 0
             )""")
+            # Additive migration preserves owner and notification state. Old
+            # rows get one extra index attempt, not another notification.
+            cols = {item[1] for item in db.execute("PRAGMA table_info(jobs)")}
+            if "index_synced" not in cols:
+                db.execute("ALTER TABLE jobs ADD COLUMN index_synced INTEGER NOT NULL DEFAULT 0")
 
     def _connect(self):
         return sqlite3.connect(str(self.path), timeout=20.0)
@@ -85,15 +92,27 @@ class JobTracker:
 
     def reset(self, job_id: str) -> None:
         with self._connect() as db:
-            db.execute("UPDATE jobs SET notified = 0 WHERE job_id = ?", (job_id,))
+            db.execute("UPDATE jobs SET notified = 0, index_synced = 0 WHERE job_id = ?", (job_id,))
 
     def pending(self) -> list[tuple[str, str]]:
         with self._connect() as db:
-            return list(db.execute("SELECT job_id, owner_id FROM jobs WHERE notified = 0 ORDER BY rowid LIMIT 300"))
+            return list(db.execute("SELECT job_id, owner_id FROM jobs WHERE notified = 0 OR index_synced = 0 ORDER BY rowid LIMIT 300"))
 
     def mark(self, job_id: str) -> None:
         with self._connect() as db:
             db.execute("UPDATE jobs SET notified = 1 WHERE job_id = ?", (job_id,))
+
+    def mark_indexed(self, job_id: str) -> None:
+        with self._connect() as db:
+            db.execute("UPDATE jobs SET index_synced = 1 WHERE job_id = ?", (job_id,))
+
+    def flags(self, job_id: str) -> tuple[bool, bool]:
+        """A notification and a search-index update are independent states."""
+        with self._connect() as db:
+            result = db.execute(
+                "SELECT notified, index_synced FROM jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+        return (bool(result[0]), bool(result[1])) if result else (True, True)
 
     async def tick(self, core_get: CoreGet) -> None:
         for job_id, owner_id in self.pending():
@@ -101,26 +120,32 @@ class JobTracker:
                 job = await core_get(job_id)
                 if job.get("owner_id") != owner_id or job.get("status") not in TERMINAL_STATES:
                     continue
-                subject, message = delivery_notification(job)
+                notified, indexed = self.flags(job_id)
+                if notified and indexed:
+                    continue
                 nc = AsyncNextcloudApp(user=owner_id)
-                key = "notify_finished" if job["status"] == "completed" else "notify_failed"
-                # On preference-service errors keep this job pending; never
-                # override a user's opt-out by assuming notifications are on.
-                choice = await nc.preferences_ex.get_value(key, "1")
-                if choice != "0":
-                    await nc.notifications.create(
-                        subject=subject,
-                        message=message,
-                        link=notification_link(job, owner_id),
-                    )
-                self.mark(job_id)
-                try:
+                if not notified:
+                    subject, message = delivery_notification(job)
+                    key = "notify_finished" if job["status"] == "completed" else "notify_failed"
+                    # Failed preference reads must not bypass an opt-out.
+                    choice = await nc.preferences_ex.get_value(key, "1")
+                    if choice != "0":
+                        await nc.notifications.create(
+                            subject=subject,
+                            message=message,
+                            link=notification_link(job, owner_id),
+                        )
+                    # Notification is durable once published (or opted out).
+                    self.mark(job_id)
+                if not indexed:
+                    # Retry indexing without duplicating native notifications.
+                    # A finished download marks onboarding even when the user
+                    # has not opened the history page.
                     await update_index(nc, owner_id, [job])
-                except Exception:
-                    # Notification success is durable even if optional indexing fails.
-                    pass
+                    await reconcile_first_verified(nc, owner_id, [job])
+                    self.mark_indexed(job_id)
             except Exception:
-                # Remain in durable pending state; retry on next tick or restart.
+                # Retain only the incomplete state(s) for the next poll/restart.
                 continue
 
     async def monitor(self, core_get: CoreGet, seconds: float = 8.0) -> None:
