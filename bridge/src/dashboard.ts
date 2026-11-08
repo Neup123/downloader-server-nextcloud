@@ -70,7 +70,7 @@ function renderDashboard(element: HTMLElement) {
   cardStyle.textContent = CARD_STYLE;
   area.append(cardStyle);
   const history = elem('a', 'Open downloads history');
-  history.href = host.OC!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/');
+  history.href = host.OC!.generateUrl('/apps/downloader_bridge/library');
   history.style.display = 'block';
   history.style.padding = '8px 0';
   const quick = elem('form');
