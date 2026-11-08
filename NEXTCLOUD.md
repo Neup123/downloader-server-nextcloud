@@ -1,5 +1,15 @@
 # Nextcloud Adaptation
 
+> **Native-only UI policy:** Every Downloader user interaction takes place
+> within Nextcloud's Files, Dashboard, Library, Personal settings, search or
+> notifications surfaces. Do not embed or link the standalone Core website,
+> use an External Sites fallback, or offer a Core API-key field to regular
+> Nextcloud users. The Core origin and API token are supplied server-side
+> once during AppAPI installation. The installed PHP bridge is required for
+> the user-facing UI. Earlier fallback/ExApp HTML notes below describe
+> historical implementation, not a supported deployment path.
+
+
 ## 1. Purpose and boundary
 
 This repository contains only the Nextcloud-specific adaptation of Downloader Server. The core service, web UI, REST API, engine adapters, generic delivery implementation, tests, and engine update automation belong in the core repository:
@@ -43,9 +53,11 @@ and uses the Core API/token. The Nextcloud adaptation retains a historical
 Nextcloud-aware version with a build-mode switch, session-scoped API routing,
 and different connection screens; copying the Core file over it would
 silently break those authentication/integration assumptions. It is **not**
-the native signed user or administration entrypoint: the ExApp uses
-`web/src/UserApp.tsx` through `user-main.tsx`, and
-`web/src/AdminApp.tsx` through `admin-main.tsx`.
+the native signed user or administration entrypoint. The ExApp's old
+`UserApp.tsx`/`AdminApp.tsx` HTML bundles remain historical source;
+ExApp browser routes now redirect respectively to the native PHP bridge's
+Library and Nextcloud Administration settings. Its signed `/user/api/*`
+routes continue to back the native UI without exposing the Core token.
 
 The remaining ExApp-only modules (including `exapp-path.ts`,
 `first-run.ts`, and the native personal/admin styles) are created and
