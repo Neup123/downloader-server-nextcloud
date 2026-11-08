@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import asyncio
 import re
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -378,6 +379,29 @@ async def user_redownload_source(file_id: str, request: Request,
     return job
 
 
+async def hidden_history_ids(context: UserContext) -> set[str]:
+    """A user's hidden history affects display only, never delivery or provenance."""
+    try:
+        ids = json.loads(await context.nc.preferences_ex.get_value("hidden_history", "[]"))
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(ids, list):
+        return set()
+    return {value for value in ids if isinstance(value, str) and len(value) <= 100}
+
+
+@APP.post("/user/api/jobs/{job_id}/hide")
+async def hide_user_job(job_id: str, context: UserContext = Depends(require_user)):
+    identifier = scoped_core_path(job_id)
+    own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
+    hidden = await hidden_history_ids(context)
+    hidden.add(identifier)
+    if len(hidden) > 2000:
+        raise HTTPException(status_code=422, detail="History limit reached")
+    await context.nc.preferences_ex.set_value("hidden_history", json.dumps(sorted(hidden)))
+    return {"hidden": True}
+
+
 @APP.get("/user/api/jobs")
 async def user_jobs(limit: int = 50, status: str | None = None,
                     context: UserContext = Depends(require_user)):
@@ -389,7 +413,8 @@ async def user_jobs(limit: int = 50, status: str | None = None,
     rows = await core_json("GET", "jobs", params=params)
     if not isinstance(rows, list):
         raise HTTPException(status_code=502, detail="Invalid download list")
-    owned = [own_job(row, context.user_id) for row in rows]
+    hidden = await hidden_history_ids(context)
+    owned = [own_job(row, context.user_id) for row in rows if row.get('id') not in hidden]
     # Reconcile legacy/paginated history; the durable tracker also marks
     # first completion without requiring a history GET or an open browser.
     try:
