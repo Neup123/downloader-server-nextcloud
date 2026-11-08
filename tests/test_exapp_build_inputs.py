@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from scripts.exapp_build_inputs import parse_pin_file, prepare_build_inputs
+from scripts.exapp_wheel_hashes import parse_pins, render_hash_lock, wheel_hashes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +65,31 @@ class ExAppBuildInputsTests(unittest.TestCase):
             lock.write_text(lock.read_text().replace("fastapi==0.139.2", "fastapi==0.139.1"))
             with self.assertRaises(ValueError):
                 prepare_build_inputs(root, SHA)
+
+    def test_wheel_candidate_generator_is_deterministic_and_strict(self):
+        pins = parse_pins("# pinned\nfastapi==0.139.2\nnc_py_api[app]==0.30.3\n")
+        self.assertEqual(len(pins), 2)
+        wheel = lambda sha: {"packagetype": "bdist_wheel", "filename": "sample.whl",
+                             "digests": {"sha256": sha}, "yanked": False}
+        response = {"urls": [wheel("f" * 64), wheel("a" * 64),
+                             {"packagetype": "sdist", "filename": "source.tar.gz"}]}
+        output = render_hash_lock(pins, fetch=lambda *_: response)
+        self.assertIn("fastapi==0.139.2", output)
+        self.assertIn("nc_py_api[app]==0.30.3", output)
+        self.assertLess(output.index("--hash=sha256:" + "a" * 64),
+                        output.index("--hash=sha256:" + "f" * 64))
+        self.assertEqual(wheel_hashes(response), ["a" * 64, "f" * 64])
+        with self.assertRaises(ValueError):
+            parse_pins("fastapi>=0.1")
+        with self.assertRaises(ValueError):
+            parse_pins("fastapi==1.0\nfastapi==2.0")
+        with self.assertRaises(ValueError):
+            wheel_hashes({"urls": [{"packagetype": "bdist_wheel",
+                                   "filename": "bad.whl",
+                                   "digests": {"sha256": "not-a-hash"}}]})
+        with self.assertRaises(ValueError):
+            wheel_hashes({"urls": [{"packagetype": "sdist",
+                                   "filename": "source.tar.gz"}]})
 
     def test_bad_source_commit_is_rejected(self):
         for bad in ("a" * 39, "A" * 40, "z" * 40):
