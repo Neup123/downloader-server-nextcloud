@@ -1,5 +1,7 @@
 name: Sync verified core upstream into Nextcloud main
 
+# Revalidate the owner-approved BSL license along with core-owned source.
+# This update triggers an accepted upstream import (Core #102/#106/#131).
 # Shared history is already established. Merge with normal ancestry and preserve
 # the downstream README, while keeping all core-owned source files upstream-led.
 # This workflow revision triggers the next verified core import.
@@ -129,7 +131,7 @@ jobs:
           # No downstream edits to core-owned backend contracts are permitted.
           # Host-level acceptance code is core-owned as well: it must be
           # imported intact, never replaced with a downstream-only copy.
-          git diff --exit-code upstream/main -- app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md
+          git diff --exit-code upstream/main -- LICENSE app openapi.yaml requirements.txt Dockerfile Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh scripts/guarded_host_acceptance.py EGRESS_GUARD.md
           python -m compileall -q app scripts tests nextcloud_exapp
           # The reviewed downstream module manifest excludes core-only tests,
           # including ones already imported into downstream Git ancestry.
