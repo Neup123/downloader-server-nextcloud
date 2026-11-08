@@ -8,7 +8,29 @@ import pytest
 
 from nextcloud_exapp.user import built_in_presets, job_submission
 from nextcloud_exapp.main import user_presets
-from tests.test_shared_preset_gateway import context
+from types import SimpleNamespace
+
+class Preferences:
+    def __init__(self):
+        self.values = {"dav_app_password": "user-secret"}
+    async def get_value(self, name, default=None):
+        return self.values.get(name, default)
+    async def set_value(self, name, value, sensitive=False):
+        self.values[name] = value
+
+class Files:
+    async def by_path(self, path):
+        return SimpleNamespace(is_dir=True)
+    async def makedirs(self, path, exist_ok=False):
+        return None
+
+def context(user_id):
+    from nextcloud_exapp.user import UserContext
+    return UserContext(user_id, SimpleNamespace(
+        preferences_ex=Preferences(), files=Files(),
+        app_cfg=SimpleNamespace(dav_endpoint="https://cloud.example.org/remote.php/dav"),
+    ))
+
 
 
 def test_builtins_are_read_only_stable_and_safe():
