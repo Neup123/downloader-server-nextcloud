@@ -47,3 +47,11 @@ test('Dashboard uses compact scrolling rows, accessible icon actions and an in-p
   assert.match(dashboard, /--color-main-background/);
 
 });
+
+test('verified Nextcloud thumbnails use numeric file IDs and retain icon fallback', () => {
+  assert.match(dashboard, /file\.verified/);
+  assert.match(dashboard, /file\.file_id/);
+  assert.match(dashboard, /\/core\/preview/);
+  assert.match(dashboard, /preview\.addEventListener\('error', \(\) => preview\.remove\(\)/);
+  assert.match(dashboard, /icon\.append\(preview\)/);
+});
