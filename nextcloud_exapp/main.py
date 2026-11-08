@@ -451,6 +451,29 @@ async def _visible_owner_jobs(context: UserContext, state: str) -> list[dict]:
     return owned
 
 
+@APP.get("/user/api/library")
+async def user_library(limit: int = 50, offset: int = 0, q: str = "",
+                       state: str = "all",
+                       context: UserContext = Depends(require_user)):
+    """Cursored own-job Library for native Nextcloud page.
+
+    The cursor counts underlying owned jobs rather than visible/hidden jobs,
+    ensuring a page full of hidden records never conceals later results.
+    """
+    if not 1 <= limit <= 200 or not 0 <= offset <= 10000 or len(q) > 128:
+        raise HTTPException(status_code=422, detail="Invalid Library page")
+    if state not in {"all", "active", "delivered", "failed"}:
+        raise HTTPException(status_code=422, detail="Invalid status filter")
+    params = {"owner_id": context.user_id, "limit": limit, "offset": offset,
+              "q": q, "state": state}
+    rows = await core_json("GET", "jobs", params=params)
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=502, detail="Invalid downloads list")
+    hidden = await hidden_history_ids(context)
+    owned = [own_job(job, context.user_id) for job in rows if job.get("id") not in hidden]
+    return {"jobs": owned, "next_offset": offset + len(rows) if len(rows) == limit else None}
+
+
 @APP.post("/user/api/jobs/retry-failed")
 async def retry_owner_failed(request: Request, context: UserContext = Depends(require_user)):
     failed = await _visible_owner_jobs(context, "failed")
