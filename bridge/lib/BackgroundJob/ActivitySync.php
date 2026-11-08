@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace OCA\DownloaderBridge\BackgroundJob;
 
 use OCA\DownloaderBridge\EntitlementPolicy;
+use OCA\DownloaderBridge\JobStateContract;
 use OCP\Activity\IManager;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
@@ -57,7 +58,7 @@ final class ActivitySync extends TimedJob {
                 }
                 $id = $job['id'];
                 $status = $job['status'] ?? '';
-                if (!in_array($status, ['completed', 'failed', 'cancelled'], true)
+                if (!JobStateContract::isTerminal($status)
                     || ($old[$id] ?? null) === $status) {
                     continue;
                 }
