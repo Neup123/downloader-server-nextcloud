@@ -110,11 +110,25 @@ async function openDialog(folder: string | null, suggested = '') {
     {value: '', label: 'Use my default preset'},
     ...presets.map(item => ({value: item.id, label: item.name})),
   ]);
+  const quality = select([
+    {value: 'default', label: 'Use preset or automatic quality'},
+    {value: 'best', label: 'Best quality'},
+    {value: '1080', label: 'Up to 1080p'},
+    {value: '720', label: 'Up to 720p'},
+    {value: 'audio', label: 'Audio only'},
+  ]);
+  const format = select([
+    {value: 'auto', label: 'Best available format'},
+    {value: 'mp4', label: 'Prefer MP4 (M4A for audio)'},
+    {value: 'webm', label: 'Prefer WebM'},
+  ]);
   const options = node('details', '', 'dl-options');
   const summary = node('summary', 'Options');
   options.append(summary,
     node('p', 'Automatic chooses the right downloader. Change this only if a download fails.', 'dl-muted'),
-    label('Engine', engines), label('Preset (optional)', preset));
+    label('Engine', engines), label('Preset (optional)', preset),
+    label('Quality (video or audio)', quality), label('Preferred format', format),
+    node('p', 'These options apply to this download only. The engine chooses a compatible format when needed.', 'dl-muted'));
 
   const buttons = node('div', '', 'dl-buttons');
   const cancel = node('button', 'Cancel');
@@ -141,7 +155,7 @@ async function openDialog(folder: string | null, suggested = '') {
     }
     submit.disabled = true;
     try {
-      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value));
+      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value));
       notify('Download added to your Nextcloud Files.');
       close();
     } catch (error) {
