@@ -48,9 +48,9 @@ def test_notification_link_never_leaks_remote_dav_host_or_another_user():
     assert link.startswith("/apps/files/files?dir=")
     assert "openfile=123" in link
     assert "private-nextcloud.example" not in link
-    assert notification_link(completed, "bob").startswith("/apps/app_api/proxy/")
+    assert notification_link(completed, "bob").startswith("/apps/downloader_bridge/library")
     completed["output_files"][0]["verified"] = False
-    assert notification_link(completed, "alice").startswith("/apps/app_api/proxy/")
+    assert notification_link(completed, "alice").startswith("/apps/downloader_bridge/library")
 
 
 def test_disabled_notification_is_suppressed_but_job_is_marked_and_kept_in_history():
