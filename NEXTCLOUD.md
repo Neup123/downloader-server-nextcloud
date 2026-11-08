@@ -473,9 +473,13 @@ upstream Core module `app/job_states.py` (`JobStatus` and
 forking it. Nextcloud's Python notification tracker retains an API-facing
 string set derived from that Core enum; it does not define a second list.
 
-The native PHP Activity bridge cannot import Python at runtime. Instead,
-`scripts/bridge_job_state_contract.py` generates the small checked-in
-`bridge/lib/JobStateContract.php` from those Core constants. Rebuild it with:
+The independently deployed ExApp Python container and the native PHP
+Activity bridge cannot import the full Core service at runtime. Instead,
+`scripts/bridge_job_state_contract.py` generates two small checked-in
+consumers from those exact Core constants:
+`nextcloud_exapp/job_state_contract.py` (packaged in the ExApp image)
+and `bridge/lib/JobStateContract.php` (packaged in the native app).
+Rebuild both with:
 
     python3 -m scripts.bridge_job_state_contract
 
@@ -486,7 +490,7 @@ reviewed downstream Core-sync acceptance suite run:
 
     python3 -m scripts.bridge_job_state_contract --check
 
-A changed/missing generated contract fails closed; independent tests execute
+A changed/missing generated Python **or** PHP contract fails closed; independent tests execute
 real PHP and Python on every declared, terminal and unknown status.
 
 **Do not combine the three independent consumers**: ExApp notifications
