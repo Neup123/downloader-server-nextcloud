@@ -28,8 +28,14 @@ and enable it with occ app:enable downloader_bridge after the ExApp is enabled.
 It is a separate app ID from the ExApp downloader-server-nextcloud.
 
 The bundled @nextcloud/files 4.x JavaScript dependency is AGPL; accordingly
-the native UI bridge is distributed under AGPL-3.0-or-later. The standalone
-downloader retains its separate MIT licensing.
+this **separate** native PHP/JavaScript bridge is distributed under
+[AGPL-3.0-or-later](LICENSE) (also declared in bridge/appinfo/info.xml).
+The separately deployed Core downloader and Nextcloud ExApp are
+source-available under [Business Source License 1.1](../LICENSE), with the
+specific small-organization Additional Use Grant and Required Notice there.
+The BUSL terms do **not** replace this bridge's AGPL license or the licenses
+of its third-party dependencies. Preserve both notices when distributing the
+two separately identified apps.
 
 
 ## Dashboard widget

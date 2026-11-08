@@ -129,3 +129,29 @@ The standalone Core administrator page remains separate and continues to
 require the Core API key. A Nextcloud administrator must not be asked to paste
 that key into browser local storage. Acceptance against the operator's actual
 Nextcloud instance remains tracked in issue #19.
+
+
+## Licensing of the two Nextcloud components
+
+The **Core downloader** and separately deployed **Nextcloud ExApp** source
+are licensed under [Business Source License 1.1 with the owner's Additional
+Use Grant](LICENSE). Free production use requires **both** whole-organization
+limits: at most **20 workers** (employees and independent contractors in
+total) and no more than **USD 250,000** in total revenue in the preceding
+tax year. Count parent companies, subsidiaries and all affiliates under
+common control together. Exceeding **either** limit requires a separately
+paid commercial license from Neup123 for production use.
+
+Distributions must retain the full [LICENSE](LICENSE) and its Required
+Notice. The License specifies a Change Date of 2030-11-08 and a
+GPL-3.0-or-later Change License. Normal BSL non-production rights remain.
+The BSL terms are **source-available, not OSI-approved open source**.
+
+The **native Nextcloud UI bridge** is a separate application under
+[AGPL-3.0-or-later](bridge/LICENSE), due in part to the AGPL-licensed
+`@nextcloud/files` dependency. Its own
+[`bridge/appinfo/info.xml`](bridge/appinfo/info.xml) continues to declare
+AGPL. The ExApp's `appinfo/info.xml` declares `BUSL-1.1`; it is not
+a declaration of licensing for the separate native bridge.
+All other third-party packages retain their respective licenses.
+Prior distributed versions retain their applicable earlier license terms.

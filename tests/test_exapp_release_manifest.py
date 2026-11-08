@@ -61,6 +61,23 @@ class ExAppReleaseManifestTests(unittest.TestCase):
             with self.subTest(changed=changed[:50]), self.assertRaises(ValueError):
                 render_release(changed, SHA, DIGEST)
 
+    def test_owner_approved_bsl_and_separate_agpl_bridge(self):
+        license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        native_license = (ROOT / "bridge/LICENSE").read_text(encoding="utf-8")
+        exapp = ET.fromstring(TEMPLATE)
+        native = ET.parse(ROOT / "bridge/appinfo/info.xml").getroot()
+        self.assertEqual(exapp.findtext("licence"), "BUSL-1.1")
+        self.assertEqual(native.findtext("licence").lower(), "agpl")
+        self.assertIn("Business Source License 1.1", license_text)
+        self.assertIn("twenty (20)", license_text)
+        self.assertIn("USD 250,000", license_text)
+        self.assertIn("Required Notice", license_text)
+        self.assertIn("2030-11-08", license_text)
+        self.assertIn("GPL-3.0-or-later", license_text)
+        self.assertIn("native Nextcloud bridge/ component", license_text)
+        self.assertTrue(native_license.startswith("GNU AFFERO GENERAL PUBLIC LICENSE"))
+        self.assertIn("Version 3, 19 November 2007", native_license)
+
     def test_cli_writes_both_correlated_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "release"
