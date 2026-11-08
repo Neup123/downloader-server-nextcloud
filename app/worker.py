@@ -14,7 +14,7 @@ from app.adapters.you_get import run_you_get
 from app.adapters.svtplay import run_svtplay
 from app.adapters.get_sauce import run_get_sauce, DEFAULTS as GET_SAUCE_DEFAULTS
 from app.adapters.yt_dlp import run_ytdlp
-from app.completion import load_completed_files, save_completed_files
+from app.completion import WorkspaceRecoveryState, inspect_workspace_recovery, save_completed_files
 from app.config import Settings
 from app.db import EngineSetting, Job, append_log, get_queued_jobs, utcnow
 from app.job_states import JobStatus, TERMINAL_STATUSES, ACTIVE_STATUSES, ENGINE_PROGRESS_STATUSES, InvalidJobTransition, transition_job
@@ -70,6 +70,9 @@ class JobWorker:
         self.aria2: Aria2Rpc | None = None
         self._task: asyncio.Task | None = None
         self._active: set[asyncio.Task] = set()
+        # Explicit identity mapping: names are diagnostic only, never an
+        # authority for deciding which DB jobs to cancel at shutdown.
+        self._active_jobs: dict[str, asyncio.Task] = {}
         self._active_engines: dict[str, str] = {}
         self._stopping = False
 
@@ -87,11 +90,7 @@ class JobWorker:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        active_ids = []
-        for task in list(self._active):
-            name = task.get_name()
-            if name.startswith("download-"):
-                active_ids.append(name.removeprefix("download-"))
+        active_ids = list(self._active_jobs)
         if active_ids:
             with self.session_factory() as session:
                 for job_id in active_ids:
@@ -145,7 +144,10 @@ class JobWorker:
 
     def _task_done(self, job_id: str, task: asyncio.Task) -> None:
         self._active.discard(task)
-        self._active_engines.pop(job_id, None)
+        # A delayed callback must not erase a newer attempt with the same ID.
+        if self._active_jobs.get(job_id) is task:
+            self._active_jobs.pop(job_id, None)
+            self._active_engines.pop(job_id, None)
 
     async def _run_loop(self) -> None:
         while not self._stopping:
@@ -169,6 +171,7 @@ class JobWorker:
                         job_id = job.id
                         task = asyncio.create_task(self._execute(job_id), name=f"download-{job_id}")
                         self._active.add(task)
+                        self._active_jobs[job_id] = task
                         self._active_engines[job_id] = job.engine
                         task.add_done_callback(
                             lambda done, identifier=job_id: self._task_done(identifier, done)
@@ -242,8 +245,11 @@ class JobWorker:
                     session.commit()
 
         try:
-            existing_files = load_completed_files(workdir)
-            if not existing_files:
+            recovery = inspect_workspace_recovery(workdir)
+            existing_files = list(recovery.files)
+            if recovery.state != WorkspaceRecoveryState.VERIFIED_COMPLETION:
+                # The only durable authority to preserve previous delivery
+                # records is a verified complete-download manifest.
                 with self.session_factory() as session:
                     current = session.get(Job, job_id)
                     if current and current.output_files:
@@ -253,9 +259,9 @@ class JobWorker:
                             "Cleared prior delivery records: no verified completed-download manifest survived recovery",
                         )
                         session.commit()
-            if not existing_files and any(workdir.iterdir()):
-                # Partial outputs may have ordinary extensions. Only a valid
-                # completion manifest permits reuse; otherwise start clean.
+            if recovery.state == WorkspaceRecoveryState.DISCARD_UNVERIFIED:
+                # Treat partial files (with or without an invalid manifest)
+                # explicitly as interrupted output, never reusable media.
                 shutil.rmtree(workdir)
                 workdir.mkdir(parents=True, exist_ok=True)
                 await on_log("Discarded unverified output left by an interrupted download")
