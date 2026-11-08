@@ -1,0 +1,40 @@
+name: Prepare reviewed ExApp Python wheel hashes
+
+# This is a review aid, not the production installation path. A maintainer
+# copies the generated SHA-256 lock into the PR and verifies it in image CI.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/exapp_wheel_hashes.py"
+      - "nextcloud_exapp/requirements.lock"
+      - ".github/workflows/exapp-wheel-hash-candidate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Generate candidate SHA-256 wheel lock from official PyPI release metadata
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts/exapp_wheel_hashes.py
+          python3 scripts/exapp_wheel_hashes.py \
+            --source nextcloud_exapp/requirements.lock \
+            --output candidate-exapp-requirements.hashed.lock
+          echo '=== EXAPP WHEEL LOCK BEGIN ==='
+          cat candidate-exapp-requirements.hashed.lock
+          echo '=== EXAPP WHEEL LOCK END ==='
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-exapp-wheel-hash-candidate
+          path: candidate-exapp-requirements.hashed.lock
+          if-no-files-found: error
+          retention-days: 14
