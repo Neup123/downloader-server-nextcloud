@@ -48,41 +48,31 @@ def config() -> ProxySettings:
 
 
 async def enabled_handler(enabled: bool, nc: AsyncNextcloudApp) -> str:
-    """Register native personal and admin forms in standard Nextcloud Settings."""
-    forms = [
-        {
-            "id": "downloader_user_preferences", "section_type": "personal",
-            "section_id": "declarative_settings", "title": "Downloader",
-            "description": "Your own Files delivery and engine defaults",
-            "fields": [
-                {"id": "destination_folder", "title": "Default destination subfolder",
-                 "type": "text", "default": "Downloads"},
-                {"id": "default_preset", "title": "Default preset ID",
-                 "type": "text", "default": ""},
-                {"id": "dav_app_password", "title": "Your Nextcloud app password for WebDAV",
-                 "type": "password", "default": "", "sensitive": True,
-                 "description": "Create a dedicated app password in Personal settings → Security."},
-                {"id": "engine_settings", "title": "Own engine settings (JSON)",
-                 "type": "text", "default": "{}"},
-            ],
-        },
-        {
-            "id": "downloader_admin_access", "section_type": "admin",
-            "section_id": "declarative_settings", "title": "Downloader access",
-            "description": "Assign entitlement by Nextcloud user IDs and/or group IDs; leave blank to deny.",
-            "fields": [
-                {"id": "allowed_users", "title": "Entitled user IDs (comma separated)",
-                 "type": "text", "default": ""},
-                {"id": "allowed_groups", "title": "Entitled group IDs (comma separated)",
-                 "type": "text", "default": ""},
-            ],
-        },
-    ]
-    for form in forms:
-        if enabled:
-            await nc.ui.settings.register_form(form)
-        else:
-            await nc.ui.settings.unregister_form(form["id"])
+    """Remove obsolete raw personal form; native PHP bridge hosts it instead.
+
+    The administrator-only entitlement form remains declarative. The per-user
+    settings API is still authoritative and exclusively signed by AppAPI.
+    """
+    try:
+        await nc.ui.settings.unregister_form("downloader_user_preferences")
+    except Exception:
+        # The old form may never have been registered on a fresh install.
+        pass
+    admin_form = {
+        "id": "downloader_admin_access", "section_type": "admin",
+        "section_id": "declarative_settings", "title": "Downloader access",
+        "description": "Assign entitlement by Nextcloud user IDs and/or group IDs; leave blank to deny.",
+        "fields": [
+            {"id": "allowed_users", "title": "Entitled user IDs (comma separated)",
+             "type": "text", "default": ""},
+            {"id": "allowed_groups", "title": "Entitled group IDs (comma separated)",
+             "type": "text", "default": ""},
+        ],
+    }
+    if enabled:
+        await nc.ui.settings.register_form(admin_form)
+    else:
+        await nc.ui.settings.unregister_form(admin_form["id"])
     return ""
 
 
