@@ -40,8 +40,12 @@ registry remap. This does **not** modify the real target.
 Accepted `main` commits can publish ExApp images with source-SHA tags and an
 OCI digest/provenance artifact. [Pinned build input checks](nextcloud_exapp/Dockerfile)
 use immutable Node/Python base image digests, `npm ci`, and
-a complete exact-version Python package lock. **Python wheel hashes are not
-fully locked**, and Nextcloud 35's observed AppAPI `docker-install` manifest
+a complete exact-version Python package lock and a checked-in
+[SHA-256 wheel hash lock](nextcloud_exapp/requirements.hashed.lock), enforced
+by `pip --require-hashes --only-binary=:all:` in the production ExApp build.
+This checks the actual downloaded wheel bytes against reviewed hashes; it is
+not a guarantee of identical multi-architecture OCI build digests.
+Nextcloud 35's observed AppAPI `docker-install` manifest
 uses a SHA **tag**, not an OCI digest. The separately recorded `@sha256:`
 reference enables audit and direct verified image pulls; it does not make
 the XML digest-native or protect against external GHCR tag mutation.

@@ -28,11 +28,21 @@ repository's GHCR package. If an existing GHCR package is unlinked from this
 repository, GitHub may reject the upload; **do not bypass** it by inserting a
 personal access token into source code. Use GitHub package access settings.
 
-The image's source/build inputs are **not fully digest-locked** (base-image
-tags and some transitive packages remain mutable). Separate CI acceptance
-rebuilds from the same source SHA, but that is not a bit-for-bit reproducible
-image guarantee. Use the OCI digest from the record to inspect the published
-artifact itself.
+The two ExApp base images are **OCI digest-pinned** and runtime Python
+dependencies are exact-version pinned with a separately reviewed SHA-256 wheel
+hash allowlist. Production image builds fail if pip downloads a wheel whose
+hash is absent or altered. Node packages use the checked-in npm lock.
+The release provenance records both exact Python lock digests plus the npm
+lock digest. This does **not** establish bit-for-bit reproducible images
+across hosts, architectures or external package-index changes; apt and
+compiler/build inputs still need platform-specific verification. Use the
+published OCI digest to identify and independently inspect the artifact.
+
+To change Python dependencies, update `requirements.lock`, run
+`scripts/exapp_wheel_hashes.py` (or the review candidate workflow), inspect
+its official PyPI artifact SHA-256 results, and commit the new
+`requirements.hashed.lock` in the same reviewed PR. Production Docker builds
+never fetch new hashes dynamically.
 
 ## Important AppAPI limitation
 

@@ -6,7 +6,8 @@ import shutil
 import tempfile
 import unittest
 
-from scripts.exapp_build_inputs import parse_pin_file, prepare_build_inputs
+from scripts.exapp_build_inputs import parse_pin_file, parse_wheel_hash_lock, prepare_build_inputs
+from scripts.exapp_wheel_hashes import parse_pins, render_hash_lock, wheel_hashes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,13 +20,13 @@ class ExAppBuildInputsTests(unittest.TestCase):
         self.assertEqual(record["source_commit"], SHA)
         self.assertTrue(record["base_images_digest_pinned"])
         self.assertTrue(record["python_versions_fully_pinned"])
-        self.assertFalse(record["python_wheel_hashes_verified"])
+        self.assertTrue(record["python_wheel_hashes_verified"])
         self.assertFalse(record["native_appapi_manifest_digest_pinned"])
         self.assertGreaterEqual(record["python_dependency_count"], 25)
         self.assertEqual(set(record["base_images"]), {"web-build", "runtime"})
         for image in record["base_images"].values():
             self.assertRegex(image, r"@sha256:[0-9a-f]{64}$")
-        for filename in ("dockerfile_sha256", "python_lock_sha256", "npm_lock_sha256"):
+        for filename in ("dockerfile_sha256", "python_lock_sha256", "python_wheel_lock_sha256", "npm_lock_sha256"):
             self.assertRegex(record[filename], r"^[0-9a-f]{64}$")
 
     def test_direct_requirements_match_transitive_lock_exactly(self):
@@ -52,7 +53,7 @@ class ExAppBuildInputsTests(unittest.TestCase):
             root = Path(folder)
             (root / "nextcloud_exapp").mkdir()
             (root / "web").mkdir()
-            for name in ("Dockerfile", "requirements.txt", "requirements.lock"):
+            for name in ("Dockerfile", "requirements.txt", "requirements.lock", "requirements.hashed.lock"):
                 shutil.copy(ROOT / "nextcloud_exapp" / name, root / "nextcloud_exapp" / name)
             shutil.copy(ROOT / "web/package-lock.json", root / "web/package-lock.json")
             docker = root / "nextcloud_exapp/Dockerfile"
@@ -62,6 +63,65 @@ class ExAppBuildInputsTests(unittest.TestCase):
             shutil.copy(ROOT / "nextcloud_exapp/Dockerfile", docker)
             lock = root / "nextcloud_exapp/requirements.lock"
             lock.write_text(lock.read_text().replace("fastapi==0.139.2", "fastapi==0.139.1"))
+            with self.assertRaises(ValueError):
+                prepare_build_inputs(root, SHA)
+
+    def test_wheel_candidate_generator_is_deterministic_and_strict(self):
+        pins = parse_pins("# pinned\nfastapi==0.139.2\nnc_py_api[app]==0.30.3\n")
+        self.assertEqual(len(pins), 2)
+        wheel = lambda sha: {"packagetype": "bdist_wheel", "filename": "sample.whl",
+                             "digests": {"sha256": sha}, "yanked": False}
+        response = {"urls": [wheel("f" * 64), wheel("a" * 64),
+                             {"packagetype": "sdist", "filename": "source.tar.gz"}]}
+        output = render_hash_lock(pins, fetch=lambda *_: response)
+        self.assertIn("fastapi==0.139.2", output)
+        self.assertIn("nc_py_api[app]==0.30.3", output)
+        self.assertLess(output.index("--hash=sha256:" + "a" * 64),
+                        output.index("--hash=sha256:" + "f" * 64))
+        self.assertEqual(wheel_hashes(response), ["a" * 64, "f" * 64])
+        with self.assertRaises(ValueError):
+            parse_pins("fastapi>=0.1")
+        with self.assertRaises(ValueError):
+            parse_pins("fastapi==1.0\nfastapi==2.0")
+        with self.assertRaises(ValueError):
+            wheel_hashes({"urls": [{"packagetype": "bdist_wheel",
+                                   "filename": "bad.whl",
+                                   "digests": {"sha256": "not-a-hash"}}]})
+        with self.assertRaises(ValueError):
+            wheel_hashes({"urls": [{"packagetype": "sdist",
+                                   "filename": "source.tar.gz"}]})
+
+    def test_wheel_hash_lock_must_match_every_exact_pin(self):
+        plain = parse_pin_file((ROOT / "nextcloud_exapp/requirements.lock").read_text())
+        hashed = parse_wheel_hash_lock((ROOT / "nextcloud_exapp/requirements.hashed.lock").read_text())
+        self.assertEqual(set(plain), set(hashed))
+        for name, (version, extras) in plain.items():
+            self.assertEqual(hashed[name][:2], (version, extras))
+            self.assertGreaterEqual(len(hashed[name][2]), 1)
+            self.assertTrue(all(item.startswith("--hash=sha256:") for item in hashed[name][2]))
+        for tampered in (
+            "fastapi==0.139.2",
+            "fastapi==0.139.2 " + chr(92) + chr(10) + " --hash=sha256:invalid",
+            "fastapi==0.139.2 " + chr(92) + chr(10)
+            + " --hash=sha256:" + "a" * 64 + " --index-url=https://untrusted.invalid",
+        ):
+            with self.subTest(tampered=tampered), self.assertRaises(ValueError):
+                parse_wheel_hash_lock(tampered)
+
+    def test_missing_or_tampered_wheel_hashes_fail_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "nextcloud_exapp").mkdir()
+            (root / "web").mkdir()
+            for name in ("Dockerfile", "requirements.txt", "requirements.lock", "requirements.hashed.lock"):
+                shutil.copy(ROOT / "nextcloud_exapp" / name, root / "nextcloud_exapp" / name)
+            shutil.copy(ROOT / "web/package-lock.json", root / "web/package-lock.json")
+            hashed_file = root / "nextcloud_exapp/requirements.hashed.lock"
+            original = hashed_file.read_text()
+            hashed_file.write_text(original.replace("--hash=sha256:", "--hash=sha512:", 1))
+            with self.assertRaises(ValueError):
+                prepare_build_inputs(root, SHA)
+            hashed_file.write_text(original.replace("fastapi==0.139.2", "fastapi==0.139.1", 1))
             with self.assertRaises(ValueError):
                 prepare_build_inputs(root, SHA)
 

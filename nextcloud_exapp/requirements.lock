@@ -2,7 +2,9 @@
 # Source: https://github.com/Neup123/downloader-server-nextcloud/actions/runs/42123390080
 # Generated from pip's successful installation record; validated against
 # nextcloud_exapp/requirements.txt in tests. Pin updates require review.
-# Versions are locked, but hashes/CPU architectures are NOT yet fully locked.
+# Versions are reviewed here. Corresponding PyPI wheel SHA-256 allowlists live in
+# requirements.hashed.lock and are enforced during Docker builds with
+# pip --require-hashes and --only-binary. Review/recreate both files together.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.16.0
