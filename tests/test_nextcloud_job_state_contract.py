@@ -50,6 +50,16 @@ class NativeCoreJobStatusContractTests(unittest.TestCase):
             [isinstance(sample, str) and sample in TERMINAL_STATES for sample in samples],
         )
 
+    def test_exapp_image_packages_only_generated_leaf_and_no_core_source(self):
+        dockerfile = (ROOT / "nextcloud_exapp/Dockerfile").read_text()
+        self.assertIn("COPY nextcloud_exapp/*.py /app/nextcloud_exapp/", dockerfile)
+        self.assertIn("nextcloud_exapp.job_state_contract import TERMINAL_STATES", dockerfile)
+        self.assertNotIn("COPY app/", dockerfile)
+        self.assertNotIn("from app.job_states", dockerfile)
+        runtime_user = (ROOT / "nextcloud_exapp/user.py").read_text()
+        self.assertIn("from nextcloud_exapp.job_state_contract import TERMINAL_STATES", runtime_user)
+        self.assertNotIn("from app.job_states", runtime_user)
+
     def test_php_activity_uses_generated_contract_not_embedded_status_list(self):
         content = (ROOT / "bridge/lib/BackgroundJob/ActivitySync.php").read_text()
         self.assertIn("JobStateContract::isTerminal($status)", content)
