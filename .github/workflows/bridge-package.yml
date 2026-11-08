@@ -41,6 +41,8 @@ jobs:
           php -l bridge/lib/Activity/Setting.php
           php -l bridge/lib/Activity/Provider.php
           php -l bridge/lib/BackgroundJob/ActivitySync.php
+          php -l bridge/lib/EntitlementPolicy.php
+          php -l bridge/tests/entitlement-contract.php
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge
