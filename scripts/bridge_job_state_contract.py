@@ -12,7 +12,7 @@ from pathlib import Path
 from app.job_states import JobStatus, TERMINAL_STATUSES
 
 OUTPUT = Path(__file__).resolve().parents[1] / "bridge/lib/JobStateContract.php"
-STATUS_PATTERN = re.compile(r"[a-z][a-z-]*\\Z")
+STATUS_PATTERN = re.compile(r"[a-z][a-z-]*\Z")
 
 
 def php_array(values: list[str]) -> str:
