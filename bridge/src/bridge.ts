@@ -4,6 +4,7 @@
  */
 import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@nextcloud/files';
 import { suggestTalkSource } from './talk-links.mjs';
+import { filesJobRequest } from './files-dialog-payload.mjs';
 import { downloadTitle, downloadStatus, deliveredFilesQuery } from './download-labels.mjs';
 
 type Job = {
@@ -42,8 +43,16 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
 }
 
 function notify(message: string) {
-  if (oc()?.Notification?.showTemporary) oc()!.Notification!.showTemporary!(message);
-  else window.alert(message);
+  // OC.Notification is Nextcloud's native toast. Never block the browser with
+  // alert(); on older/embedded surfaces still provide non-modal feedback.
+  if (oc()?.Notification?.showTemporary) {
+    oc()!.Notification!.showTemporary!(message);
+    return;
+  }
+  const toast = node('div', message, 'dl-toast');
+  toast.setAttribute('role', 'status');
+  document.body.append(toast);
+  window.setTimeout(() => toast.remove(), 5000);
 }
 function sourceIsHttp(value: string): boolean {
   try { return ['https:', 'http:'].includes(new URL(value).protocol); }
@@ -74,70 +83,74 @@ function cleanFolder(path?: string): string {
 }
 
 async function openDialog(folder: string | null, suggested = '') {
-  const request = await Promise.all([
-    api<Preset[]>('/presets').catch(() => []),
-    folder === null
-      ? api<{destination_folder: string}>('/settings')
-      : Promise.resolve(null),
-  ]).catch(() => null);
-  if (!request) {
-    notify('Unable to read your Files destination. Open Downloader settings and retry.');
-    return;
-  }
-  const [presets, settings] = request;
-  // A null folder means the signed user's default destination, not an explicit
-  // path. Preserve that distinction so the ExApp can create /Downloads on first use.
-  const originalDestination = folder === null ? settings!.destination_folder : folder;
+  // The Files folder action already supplies its destination. For Viewer/Talk,
+  // omit it so the signed ExApp applies the user's own Files default.
+  const presets = await api<Preset[]>('/presets').catch(() => []);
   const dialog = node('dialog', '', 'dl-dialog');
   const form = node('form');
   form.method = 'dialog';
   const title = node('h2', 'Download into my Files');
+  title.id = 'dl-dialog-heading';
+  dialog.setAttribute('aria-labelledby', title.id);
+  dialog.setAttribute('aria-modal', 'true');
+
   const url = node('input', '', 'dl-input');
-  url.type = 'url'; url.required = true; url.placeholder = 'https://…'; url.value = suggested;
-  const engines = select(ENGINES.map(name => ({value: name, label: name === 'auto' ? 'Automatic' : name})));
+  url.type = 'url';
+  url.required = true;
+  url.placeholder = 'https://…';
+  url.autocomplete = 'url';
+  url.value = suggested;
+  url.setAttribute('aria-label', 'Source URL');
+
+  const engines = select(ENGINES.map(name => ({
+    value: name, label: name === 'auto' ? 'Automatic' : name,
+  })));
+  engines.value = 'auto';
   const preset = select([
     {value: '', label: 'Use my default preset'},
     ...presets.map(item => ({value: item.id, label: item.name})),
   ]);
-  const destination = node('input', '', 'dl-input');
-  destination.value = originalDestination;
-  destination.placeholder = 'Folder in my Files';
+  const options = node('details', '', 'dl-options');
+  const summary = node('summary', 'Options');
+  options.append(summary,
+    node('p', 'Automatic chooses the right downloader. Change this only if a download fails.', 'dl-muted'),
+    label('Engine', engines), label('Preset (optional)', preset));
+
   const buttons = node('div', '', 'dl-buttons');
   const cancel = node('button', 'Cancel');
   cancel.type = 'button';
   const submit = node('button', 'Download', 'dl-primary');
   submit.type = 'submit';
   buttons.append(cancel, submit);
-  form.append(title, label('Source URL', url), label('Engine', engines),
-    label('Preset (optional)', preset), label('Destination in my Files', destination),
-    node('p', 'Download execution is server-side. Files are delivered to your own account.', 'dl-muted'),
-    buttons);
-  dialog.append(form); document.body.append(dialog);
-  const close = () => {dialog.close(); dialog.remove();};
+  form.append(title, label('Source URL', url), options, buttons);
+  dialog.append(form);
+  document.body.append(dialog);
+
+  const close = () => {
+    if (dialog.open) dialog.close();
+    else dialog.remove();
+  };
   cancel.addEventListener('click', close);
-  dialog.addEventListener('close', () => dialog.remove(), {once:true});
+  dialog.addEventListener('close', () => dialog.remove(), {once: true});
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (!sourceIsHttp(url.value)) return notify('Paste a valid HTTP or HTTPS source URL.');
+    if (!sourceIsHttp(url.value)) {
+      notify('Paste a valid HTTP or HTTPS source URL.');
+      url.focus();
+      return;
+    }
     submit.disabled = true;
     try {
-      await api('/jobs', 'POST', {
-        url: url.value,
-        engine: engines.value,
-        ...(preset.value ? {preset_id: preset.value} : {}),
-        // Omit an unchanged implicit default: explicitly passing "Downloads"
-        // skips the server's first-use /Downloads auto-creation path.
-        ...(folder === null && destination.value.trim() === originalDestination
-          ? {} : {folder: destination.value}),
-      });
-      notify('Download submitted to your Nextcloud Files.');
+      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value));
+      notify('Download added to your Nextcloud Files.');
       close();
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Download submission failed');
       submit.disabled = false;
     }
   });
-  dialog.showModal(); url.focus();
+  dialog.showModal();
+  url.focus();
 }
 
 function registerActions() {
@@ -442,10 +455,21 @@ function registerProvenanceSidebar() {
 function styles() {
   const style = node('style');
   style.textContent = [
-    '.dl-dialog{color:var(--color-main-text,#222);background:var(--color-main-background,#fff);',
-    'border:1px solid var(--color-border,#bbb);border-radius:12px;padding:24px;',
-    'width:min(420px,92vw);max-width:92vw}.dl-dialog::backdrop{background:#0008}',
-    '.dl-dialog form{display:grid;gap:12px}.dl-dialog h2{margin:0;font-size:19px}',
+    '.dl-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;',
+    'box-sizing:border-box;width:min(460px,calc(100vw - 32px));max-width:calc(100vw - 32px);',
+    'max-height:calc(100dvh - 32px);overflow-y:auto;padding:24px;',
+    'color:var(--color-main-text,#222);background:var(--color-main-background,#fff);',
+    'border:1px solid var(--color-border,#bbb);border-radius:var(--border-radius-large,12px);',
+    'box-shadow:0 16px 48px #0004;z-index:11000}',
+    '.dl-dialog::backdrop{background:#0008}',
+    '.dl-dialog form{display:grid;gap:16px}.dl-dialog h2{margin:0;font-size:19px}',
+    '.dl-options{border-top:1px solid var(--color-border,#ddd);padding-top:12px}',
+    '.dl-options summary{cursor:pointer;font-weight:600;list-style-position:inside}',
+    '.dl-options[open]{display:grid;gap:10px}.dl-options[open] summary{margin-bottom:6px}',
+    '.dl-toast{position:fixed;z-index:12000;top:70px;right:16px;',
+    'padding:12px 18px;border-radius:var(--border-radius-large,12px);',
+    'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);',
+    'border:1px solid var(--color-border,#ddd);box-shadow:0 8px 24px #0003}',
     '.dl-label{display:grid;gap:6px;font-size:13px}.dl-input{padding:8px;width:100%;',
     'color:var(--color-main-text,#222);background:var(--color-main-background,#fff);',
     'border:1px solid var(--color-border,#ccc);border-radius:6px}',
