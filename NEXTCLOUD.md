@@ -463,3 +463,35 @@ means the read failed and must **not** be interpreted as disconnected.
 The scan is capped at 250 users and returns `partial` (including at
 group level) when the directory is unavailable or truncated. Do not
 infer complete group coverage or leak any app passwords from this view.
+
+
+## Shared Core job-status contract across Python and PHP
+
+The **authoritative job lifecycle and terminal-state set** live in the
+upstream Core module `app/job_states.py` (`JobStatus` and
+`TERMINAL_STATUSES`). The verified Core merge imports this module without
+forking it. Nextcloud's Python notification tracker retains an API-facing
+string set derived from that Core enum; it does not define a second list.
+
+The native PHP Activity bridge cannot import Python at runtime. Instead,
+`scripts/bridge_job_state_contract.py` generates the small checked-in
+`bridge/lib/JobStateContract.php` from those Core constants. Rebuild it with:
+
+    python3 -m scripts.bridge_job_state_contract
+
+Before merging any Core change that adds/reclassifies job statuses, commit
+the regenerated PHP class and any Activity/UI compatibility adjustments.
+The native bridge packaging workflow, Nextcloud Python preflight and the
+reviewed downstream Core-sync acceptance suite run:
+
+    python3 -m scripts.bridge_job_state_contract --check
+
+A changed/missing generated contract fails closed; independent tests execute
+real PHP and Python on every declared, terminal and unknown status.
+
+**Do not combine the three independent consumers**: ExApp notifications
+track durable per-job notification/indexing flags, native Activity uses its
+Nextcloud-owned per-user `activity_seen` index, and Search maintains bounded
+per-user metadata. The **status vocabulary** is shared, not their delivery,
+retry or idempotency state. No cross-user indexing or Core API token enters
+PHP; no production host behavior is implied by the contract tests.
