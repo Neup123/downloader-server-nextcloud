@@ -1,7 +1,7 @@
 
-## Nextcloud External Sites fallback
+## Native Nextcloud-only product
 
-See [guarded standalone core and official External Sites installation](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md). This is administrator-scoped, not AppAPI SSO.
+All Downloader user interfaces are hosted by Nextcloud itself: Files actions, Dashboard widget, the native [Library](bridge/README.md), and Nextcloud Personal settings. Do not embed, redirect to, or link users to the standalone Core website. The service origin and API token are configured once in administrator-controlled AppAPI deployment settings and never entered by a regular user.
 
 # Downloader Server — Nextcloud Adaptation
 
@@ -59,8 +59,8 @@ CI-only Docker Socket Proxy.
 1. Verify the actual target Nextcloud instance and host-level deployment capabilities.
 2. Configure the `upstream` remote in your local checkout; the one-time core-main ancestry bootstrap is already complete, as documented in NEXTCLOUD.md.
 3. Install the existing ExApp using its generated source-SHA `info.xml` from a verified release artifact **only after** the target AppAPI/Deploy Daemon passes the administrator Test Deploy. Enter the separate core service origin and secret as ExApp environment variables.
-4. Use the official External Sites app to embed the standalone UI as the fallback.
-5. Add a thin PHP bridge only if neither supported path is available.
+4. Install the native PHP bridge ZIP from the matching release; it provides the Nextcloud Library route and Personal settings UI.
+5. Verify the Files action, Dashboard, Library, Personal settings, per-user WebDAV delivery and notifications on the target instance. If AppAPI/bridge support is unavailable, block deployment rather than opening the standalone UI.
 
 ## Delivery
 
@@ -129,10 +129,11 @@ browser. **Who can download** manages individual Nextcloud user and group IDs in
 the same AppAPI entitlement storage enforced independently on each per-user
 request. Without a grant, ordinary users cannot use the downloader.
 
-The standalone Core administrator page remains separate and continues to
-require the Core API key. A Nextcloud administrator must not be asked to paste
-that key into browser local storage. Acceptance against the operator's actual
-Nextcloud instance remains tracked in issue #19.
+Do not open the standalone Core administrator website through Nextcloud.
+Administrators manage service credentials only at ExApp installation time,
+and entitlement is administered in Nextcloud settings. Regular users see
+neither the service origin nor any service API-key screen. Acceptance on the
+operator's actual Nextcloud instance remains tracked in issue #19.
 
 
 ## Licensing of the two Nextcloud components
