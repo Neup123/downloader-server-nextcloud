@@ -27,6 +27,7 @@ from nextcloud_exapp.user import (
 )
 from nextcloud_exapp.tracking import JobTracker
 from nextcloud_exapp.search_index import update_index
+from nextcloud_exapp.onboarding import reconcile_first_verified
 from nextcloud_exapp.proxy import (
     ProxySettings, RESPONSE_HEADERS, is_events_route, safe_upstream_headers,
     upstream_api_url,
@@ -389,16 +390,12 @@ async def user_jobs(limit: int = 50, status: str | None = None,
     if not isinstance(rows, list):
         raise HTTPException(status_code=502, detail="Invalid download list")
     owned = [own_job(row, context.user_id) for row in rows]
-    # Retain completed onboarding across browsers and after history pagination.
-    # A queued/failed job or unverified delivery must never complete the guide.
-    if any(job.get("status") == "completed"
-           and job.get("output_files")
-           and all(isinstance(item, dict) and item.get("verified") is True
-                   for item in job["output_files"]) for job in owned):
-        try:
-            await context.nc.preferences_ex.set_value("first_download_verified", "1")
-        except Exception:
-            pass  # Onboarding tracking cannot prevent history retrieval.
+    # Reconcile legacy/paginated history; the durable tracker also marks
+    # first completion without requiring a history GET or an open browser.
+    try:
+        await reconcile_first_verified(context.nc, context.user_id, owned)
+    except Exception:
+        pass  # Onboarding preferences cannot prevent history retrieval.
     try:
         await update_index(context.nc, context.user_id, owned)
     except Exception:
