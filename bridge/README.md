@@ -112,3 +112,30 @@ in an actual non-classified Talk conversation and confirm the destination in
 Files. A fresh user who has no /Downloads folder must still be able to submit
 using their implicit default destination; the signed ExApp creates that folder
 only when its default is Downloads. Explicit paths must already exist.
+
+
+## Header display and preset catalogue
+
+Personal settings → **Downloader** includes autosaved **Header downloads** preferences.
+The downloads arrow appears only while a download is active by default; choose
+**Always show** to keep it visible when idle without a progress frame.
+The header dropdown lists only active downloads by default; choose **Active
+first, then finished** to retain history in the bubble. The Library always
+keeps its independent history view.
+
+The ExApp ships a curated catalogue of video, audio, direct-file and image-gallery
+presets. In personal settings, move entries up/down to set **your own** ordering
+and uncheck an entry to hide it from the Files download dialog; hidden items
+remain available to restore. This is a private preference, not a deletion.
+The administrator's global order is the starting order until someone sets
+a personal one. Presets are selected by stable IDs, never by visible labels.
+
+Only a verified **Nextcloud administrator** may use the **Shared catalogue**
+panel to set the global order, exclude an entry globally, or open the centred
+**+ Add preset** dialog. The dialog requires a name and uses constrained
+engine/quality selections; it does not accept arbitrary engine commands.
+Admin-managed entries can be edited by the admin. Personal preset mutation API
+routes are denied to regular users, including direct HTTP callers.
+Older personal presets are retained as read-only entries for migration safety.
+Global settings are stored in Nextcloud application configuration; each user's
+order/hide list remains in their own Nextcloud preferences.
