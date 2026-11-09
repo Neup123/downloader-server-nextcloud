@@ -10,6 +10,10 @@
   <namespace>DownloaderBridge</namespace>
   <category>tools</category>
   <dependencies><nextcloud min-version="35" max-version="35"/><php min-version="8.2"/></dependencies>
+  <settings>
+    <personal>OCA\DownloaderBridge\Settings\PersonalSettings</personal>
+    <personal-section>OCA\DownloaderBridge\Settings\PersonalSection</personal-section>
+  </settings>
   <activity>
     <settings><setting>OCA\DownloaderBridge\Activity\Setting</setting></settings>
     <providers><provider>OCA\DownloaderBridge\Activity\Provider</provider></providers>

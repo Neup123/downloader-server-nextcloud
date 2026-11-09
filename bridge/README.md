@@ -47,16 +47,19 @@ own jobs through the signed ExApp, shows progress, cancel/retry and recent histo
 No download logic or file bytes are handled by this bridge.
 
 
-The Dashboard's last-three jobs now use the same structural **JobCard** pattern
-as the standalone Download/Library screen: content-type icon, human title,
-plain status with percent and speed, engine/downloaded size, visible progress,
-verified Files action, Cancel/Try again/Re-deliver, and an expandable Details
-area containing verified file names and the advanced technical log. The card
-is styled with Nextcloud's native theme variables, so it remains usable in
-light/dark themes and on narrow Dashboard columns. Its shared status/title
-helpers also feed the ambient header popover. All action requests remain
-owner-signed ExApp calls. Verified Files links are constructed for the current
-owner only; private DAV endpoints and credentials never enter the widget.
+The Dashboard shows compact scrolling download rows with status, media icons,
+accessible icon actions, a three-dot menu, and Nextcloud-native details. A
+periodic refresh preserves its scroll, expanded menus and dialog state.
+
+The **Open downloads history** action opens the native Nextcloud Library route
+`/apps/downloader_bridge/library` (not the raw AppAPI proxy UI). The route
+is registered by this PHP bridge and rendered inside the standard Nextcloud
+page layout. It requires the same per-user entitlement as the Dashboard.
+The Library supports owner-scoped search, status filtering, pagination,
+retry-all-failed, and clearing visible terminal history. **Clearing history
+only hides entries for the current user and never deletes downloaded Files
+or the Core records needed for file provenance.** The browser uses only
+signed AppAPI user routes, never the Core API key.
 
 Native Nextcloud Notifications and Activity remain platform-native views
 rather than rendering React cards inside notifications; they use the same
@@ -64,7 +67,7 @@ human download-status semantics and link to a verified file when available.
 The Talk menu action, native Files context action, and provenance sidebar
 already use the matching language and confirmation flow.
 
-## Unified search
+## Native Library and unified search
 
 Native Nextcloud Search registers a **Downloads** category containing only the
 current entitled user's job-history metadata (source domain/path, engine, status

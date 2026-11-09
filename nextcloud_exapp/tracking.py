@@ -29,7 +29,7 @@ def notification_link(job: dict, owner_id: str) -> str:
     exact Files destination is unavailable, link to the owner-checked job view.
     """
     identifier = str(job.get("id") or "")
-    fallback = "/apps/app_api/proxy/downloader-server-nextcloud/user/"
+    fallback = "/apps/downloader_bridge/library"
     if re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", identifier):
         fallback += "?job=" + quote(identifier, safe="")
     if job.get("status") != "completed":

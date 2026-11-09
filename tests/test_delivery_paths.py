@@ -166,7 +166,8 @@ def test_per_user_webdav_ignores_global_delivery_and_uses_own_files(settings):
         result = asyncio.run(deliver_files([files[owner]], f"job-{owner}", sessions, settings,
             transport=httpx.MockTransport(handler)))
         assert len(result) == 1
-        assert f"/files/{owner}/Downloads/job-{owner}/" in result[0]["path"]
+        assert f"/files/{owner}/Downloads/image.jpg" in result[0]["path"]
+        assert f"/files/{owner}/Downloads/job-{owner}/" not in result[0]["path"]
     assert seen["alice"] and seen["bob"]
     assert all("/files/bob/" not in url for _, url in seen["alice"])
     assert all("/files/alice/" not in url for _, url in seen["bob"])

@@ -8,12 +8,14 @@ from __future__ import annotations
 import os
 import asyncio
 import re
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
@@ -47,41 +49,31 @@ def config() -> ProxySettings:
 
 
 async def enabled_handler(enabled: bool, nc: AsyncNextcloudApp) -> str:
-    """Register native personal and admin forms in standard Nextcloud Settings."""
-    forms = [
-        {
-            "id": "downloader_user_preferences", "section_type": "personal",
-            "section_id": "declarative_settings", "title": "Downloader",
-            "description": "Your own Files delivery and engine defaults",
-            "fields": [
-                {"id": "destination_folder", "title": "Default destination subfolder",
-                 "type": "text", "default": "Downloads"},
-                {"id": "default_preset", "title": "Default preset ID",
-                 "type": "text", "default": ""},
-                {"id": "dav_app_password", "title": "Your Nextcloud app password for WebDAV",
-                 "type": "password", "default": "", "sensitive": True,
-                 "description": "Create a dedicated app password in Personal settings → Security."},
-                {"id": "engine_settings", "title": "Own engine settings (JSON)",
-                 "type": "text", "default": "{}"},
-            ],
-        },
-        {
-            "id": "downloader_admin_access", "section_type": "admin",
-            "section_id": "declarative_settings", "title": "Downloader access",
-            "description": "Assign entitlement by Nextcloud user IDs and/or group IDs; leave blank to deny.",
-            "fields": [
-                {"id": "allowed_users", "title": "Entitled user IDs (comma separated)",
-                 "type": "text", "default": ""},
-                {"id": "allowed_groups", "title": "Entitled group IDs (comma separated)",
-                 "type": "text", "default": ""},
-            ],
-        },
-    ]
-    for form in forms:
-        if enabled:
-            await nc.ui.settings.register_form(form)
-        else:
-            await nc.ui.settings.unregister_form(form["id"])
+    """Remove obsolete raw personal form; native PHP bridge hosts it instead.
+
+    The administrator-only entitlement form remains declarative. The per-user
+    settings API is still authoritative and exclusively signed by AppAPI.
+    """
+    try:
+        await nc.ui.settings.unregister_form("downloader_user_preferences")
+    except Exception:
+        # The old form may never have been registered on a fresh install.
+        pass
+    admin_form = {
+        "id": "downloader_admin_access", "section_type": "admin",
+        "section_id": "declarative_settings", "title": "Downloader access",
+        "description": "Assign entitlement by Nextcloud user IDs and/or group IDs; leave blank to deny.",
+        "fields": [
+            {"id": "allowed_users", "title": "Entitled user IDs (comma separated)",
+             "type": "text", "default": ""},
+            {"id": "allowed_groups", "title": "Entitled group IDs (comma separated)",
+             "type": "text", "default": ""},
+        ],
+    }
+    if enabled:
+        await nc.ui.settings.register_form(admin_form)
+    else:
+        await nc.ui.settings.unregister_form(admin_form["id"])
     return ""
 
 
@@ -113,12 +105,21 @@ if DIST.is_dir():
 
 @APP.get("/")
 async def dashboard(_admin: UserContext = Depends(require_admin)):
-    return FileResponse(DIST / "admin.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # Administer service access in Nextcloud, never a standalone Core UI.
+    # Core URL and token are installed in AppAPI configuration server-side.
+    return RedirectResponse(
+        url="/settings/admin/declarative_settings", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.get("/api-reference")
 async def reference(_admin: UserContext = Depends(require_admin)):
-    return FileResponse(DIST / "api-reference.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # Legacy HTML API-reference entry must not open a separate raw UI.
+    return RedirectResponse(
+        url="/settings/admin/declarative_settings", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.api_route(
@@ -214,23 +215,32 @@ async def core_json(method: str, path: str, *, payload: dict | None = None,
 
 @APP.get("/user/")
 async def user_page(request: Request):
-    # The signed identity remains mandatory; only the lack of a Downloader
-    # entitlement turns into friendly navigation rather than a raw 403 page.
+    # Preserve the AppAPI signed-identity check, while sending permitted and
+    # not-entitled users into Nextcloud's own chrome for the correct access UI.
+    # An unsigned request still fails authentication (never a public redirect
+    # bypass to user API data).
     try:
         await require_user(request)
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
-        return HTMLResponse(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
-            "<title>Downloader access</title>"
-            "<main style=\"max-width:36rem;margin:4rem auto;font:1rem system-ui;padding:1rem\">"
-            "<h1>Downloader is not enabled for your account</h1>"
-            "<p>Ask your Nextcloud administrator to give you access to Downloader.</p>"
-            "<a href=\"/\">Back to Nextcloud</a></main></html>",
-            headers={"Cache-Control": "no-store"},
-        )
-    return FileResponse(DIST / "user.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # AppAPI supplies NEXTCLOUD_URL for this installation. An absolute
+    # Location is essential: relative redirects get rewritten into the ExApp
+    # proxy prefix and never reach Nextcloud's native PHP Library route.
+    base_url = os.environ.get("NEXTCLOUD_URL", "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(base_url)
+        valid = (parsed.scheme in ("https", "http") and bool(parsed.hostname)
+                 and not parsed.username and not parsed.password
+                 and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=503, detail="Nextcloud base URL unavailable")
+    return RedirectResponse(
+        url=base_url + "/apps/downloader_bridge/library", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.get("/user/api/me")
@@ -378,18 +388,46 @@ async def user_redownload_source(file_id: str, request: Request,
     return job
 
 
+async def hidden_history_ids(context: UserContext) -> set[str]:
+    """A user's hidden history affects display only, never delivery or provenance."""
+    try:
+        ids = json.loads(await context.nc.preferences_ex.get_value("hidden_history", "[]"))
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(ids, list):
+        return set()
+    return {value for value in ids if isinstance(value, str) and len(value) <= 100}
+
+
+@APP.post("/user/api/jobs/{job_id}/hide")
+async def hide_user_job(job_id: str, context: UserContext = Depends(require_user)):
+    identifier = scoped_core_path(job_id)
+    own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
+    hidden = await hidden_history_ids(context)
+    hidden.add(identifier)
+    if len(hidden) > 2000:
+        raise HTTPException(status_code=422, detail="History limit reached")
+    await context.nc.preferences_ex.set_value("hidden_history", json.dumps(sorted(hidden)))
+    return {"hidden": True}
+
+
 @APP.get("/user/api/jobs")
 async def user_jobs(limit: int = 50, status: str | None = None,
+                    offset: int = 0, q: str = "", state: str = "all",
                     context: UserContext = Depends(require_user)):
-    if not 1 <= limit <= 200:
-        raise HTTPException(status_code=422, detail="Limit must be between 1 and 200")
-    params = {"owner_id": context.user_id, "limit": limit}
+    if not 1 <= limit <= 200 or not 0 <= offset <= 10000:
+        raise HTTPException(status_code=422, detail="Invalid downloads page")
+    if state not in {"all", "active", "delivered", "failed"} or len(q) > 128:
+        raise HTTPException(status_code=422, detail="Invalid Library filter")
+    params = {"owner_id": context.user_id, "limit": limit, "offset": offset,
+              "state": state, "q": q}
     if status:
         params["status"] = status
     rows = await core_json("GET", "jobs", params=params)
     if not isinstance(rows, list):
         raise HTTPException(status_code=502, detail="Invalid download list")
-    owned = [own_job(row, context.user_id) for row in rows]
+    hidden = await hidden_history_ids(context)
+    owned = [own_job(row, context.user_id) for row in rows if row.get('id') not in hidden]
     # Reconcile legacy/paginated history; the durable tracker also marks
     # first completion without requiring a history GET or an open browser.
     try:
@@ -402,6 +440,79 @@ async def user_jobs(limit: int = 50, status: str | None = None,
         # Search indexing must never block jobs or their delivery.
         pass
     return owned
+
+
+async def _visible_owner_jobs(context: UserContext, state: str) -> list[dict]:
+    """Retrieve a bounded snapshot of own jobs; no cross-user bulk operations."""
+    owned: list[dict] = []
+    for offset in range(0, 2000, 200):
+        rows = await core_json("GET", "jobs", params={
+            "owner_id": context.user_id, "limit": 200, "offset": offset,
+            "state": state,
+        })
+        if not isinstance(rows, list):
+            raise HTTPException(status_code=502, detail="Invalid download history")
+        owned.extend(own_job(job, context.user_id) for job in rows)
+        if len(rows) < 200:
+            break
+    else:
+        raise HTTPException(status_code=422, detail="Too many downloads to update together")
+    return owned
+
+
+@APP.get("/user/api/library")
+async def user_library(limit: int = 50, offset: int = 0, q: str = "",
+                       state: str = "all",
+                       context: UserContext = Depends(require_user)):
+    """Cursored own-job Library for native Nextcloud page.
+
+    The cursor counts underlying owned jobs rather than visible/hidden jobs,
+    ensuring a page full of hidden records never conceals later results.
+    """
+    if not 1 <= limit <= 200 or not 0 <= offset <= 10000 or len(q) > 128:
+        raise HTTPException(status_code=422, detail="Invalid Library page")
+    if state not in {"all", "active", "delivered", "failed"}:
+        raise HTTPException(status_code=422, detail="Invalid status filter")
+    params = {"owner_id": context.user_id, "limit": limit, "offset": offset,
+              "q": q, "state": state}
+    rows = await core_json("GET", "jobs", params=params)
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=502, detail="Invalid downloads list")
+    hidden = await hidden_history_ids(context)
+    owned = [own_job(job, context.user_id) for job in rows if job.get("id") not in hidden]
+    return {"jobs": owned, "next_offset": offset + len(rows) if len(rows) == limit else None}
+
+
+@APP.post("/user/api/jobs/retry-failed")
+async def retry_owner_failed(request: Request, context: UserContext = Depends(require_user)):
+    failed = await _visible_owner_jobs(context, "failed")
+    results = []
+    for job in failed:
+        identifier = scoped_core_path(job["id"])
+        # Current owner/status is rechecked to prevent stale bulk retries.
+        current = own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
+        if current.get("status") not in {"failed", "cancelled"}:
+            continue
+        response = await core_json("POST", "jobs/" + identifier + "/retry")
+        own_job(response, context.user_id)
+        request.app.state.job_tracker.reset(identifier)
+        results.append(identifier)
+    return {"retried": len(results)}
+
+
+@APP.post("/user/api/jobs/clear-history")
+async def clear_owner_history(request: Request, context: UserContext = Depends(require_user)):
+    data = await request.json()
+    if not isinstance(data, dict) or data.get("confirm") is not True:
+        raise HTTPException(status_code=422, detail="Confirm clearing history explicitly")
+    completed = await _visible_owner_jobs(context, "delivered")
+    failures = await _visible_owner_jobs(context, "failed")
+    hidden = await hidden_history_ids(context)
+    hidden.update(job["id"] for job in completed + failures)
+    if len(hidden) > 2000:
+        raise HTTPException(status_code=422, detail="Too many history entries to clear")
+    await context.nc.preferences_ex.set_value("hidden_history", json.dumps(sorted(hidden)))
+    return {"hidden": len(completed) + len(failures), "files_retained": True}
 
 
 @APP.post("/user/api/jobs", status_code=202)
