@@ -17,6 +17,9 @@ on:
       - "tests/exapp_mock_core.py"
       - "web/**"
       - "bridge/**"
+      - "app/delivery.py"
+      - "tests/test_delivery_paths.py"
+      - "tests/test_nextcloud_delivery_flat.py"
   pull_request:
     paths:
       - ".github/workflows/appapi-docker-deploy-e2e.yml"
@@ -32,6 +35,9 @@ on:
       - "tests/exapp_mock_core.py"
       - "web/**"
       - "bridge/**"
+      - "app/delivery.py"
+      - "tests/test_delivery_paths.py"
+      - "tests/test_nextcloud_delivery_flat.py"
   workflow_dispatch:
 
 permissions:
