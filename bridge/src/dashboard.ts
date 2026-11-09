@@ -40,8 +40,8 @@ async function api<T>(url: string, method = 'GET', data?: object): Promise<T> {
 }
 /** Core JobCard structure, styled with native Nextcloud colors and focus cues. */
 const CARD_STYLE = `
-.downloader-dashboard-content{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0;max-height:100%;max-width:100%;overflow:hidden;color:var(--color-main-text,#222)}
-.downloader-dashboard-content .job-list{display:grid;gap:0;flex:1 1 auto;min-height:0;max-height:380px;overflow-y:auto;overflow-x:hidden;margin-top:8px}
+.downloader-dashboard-content{display:flex;flex-direction:column;flex:1 1 0;min-height:0;min-width:0;max-height:100%;max-width:100%;box-sizing:border-box;overflow:hidden;color:var(--color-main-text,#222)}
+.downloader-dashboard-content .job-list{display:grid;gap:0;flex:1 1 0;min-height:0;max-height:380px;overflow-y:auto;overflow-x:hidden;margin-top:8px}
 .downloader-dashboard-content .job-row{display:flex;gap:10px;align-items:center;min-width:0;padding:8px 2px;border-bottom:1px solid var(--color-border,#ddd)}
 .downloader-dashboard-content .job-card-icon{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px;background:var(--color-background-dark,#eee);font-size:18px}
 .downloader-dashboard-content .job-card-icon img{display:block;max-width:100%;max-height:100%;object-fit:cover;border-radius:8px;position:absolute;inset:0;width:32px;height:32px}
@@ -133,11 +133,23 @@ function renderDashboard(element: HTMLElement) {
             : reason || 'Could not start download. Try again from Files.';
     } finally { submit.disabled = false; }
   });
-  // The element is Nextcloud's panel content wrapper. Its overflow constraint
-  // must bound the list, not merely cap the list's own scroll height.
+  // Nextcloud gives .panel a fixed card height. Bound its content flex child to
+  // the space below the card header; clipping only this child is insufficient
+  // when its auto height extends beyond the card (QA: 144px overflow).
+  const panel = element.closest<HTMLElement>('.panel');
+  if (panel) {
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.minHeight = '0';
+    panel.style.boxSizing = 'border-box';
+    panel.style.overflow = 'hidden';
+  }
   element.style.display = 'flex';
   element.style.flexDirection = 'column';
+  element.style.flex = '1 1 0';
   element.style.minHeight = '0';
+  element.style.maxHeight = '100%';
+  element.style.boxSizing = 'border-box';
   element.style.overflow = 'hidden';
   element.replaceChildren(area);
   let active = true;
