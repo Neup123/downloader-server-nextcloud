@@ -3,8 +3,12 @@ type Personal = {
   destination_folder:string;default_preset:string;app_password_configured:boolean;
   notify_finished:boolean;notify_failed:boolean;
   engine_settings:Record<string,Record<string,unknown>>;
+  header_indicator_visibility:'active'|'always';dropdown_content:'active'|'all';
+  preset_hidden:string[];preset_order:string[];
 };
-type Preset={id:string;name:string;is_shared?:boolean;is_builtin?:boolean};
+type Preset={id:string;name:string;description?:string;engine?:string;is_shared?:boolean;
+  is_builtin?:boolean;is_hidden?:boolean;is_admin_managed?:boolean;settings?:Record<string,string>};
+type AdminCatalog={presets:Preset[];order:string[];hidden:string[]};
 type Folder={name:string;path:string};
 type FolderList={path:string;folders:Folder[];offset:number;has_more:boolean};
 type Oc={generateUrl:(path:string)=>string;requestToken?:string};
@@ -26,6 +30,19 @@ async function api<T>(path:string,method='GET',payload?:unknown):Promise<T>{
     const error=body as {detail?:string}|null;
     throw new Error(error?.detail||'Your settings could not be saved.');
   }
+  return body as T;
+}
+async function adminApi<T>(path:string,method='GET',payload?:unknown):Promise<T>{
+  const prefix=oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/admin/api');
+  const res=await fetch(prefix+path,{
+    method,credentials:'same-origin',headers:{
+      'OCS-APIRequest':'true',
+      ...(oc()?.requestToken?{requesttoken:oc()!.requestToken!}:{}),
+      ...(payload===undefined?{}:{'Content-Type':'application/json'})},
+    ...(payload===undefined?{}:{body:JSON.stringify(payload)}),
+  });
+  const body=await res.json().catch(()=>null);
+  if(!res.ok)throw new Error((body as {detail?:string}|null)?.detail||'Cannot update shared presets');
   return body as T;
 }
 const CSS=`
@@ -50,6 +67,16 @@ const CSS=`
 #downloader-settings-app .downloader-picker-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
 #downloader-settings-app .downloader-advanced{margin-top:16px;padding:16px;border:1px solid var(--color-border,#ccc);border-radius:10px}
 #downloader-settings-app .downloader-advanced summary{font-weight:600;cursor:pointer}
+#downloader-settings-app .preset-list{display:grid;gap:4px;padding:0;margin:8px 0}
+#downloader-settings-app .preset-row{display:flex;gap:6px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid var(--color-border,#ddd);font-size:12px}
+#downloader-settings-app .preset-row .preset-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#downloader-settings-app .preset-row button{padding:2px 6px;min-height:28px}
+#downloader-settings-app .preset-row .preset-toggle{width:16px;height:16px}
+.downloader-preset-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:22px;border:1px solid var(--color-border,#bbb);border-radius:12px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
+.downloader-preset-dialog::backdrop{background:#0008}
+.downloader-preset-dialog form{display:grid;gap:10px}
+.downloader-preset-dialog :is(input,select){width:100%;padding:8px;box-sizing:border-box}
+.downloader-preset-dialog .preset-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
 #downloader-settings-app :is(button,input,select,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
 `;
 function start() {
@@ -110,7 +137,7 @@ function start() {
   function label(name:string,control:HTMLElement){
     const holder=element('label',name);holder.append(control);return holder;
   }
-  function setup(data:Personal,presets:Preset[]){
+  function setup(data:Personal,presets:Preset[],adminUser:boolean,adminCatalog:AdminCatalog|null){
     personal=data;
     cards.replaceChildren();
     const destination=card('Where your downloads go',
@@ -160,13 +187,167 @@ function start() {
       else void openFolder(data.destination_folder||'');});
     const preset=element('select');
     const defaultOption=element('option','Automatic / no preset');defaultOption.value='';preset.append(defaultOption);
-    for(const item of presets){
+    for(const item of presets.filter(item=>!item.is_hidden)){
       const choice=element('option',item.name);choice.value=item.id;preset.append(choice);
     }
     preset.value=data.default_preset||'';
     preset.addEventListener('change',()=>changed('default_preset',preset.value));
     destination.append(label('Default preset',preset),
       element('p','Presets are displayed by name. You can override this for an individual download.'));
+
+
+    const header=card('Header downloads',
+      'Choose when the downloads arrow appears and which downloads its bubble shows.');
+    const visibility=element('select');
+    for(const [value,txt] of [['active','Only while downloading (default)'],['always','Always show the arrow']]){
+      const option=element('option',txt);option.value=value;visibility.append(option);
+    }
+    visibility.value=data.header_indicator_visibility||'active';
+    visibility.addEventListener('change',()=>changed('header_indicator_visibility',visibility.value));
+    const content=element('select');
+    for(const [value,txt] of [['active','Active downloads only (default)'],['all','Active first, then finished']]){
+      const option=element('option',txt);option.value=value;content.append(option);
+    }
+    content.value=data.dropdown_content||'active';
+    content.addEventListener('change',()=>changed('dropdown_content',content.value));
+    header.append(label('Header indicator visibility',visibility),label('Dropdown content',content));
+
+    const presetsCard=card('Download presets',
+      'Move presets up or down for your own menu, or hide them. You can restore hidden presets here.');
+    const personalList=element('div');personalList.className='preset-list';
+    const current=new Map(presets.map(item=>[item.id,item]));
+    const ownHidden=new Set(data.preset_hidden||[]);
+    let ownOrder=[...new Set([...(data.preset_order||[]),...presets.map(item=>item.id)])]
+      .filter(id=>current.has(id));
+    function drawPersonal(){
+      personalList.replaceChildren();
+      ownOrder.forEach((id,index)=>{
+        const item=current.get(id)!;
+        const row=element('div');row.className='preset-row';
+        const checkbox=element('input');checkbox.type='checkbox';
+        checkbox.className='preset-toggle';checkbox.checked=!ownHidden.has(id);
+        checkbox.setAttribute('aria-label','Show '+item.name);
+        checkbox.addEventListener('change',()=>{
+          checkbox.checked?ownHidden.delete(id):ownHidden.add(id);
+          changed('preset_hidden',[...ownHidden]);drawPersonal();
+        });
+        const name=element('span',item.name);name.className='preset-name';
+        name.title=(item.description||'')+(item.engine?' · '+item.engine:'');
+        const up=element('button','↑'),down=element('button','↓');
+        for(const button of [up,down])button.type='button';
+        up.setAttribute('aria-label','Move '+item.name+' up');
+        down.setAttribute('aria-label','Move '+item.name+' down');
+        up.disabled=index===0;down.disabled=index===ownOrder.length-1;
+        function move(to:number){
+          [ownOrder[index],ownOrder[to]]=[ownOrder[to],ownOrder[index]];
+          changed('preset_order',[...ownOrder]);drawPersonal();
+        }
+        up.addEventListener('click',()=>move(index-1));
+        down.addEventListener('click',()=>move(index+1));
+        row.append(checkbox,name,up,down);
+        personalList.append(row);
+      });
+    }
+    drawPersonal();presetsCard.append(personalList);
+    if(adminUser&&adminCatalog){
+      const adminHeading=element('h3','Shared catalogue (administrators only)');
+      const note=element('p','Change the global default order, exclude shared entries, or add and edit your own shared presets.');
+      const add=element('button','+ Add preset');add.type='button';
+      const globalList=element('div');globalList.className='preset-list';
+      const globals=new Map(adminCatalog.presets.map(item=>[item.id,item]));
+      let globalOrder=[...new Set([...(adminCatalog.order||[]),...adminCatalog.presets.map(item=>item.id)])]
+        .filter(id=>globals.has(id));
+      const globalHidden=new Set(adminCatalog.hidden||[]);
+      let adminTimer:number|undefined;
+      async function saveGlobal(){
+        try {
+          await adminApi('/preset-catalog','PUT',{order:globalOrder,hidden:[...globalHidden]});
+          status.firstChild!.textContent='Shared catalogue saved.';
+        }catch(error){
+          status.firstChild!.textContent=error instanceof Error?error.message:'Could not save catalogue.';
+        }
+      }
+      function queueGlobal(){window.clearTimeout(adminTimer);adminTimer=window.setTimeout(()=>{void saveGlobal();},450);}
+      function editModal(item?:Preset){
+        const dlg=element('dialog');dlg.className='downloader-preset-dialog';
+        const form=element('form');form.method='dialog';
+        const h=element('h2',item?'Edit shared preset':'Add preset');
+        const name=element('input');name.required=true;name.maxLength=120;name.value=item?.name||'';
+        const description=element('input');description.maxLength=500;
+        description.value=item?.description||'';
+        const engine=element('select');
+        for(const [key,name] of [['yt-dlp','Video / audio'],['gallery-dl','Image gallery'],
+          ['aria2c','Large direct file'],['generic','Direct file']]){
+          const opt=element('option',name);opt.value=key;engine.append(opt);
+        }
+        engine.value=item?.engine||'yt-dlp';
+        const format=element('select');
+        for(const [value,name] of [
+          ['','Automatic'],['bv*+ba/b','Best video'],['bv*[height<=1080]+ba/b[height<=1080]','Up to 1080p'],
+          ['bv*[height<=720]+ba/b[height<=720]','Up to 720p'],
+          ['bv*[height<=480]+ba/b[height<=480]','Up to 480p'],
+          ['bestaudio/best','Audio only'],['bestaudio[ext=m4a]/bestaudio/best','Audio M4A'],
+          ['bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b','MP4 preferred']]){
+          const option=element('option',name);option.value=value;format.append(option);
+        }
+        format.value=item?.settings?.format||'';
+        const updateEngine=()=>{format.disabled=engine.value!=='yt-dlp';if(format.disabled)format.value='';};
+        engine.addEventListener('change',updateEngine);updateEngine();
+        const controls=element('div');controls.className='preset-dialog-actions';
+        const cancel=element('button','Cancel');cancel.type='button';
+        const submit=element('button',item?'Save preset':'Create preset');
+        submit.className='primary';submit.type='submit';
+        cancel.addEventListener('click',()=>dlg.close());
+        controls.append(cancel,submit);
+        form.append(h,label('Preset name (required)',name),label('Description (optional)',description),
+          label('Download type',engine),label('Quality / format',format),controls);
+        dlg.append(form);document.body.append(dlg);
+        dlg.addEventListener('close',()=>dlg.remove(),{once:true});
+        form.addEventListener('submit',event=>{
+          event.preventDefault();submit.disabled=true;
+          void adminApi(item?'/presets/'+encodeURIComponent(item.id):'/presets',
+            item?'PUT':'POST',{name:name.value,description:description.value,
+              engine:engine.value,format:format.value}).then(()=>{
+            dlg.close();void reload();
+          }).catch(error=>{
+            status.firstChild!.textContent=error instanceof Error?error.message:'Could not save preset.';
+          }).finally(()=>{submit.disabled=false;});
+        });
+        dlg.showModal();name.focus();
+      }
+      function drawGlobal(){
+        globalList.replaceChildren();
+        globalOrder.forEach((id,index)=>{
+          const item=globals.get(id)!;
+          const row=element('div');row.className='preset-row';
+          const checkbox=element('input');checkbox.type='checkbox';
+          checkbox.className='preset-toggle';checkbox.checked=!globalHidden.has(id);
+          checkbox.setAttribute('aria-label','Include globally: '+item.name);
+          checkbox.addEventListener('change',()=>{
+            checkbox.checked?globalHidden.delete(id):globalHidden.add(id);
+            queueGlobal();
+          });
+          const title=element('span',item.name);title.className='preset-name';
+          const up=element('button','↑'),down=element('button','↓');
+          up.type='button';down.type='button';
+          up.disabled=index===0;down.disabled=index===globalOrder.length-1;
+          function move(to:number){
+            [globalOrder[index],globalOrder[to]]=[globalOrder[to],globalOrder[index]];
+            drawGlobal();queueGlobal();
+          }
+          up.addEventListener('click',()=>move(index-1));
+          down.addEventListener('click',()=>move(index+1));
+          row.append(checkbox,title,up,down);
+          if(item.is_admin_managed){
+            const edit=element('button','Edit');edit.type='button';
+            edit.addEventListener('click',()=>editModal(item));row.append(edit);
+          }
+          globalList.append(row);
+        });
+      }
+      add.addEventListener('click',()=>editModal());
+      drawGlobal();presetsCard.append(adminHeading,note,add,globalList);
+    }
 
     const files=card('Files connection',
       'Downloader uses a dedicated, securely stored Nextcloud Files password. Your Core service connection is handled by the installation.');
@@ -228,12 +409,21 @@ function start() {
     advanced.append(toggle,explanation,label('Engine settings JSON',json),saveJson);
     root.append(advanced);
   }
-  void Promise.all([api<Personal>('/settings'),api<Preset[]>('/presets')]).then(([data,presets])=>{
-    setup(data,presets);
-    status.firstChild!.textContent='All changes save automatically.';
-  }).catch(error=>{
-    status.firstChild!.textContent=error instanceof Error?error.message:'Could not load settings.';
-  });
+  async function reload(){
+    try{
+      const [data,presets,me]=await Promise.all([
+        api<Personal>('/settings'),api<Preset[]>('/presets?include_hidden=true'),
+        api<{can_manage_presets:boolean}>('/me'),
+      ]);
+      const admin=me.can_manage_presets
+        ?await adminApi<AdminCatalog>('/preset-catalog'):null;
+      setup(data,presets,!!me.can_manage_presets,admin);
+      status.firstChild!.textContent='All changes save automatically.';
+    }catch(error){
+      status.firstChild!.textContent=error instanceof Error?error.message:'Could not load settings.';
+    }
+  }
+  void reload();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
 else start();
