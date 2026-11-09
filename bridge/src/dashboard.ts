@@ -144,6 +144,18 @@ function renderDashboard(element: HTMLElement) {
     panel.style.boxSizing = 'border-box';
     panel.style.overflow = 'hidden';
   }
+  // Nextcloud's .panel--content is display:block. Make the ancestor a
+  // shrinkable flex column before giving its child a zero flex basis:
+  // otherwise the child has no definite available height and collapses to 0.
+  const panelContent = element.closest<HTMLElement>('.panel--content');
+  if (panelContent && panel) {
+    panelContent.style.display = 'flex';
+    panelContent.style.flexDirection = 'column';
+    panelContent.style.flex = '1 1 0';
+    panelContent.style.minHeight = '0';
+    panelContent.style.minWidth = '0';
+    panelContent.style.overflow = 'hidden';
+  }
   element.style.display = 'flex';
   element.style.flexDirection = 'column';
   element.style.flex = '1 1 0';
