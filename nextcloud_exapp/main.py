@@ -248,8 +248,13 @@ async def user_page(request: Request):
 
 @APP.get("/user/api/me")
 async def user_me(context: UserContext = Depends(require_user)):
-    return {"user_id": context.user_id, "entitled": True,
-            "can_manage_presets": await is_administrator(context)}
+    return {"user_id": context.user_id, "entitled": True}
+
+
+@APP.get("/user/api/preset-permissions")
+async def user_preset_permissions(context: UserContext = Depends(require_user)):
+    """Separate capability route preserves the established /me contract."""
+    return {"can_manage_presets": await is_administrator(context)}
 
 
 @APP.get("/user/api/folders")
