@@ -62,16 +62,18 @@ const CSS=`
 #downloader-settings-app button.primary{background:var(--color-primary,#377bd1);color:var(--color-primary-text,#fff)}
 #downloader-settings-app button:disabled{opacity:.6;cursor:default}
 #downloader-settings-app .downloader-picker{padding:10px;border:1px solid var(--color-border,#bbb);border-radius:9px;margin:12px 0;max-height:320px;overflow-y:auto}
-#downloader-settings-app .downloader-picker li{list-style:none;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--color-border,#ccc)}
+#downloader-settings-app .downloader-picker li{list-style:none;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--color-border,#ccc)}
+#downloader-settings-app .downloader-picker li button{height:26px;min-height:26px;padding:2px 7px;line-height:1.2}
 #downloader-settings-app .downloader-picker ul{padding:0;margin:8px 0}
 #downloader-settings-app .downloader-picker-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
 #downloader-settings-app .downloader-advanced{margin-top:16px;padding:16px;border:1px solid var(--color-border,#ccc);border-radius:10px}
 #downloader-settings-app .downloader-advanced summary{font-weight:600;cursor:pointer}
 #downloader-settings-app .preset-list{display:grid;gap:4px;padding:0;margin:8px 0}
-#downloader-settings-app .preset-row{display:flex;gap:6px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid var(--color-border,#ddd);font-size:12px}
+#downloader-settings-app .preset-row{display:flex;gap:6px;align-items:center;min-width:0;padding:2px 0;border-bottom:1px solid var(--color-border,#ddd);font-size:12px}
 #downloader-settings-app .preset-row .preset-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-#downloader-settings-app .preset-row button{padding:2px 6px;min-height:28px}
+#downloader-settings-app .preset-row button{padding:2px 6px;height:24px;min-height:24px;line-height:1}
 #downloader-settings-app .preset-row .preset-toggle{width:16px;height:16px}
+#downloader-settings-app select.downloader-header-select{width:max-content;max-width:100%;align-self:start}
 .downloader-preset-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:22px;border:1px solid var(--color-border,#bbb);border-radius:12px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
 .downloader-preset-dialog::backdrop{background:#0008}
 .downloader-preset-dialog form{display:grid;gap:10px}
@@ -186,11 +188,22 @@ function start() {
     browse.addEventListener('click',()=>{if(!picker.hidden)picker.hidden=true;
       else void openFolder(data.destination_folder||'');});
     const preset=element('select');
-    const defaultOption=element('option','Automatic / no preset');defaultOption.value='';preset.append(defaultOption);
-    for(const item of presets.filter(item=>!item.is_hidden)){
-      const choice=element('option',item.name);choice.value=item.id;preset.append(choice);
+    const hiddenGlobally=new Set(adminCatalog?.hidden||[]);
+    const ownHidden=new Set(data.preset_hidden||[]);
+    function refreshDefaultPreset(){
+      const chosen=preset.value || personal?.default_preset || '';
+      const available=presets.filter(item=>!item.is_hidden && !hiddenGlobally.has(item.id) && !ownHidden.has(item.id));
+      const defaultOption=element('option','Automatic / no preset');defaultOption.value='';
+      preset.replaceChildren(defaultOption);
+      for(const item of available){
+        const choice=element('option',item.name);choice.value=item.id;preset.append(choice);
+      }
+      const stillAvailable=!!available.find(item=>item.id===chosen);
+      preset.value=stillAvailable?chosen:'';
+      if(chosen && !stillAvailable)changed('default_preset','');
     }
     preset.value=data.default_preset||'';
+    refreshDefaultPreset();
     preset.addEventListener('change',()=>changed('default_preset',preset.value));
     destination.append(label('Default preset',preset),
       element('p','Presets are displayed by name. You can override this for an individual download.'));
@@ -198,13 +211,13 @@ function start() {
 
     const header=card('Header downloads',
       'Choose when the downloads arrow appears and which downloads its bubble shows.');
-    const visibility=element('select');
+    const visibility=element('select');visibility.className='downloader-header-select';
     for(const [value,txt] of [['active','Only while downloading (default)'],['always','Always show the arrow']]){
       const option=element('option',txt);option.value=value;visibility.append(option);
     }
     visibility.value=data.header_indicator_visibility||'active';
     visibility.addEventListener('change',()=>changed('header_indicator_visibility',visibility.value));
-    const content=element('select');
+    const content=element('select');content.className='downloader-header-select';
     for(const [value,txt] of [['active','Active downloads only (default)'],['all','Active first, then finished']]){
       const option=element('option',txt);option.value=value;content.append(option);
     }
@@ -216,7 +229,6 @@ function start() {
       'Move presets up or down for your own menu, or hide them. You can restore hidden presets here.');
     const personalList=element('div');personalList.className='preset-list';
     const current=new Map(presets.map(item=>[item.id,item]));
-    const ownHidden=new Set(data.preset_hidden||[]);
     let ownOrder=[...new Set([...(data.preset_order||[]),...presets.map(item=>item.id)])]
       .filter(id=>current.has(id));
     function drawPersonal(){
@@ -229,7 +241,7 @@ function start() {
         checkbox.setAttribute('aria-label','Show '+item.name);
         checkbox.addEventListener('change',()=>{
           checkbox.checked?ownHidden.delete(id):ownHidden.add(id);
-          changed('preset_hidden',[...ownHidden]);drawPersonal();
+          changed('preset_hidden',[...ownHidden]);refreshDefaultPreset();drawPersonal();
         });
         const name=element('span',item.name);name.className='preset-name';
         name.title=(item.description||'')+(item.engine?' · '+item.engine:'');
@@ -325,7 +337,8 @@ function start() {
           checkbox.setAttribute('aria-label','Include globally: '+item.name);
           checkbox.addEventListener('change',()=>{
             checkbox.checked?globalHidden.delete(id):globalHidden.add(id);
-            queueGlobal();
+            checkbox.checked?hiddenGlobally.delete(id):hiddenGlobally.add(id);
+            refreshDefaultPreset();queueGlobal();
           });
           const title=element('span',item.name);title.className='preset-name';
           const up=element('button','↑'),down=element('button','↓');
