@@ -436,7 +436,7 @@ function start() {
     try{
       const [data,presets,me]=await Promise.all([
         api<Personal>('/settings'),api<Preset[]>('/presets?include_hidden=true'),
-        api<{can_manage_presets:boolean}>('/me'),
+        api<{can_manage_presets:boolean}>('/preset-permissions'),
       ]);
       const admin=me.can_manage_presets
         ?await adminApi<AdminCatalog>('/preset-catalog'):null;
