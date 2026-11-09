@@ -24,3 +24,10 @@ test('Library exposes owner-only search, filter, pagination and native actions',
   assert.match(source,/clear-history/);
   assert.match(source,/retry-failed/);
 });
+
+test('top-level Library GET is CSRF-exempt while remaining owner-entitled', () => {
+  assert.match(route, /'verb' => 'GET'/);
+  assert.match(php, /use OCP\\AppFramework\\Http\\Attribute\\NoCSRFRequired;/);
+  assert.match(php, /#\[NoAdminRequired\]\s*#\[NoCSRFRequired\]\s*public function index\(/);
+  assert.match(php, /EntitlementPolicy::allows/);
+});
