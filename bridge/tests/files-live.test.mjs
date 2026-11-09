@@ -32,3 +32,12 @@ test('progress bubble is live and accessible, and both widgets refresh on submit
   assert.match(dashboard, /downloader:jobs-updated/);
   assert.match(bridge, /notify\(job\.status === 'completed'/);
 });
+
+
+test('Nextcloud 35 topbar mounts into header-end, with legacy fallback', () => {
+  const progress = bridge.slice(bridge.indexOf('function headerProgress('), bridge.indexOf('\ntype Provenance'));
+  assert.match(progress, /document\.querySelector\('#header \.header-end'\)/);
+  assert.match(progress, /document\.querySelector\('\.header-end'\)/);
+  assert.match(progress, /document\.querySelector\('#header-right'\)/);
+  assert.ok(progress.indexOf("'.header-end'") < progress.indexOf("'#header-right'"));
+});
