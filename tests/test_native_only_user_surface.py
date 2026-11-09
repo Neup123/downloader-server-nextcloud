@@ -22,13 +22,17 @@ def test_legacy_admin_entrypoints_redirect_to_nextcloud_settings():
 
 def test_signed_user_entrypoint_redirects_to_native_library_not_raw_proxy():
     request=Request({"type":"http","headers":[],"username":"alice"})
-    with patch("nextcloud_exapp.main.require_user",new=AsyncMock(
-        return_value=UserContext("alice",SimpleNamespace())
-    )) as authorized:
+    with patch.dict("os.environ", {"NEXTCLOUD_URL": "https://cloud.example.test/nextcloud"}), patch(
+        "nextcloud_exapp.main.require_user", new=AsyncMock(
+            return_value=UserContext("alice", SimpleNamespace())
+        )
+    ) as authorized:
         response=asyncio.run(user_page(request))
     assert authorized.await_count == 1
     assert response.status_code == 303
-    assert response.headers["location"] == "/apps/downloader_bridge/library"
+    assert response.headers["location"] == "https://cloud.example.test/nextcloud/apps/downloader_bridge/library"
+    assert response.headers["location"].startswith("https://")
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_unsigned_identity_does_not_redirect_to_unscoped_user_data():
@@ -61,3 +65,30 @@ def test_core_admin_proxy_cannot_be_accessed_by_regular_user():
         assert any(dep.call.__name__=="require_admin" for dep in paths[protected].dependant.dependencies)
     for personal in ("/user/api/me","/user/api/settings","/user/api/library"):
         assert any(dep.call.__name__=="require_user" for dep in paths[personal].dependant.dependencies)
+
+
+def test_proxy_redirect_uses_trusted_appapi_origin_not_request_host():
+    request = Request({"type": "http", "headers": [(b"host", b"attacker.invalid")], "username": "alice"})
+    with patch.dict("os.environ", {"NEXTCLOUD_URL": "https://cloud.example.test/"}), patch(
+        "nextcloud_exapp.main.require_user", new=AsyncMock(
+            return_value=UserContext("alice", SimpleNamespace())
+        )
+    ):
+        response = asyncio.run(user_page(request))
+    assert response.headers["location"] == "https://cloud.example.test/apps/downloader_bridge/library"
+    assert "attacker.invalid" not in response.headers["location"]
+
+
+def test_missing_appapi_base_url_fails_closed():
+    request = Request({"type": "http", "headers": [], "username": "alice"})
+    with patch.dict("os.environ", {"NEXTCLOUD_URL": ""}), patch(
+        "nextcloud_exapp.main.require_user", new=AsyncMock(
+            return_value=UserContext("alice", SimpleNamespace())
+        )
+    ):
+        try:
+            asyncio.run(user_page(request))
+        except HTTPException as error:
+            assert error.status_code == 503
+        else:
+            raise AssertionError("Missing Nextcloud origin should not redirect")

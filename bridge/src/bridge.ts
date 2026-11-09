@@ -318,7 +318,11 @@ function installTalkAction() {
 
 /** Ambient, owner-scoped progress: no Core tokens and no navigation away from Nextcloud. */
 function headerProgress(ownerId: string) {
-  const header = document.querySelector('#header-right');
+  // Nextcloud 35 uses .header-end. Keep the legacy selector as a fallback.
+  const header = document.querySelector('#header .header-end')
+    ?? document.querySelector('header .header-end')
+    ?? document.querySelector('.header-end')
+    ?? document.querySelector('#header-right');
   if (!header || document.getElementById('downloader-topbar-progress')) return;
   const container = node('div', '', 'dl-header');
   container.id = 'downloader-topbar-progress';

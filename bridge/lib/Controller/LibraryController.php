@@ -7,6 +7,7 @@ use OCA\DownloaderBridge\AppInfo\Application;
 use OCA\DownloaderBridge\EntitlementPolicy;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IAppConfig;
 use OCP\IGroupManager;
@@ -29,6 +30,7 @@ final class LibraryController extends Controller {
     }
 
     #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function index(): TemplateResponse {
         $uid = $this->userSession->getUser()?->getUID() ?? '';
         $entitled = EntitlementPolicy::allows(

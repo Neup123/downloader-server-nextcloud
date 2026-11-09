@@ -11,6 +11,7 @@ import re
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -223,8 +224,21 @@ async def user_page(request: Request):
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
+    # AppAPI supplies NEXTCLOUD_URL for this installation. An absolute
+    # Location is essential: relative redirects get rewritten into the ExApp
+    # proxy prefix and never reach Nextcloud's native PHP Library route.
+    base_url = os.environ.get("NEXTCLOUD_URL", "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(base_url)
+        valid = (parsed.scheme in ("https", "http") and bool(parsed.hostname)
+                 and not parsed.username and not parsed.password
+                 and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=503, detail="Nextcloud base URL unavailable")
     return RedirectResponse(
-        url="/apps/downloader_bridge/library", status_code=303,
+        url=base_url + "/apps/downloader_bridge/library", status_code=303,
         headers={"Cache-Control": "no-store"},
     )
 

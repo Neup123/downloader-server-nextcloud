@@ -26,7 +26,8 @@ def test_built_admin_entrypoint_is_separate_and_token_free():
     assert 'RedirectResponse(' in backend
     assert 'url="/settings/admin/declarative_settings"' in backend
     assert 'DIST / "admin.html"' not in backend
-    assert 'url="/apps/downloader_bridge/library"' in backend
+    assert 'NEXTCLOUD_URL' in backend
+    assert '"/apps/downloader_bridge/library"' in backend
     assert "/admin/api/entitlements" in backend
     assert "Check connection" in ui
     assert "Who can download" in ui
