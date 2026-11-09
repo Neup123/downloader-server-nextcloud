@@ -59,6 +59,12 @@ test('verified Nextcloud thumbnails use numeric file IDs and retain icon fallbac
 test('Nextcloud dashboard panel bounds the job scroller and clips overflow', () => {
   assert.match(dashboard, /element\.style\.overflow = 'hidden'/);
   assert.match(dashboard, /element\.style\.display = 'flex'/);
-  assert.match(dashboard, /\.downloader-dashboard-content\{display:flex;flex-direction:column;flex:1 1 auto;min-height:0/);
-  assert.match(dashboard, /\.job-list\{display:grid;gap:0;flex:1 1 auto;min-height:0;max-height:380px;overflow-y:auto/);
+  assert.match(dashboard, /element\.closest<HTMLElement>\('\.panel'\)/);
+  assert.match(dashboard, /panel\.style\.overflow = 'hidden'/);
+  assert.match(dashboard, /panel\.style\.flexDirection = 'column'/);
+  assert.match(dashboard, /element\.style\.flex = '1 1 0'/);
+  assert.match(dashboard, /element\.style\.minHeight = '0'/);
+  assert.match(dashboard, /element\.style\.boxSizing = 'border-box'/);
+  assert.match(dashboard, /\.downloader-dashboard-content\{display:flex;flex-direction:column;flex:1 1 0;min-height:0/);
+  assert.match(dashboard, /\.job-list\{display:grid;gap:0;flex:1 1 0;min-height:0;max-height:380px;overflow-y:auto/);
 });
