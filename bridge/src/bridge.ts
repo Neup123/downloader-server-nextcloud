@@ -3,8 +3,11 @@
  * remain in the standalone core and authenticated ExApp. No server API token.
  */
 import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@nextcloud/files';
+import { getClient, getDefaultPropfind, getRootPath, resultToNode } from '@nextcloud/files/dav';
+import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { filesJobRequest } from './files-dialog-payload.mjs';
+import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadStatus, deliveredFilesQuery } from './download-labels.mjs';
 
 type Job = {
@@ -157,6 +160,7 @@ async function openDialog(folder: string | null, suggested = '') {
     try {
       await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value));
       notify('Download added to your Nextcloud Files.');
+      window.dispatchEvent(new Event('downloader:job-queued'));
       close();
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Download submission failed');
@@ -312,39 +316,107 @@ function installTalkAction() {
   }, 1000);
 }
 
-function headerProgress() {
-  const header = document.querySelector('#header-right');
+/** Ambient, owner-scoped progress: no Core tokens and no navigation away from Nextcloud. */
+function headerProgress(ownerId: string) {
+  // Nextcloud 35 uses .header-end. Keep the legacy selector as a fallback.
+  const header = document.querySelector('#header .header-end')
+    ?? document.querySelector('header .header-end')
+    ?? document.querySelector('.header-end')
+    ?? document.querySelector('#header-right');
   if (!header || document.getElementById('downloader-topbar-progress')) return;
   const container = node('div', '', 'dl-header');
   container.id = 'downloader-topbar-progress';
   const button = node('button', 'Downloads', 'dl-trigger');
-  button.type = 'button'; button.setAttribute('aria-expanded', 'false');
+  button.type = 'button';
+  button.setAttribute('aria-label', 'Show download progress');
+  button.setAttribute('aria-expanded', 'false');
+  const bubble = node('progress', '', 'dl-header-meter');
+  bubble.max = 100;
+  bubble.hidden = true;
+  bubble.setAttribute('aria-label', 'Current download progress');
   const panel = node('div', '', 'dl-popover');
   panel.hidden = true;
   button.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
     button.setAttribute('aria-expanded', String(!panel.hidden));
   });
-  container.append(button, panel); header.append(container);
+  container.append(button, bubble, panel);
+  header.append(container);
+
   let active = true;
+  let refreshing = false;
+  let initialized = false;
+  const lastStatuses = new Map<string, string>();
+  const publishedFiles = new Set<string>();
+  const publishingFiles = new Set<string>();
+
+  // Nextcloud Files 35 consumes files:node:created with a real Node, not a
+  // fake reload event. STAT using the viewer's signed-in WebDAV session and
+  // emit only paths confirmed to belong to this same signed-in owner.
+  async function publishDeliveredFiles(job: Job) {
+    if (publishedFiles.has(job.id) || publishingFiles.has(job.id)) return;
+    const paths = ownDeliveredFilePaths(job, ownerId);
+    if (!paths.length) return;
+    publishingFiles.add(job.id);
+    try {
+      const client = getClient();
+      let allReadable = true;
+      for (const path of paths) {
+        try {
+          const result = await client.stat(getRootPath() + path, {
+            details: true, data: getDefaultPropfind(),
+          });
+          emit('files:node:created', resultToNode(result.data));
+        } catch {
+          // DAV metadata may lag core completion. Retry on the next refresh.
+          allReadable = false;
+        }
+      }
+      if (allReadable) publishedFiles.add(job.id);
+    } finally {
+      publishingFiles.delete(job.id);
+    }
+  }
+
   async function refresh() {
-    if (!active || !container.isConnected) return;
+    if (!active || !container.isConnected || refreshing) return;
+    refreshing = true;
     try {
       const jobs = await api<Job[]>('/jobs?limit=15');
-      const count = jobs.filter(job => !TERMINAL.has(job.status)).length;
-      button.textContent = 'Downloads (' + count + ')';
+      const running = jobs.filter(job => !TERMINAL.has(job.status));
+      const current = running[0];
+      const percent = Math.min(100, Math.max(0, Number(current?.progress?.percent ?? 0)));
+      const safePercent = Number.isFinite(percent) ? Math.round(percent) : 0;
+      button.textContent = running.length
+        ? 'Downloads (' + running.length + ') · ' + safePercent + '%'
+        : 'Downloads';
+      bubble.hidden = !running.length;
+      bubble.value = safePercent;
+      button.title = running.length ? 'Download progress: ' + safePercent + '%' : 'My downloads';
+
       panel.replaceChildren(node('h3', 'My downloads'));
       const fullLink = node('a', 'Open history', 'dl-link');
       fullLink.href = oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/');
       panel.append(fullLink);
       if (!jobs.length) panel.append(node('p', 'No downloads yet.', 'dl-muted'));
+
       for (const job of jobs.slice(0, 10)) {
+        const old = lastStatuses.get(job.id);
+        if (initialized && old && old !== job.status && TERMINAL.has(job.status)) {
+          notify(job.status === 'completed'
+            ? 'Download complete. Open it in Nextcloud Files.'
+            : job.status === 'failed' ? 'Download failed. Open Downloads for details.'
+              : 'Download cancelled.');
+          window.dispatchEvent(new Event('downloader:jobs-updated'));
+        }
+        lastStatuses.set(job.id, job.status);
+        if (job.status === 'completed') void publishDeliveredFiles(job);
+
         const row = node('div', '', 'dl-job');
         const title = node('a', downloadTitle(job), 'dl-job-title');
         title.href = oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/') +
           '?job=' + encodeURIComponent(job.id);
-        row.append(title);
-        row.append(node('div', downloadStatus(job), 'dl-job-state'));
+        row.append(title, node('div', downloadStatus(job), 'dl-job-state'));
         if (job.engine) row.append(node('small', job.engine, 'dl-muted'));
         if (!TERMINAL.has(job.status)) {
           const p = node('progress');
@@ -358,7 +430,6 @@ function headerProgress() {
         if (query) {
           const fileLink = node('a', 'Open in Files', 'dl-small dl-link');
           fileLink.href = oc()!.generateUrl('/apps/files/files') + query;
-          fileLink.target = '_blank'; fileLink.rel = 'noopener noreferrer';
           actions.append(fileLink);
         }
         const operation = job.status === 'completed' ? 'redeliver'
@@ -371,21 +442,26 @@ function headerProgress() {
           try { await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST'); await refresh(); }
           catch (error) { notify(error instanceof Error ? error.message : 'Action failed'); action.disabled = false; }
         });
-        actions.append(action); row.append(actions);
+        actions.append(action);
+        row.append(actions);
         panel.append(row);
       }
+      initialized = true;
     } catch {
-      // Revoked entitlement removes ambient controls rather than leaving stale UI.
-      active = false; container.remove();
+      // Keep the bubble and retry transient connectivity errors; the ExApp
+      // independently checks entitlement before returning any user job data.
+      button.title = 'Unable to refresh downloads. Retrying automatically.';
+    } finally {
+      refreshing = false;
     }
   }
+  window.addEventListener('downloader:job-queued', () => { void refresh(); });
   void refresh();
   const timer = window.setInterval(() => {
-    if (!active || !container.isConnected) {window.clearInterval(timer);return;}
+    if (!active || !container.isConnected) {active = false; window.clearInterval(timer); return;}
     void refresh();
-  }, 4000);
+  }, 2500);
 }
-
 
 type Provenance = {
   file_id: string; owner_id: string; job_id: string; source_url: string;
@@ -493,7 +569,8 @@ function styles() {
     'border:1px solid var(--color-border,#ddd);border-radius:6px}',
     '.dl-primary{background:var(--color-primary,#3a7dde)!important;color:#fff!important}',
     '.dl-muted{font-size:12px;color:var(--color-text-maxcontrast,#777)}',
-    '.dl-header{position:relative}.dl-popover{position:absolute;top:100%;right:0;',
+    '.dl-header{position:relative;display:grid;align-items:center}.dl-header-meter{width:100%;height:4px}',
+    '.dl-header-meter[hidden]{display:none}.dl-popover{position:absolute;top:100%;right:0;',
     'z-index:10000;width:min(350px,92vw);max-height:65vh;overflow-y:auto;padding:12px;',
     'border:1px solid var(--color-border,#ddd);border-radius:8px;',
     'background:var(--color-main-background,#fff);box-shadow:0 5px 24px #0003}',
@@ -518,8 +595,9 @@ function styles() {
 async function start() {
   // No UI for users without server-side entitlement. The ExApp enforces
   // this independently for every authenticated call.
-  try { await api<{user_id: string; entitled: boolean}>('/me'); }
+  let identity: {user_id: string; entitled: boolean};
+  try { identity = await api<{user_id: string; entitled: boolean}>('/me'); }
   catch { return; }
-  styles(); registerActions(); registerProvenanceSidebar(); headerProgress(); installLegacyViewerHook(); installTalkAction();
+  styles(); registerActions(); registerProvenanceSidebar(); headerProgress(identity.user_id); installLegacyViewerHook(); installTalkAction();
 }
 void start();
