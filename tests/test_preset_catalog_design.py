@@ -39,3 +39,18 @@ def test_admin_preset_form_restricts_untrusted_core_options():
         with pytest.raises(HTTPException) as exc:
             validate_admin_preset(bad)
         assert exc.value.status_code == 422
+
+
+def test_identity_response_remains_backward_compatible_with_disposable_nextcloud():
+    import asyncio
+    from types import SimpleNamespace
+    from nextcloud_exapp.main import APP, user_me
+    from nextcloud_exapp.user import UserContext
+
+    assert asyncio.run(user_me(UserContext("alice", SimpleNamespace()))) == {
+        "user_id": "alice", "entitled": True,
+    }
+    routes = {route.path: route for route in APP.routes if hasattr(route, "dependant")}
+    preset_permission = routes["/user/api/preset-permissions"]
+    dependencies = {dep.call.__name__ for dep in preset_permission.dependant.dependencies}
+    assert "require_user" in dependencies
