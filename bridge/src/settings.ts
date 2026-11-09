@@ -341,6 +341,29 @@ function start() {
           if(item.is_admin_managed){
             const edit=element('button','Edit');edit.type='button';
             edit.addEventListener('click',()=>editModal(item));row.append(edit);
+            const remove=element('button','Delete');remove.type='button';
+            remove.setAttribute('aria-label','Delete shared preset '+item.name);
+            remove.addEventListener('click',()=>{
+              const dlg=element('dialog');dlg.className='downloader-preset-dialog';
+              const message=element('p','Delete "'+item.name+'" from the shared catalogue? This does not delete downloaded Files.');
+              const actions=element('div');actions.className='preset-dialog-actions';
+              const cancel=element('button','Keep preset'),confirm=element('button','Delete preset');
+              cancel.type='button';confirm.type='button';
+              cancel.addEventListener('click',()=>dlg.close());
+              confirm.addEventListener('click',()=>{
+                confirm.disabled=true;
+                void adminApi('/presets/'+encodeURIComponent(item.id),'DELETE').then(()=>{
+                  dlg.close();void reload();
+                }).catch(error=>{
+                  status.firstChild!.textContent=error instanceof Error?error.message:'Could not delete preset.';
+                }).finally(()=>{confirm.disabled=false;});
+              });
+              actions.append(cancel,confirm);dlg.append(element('h2','Delete shared preset'),message,actions);
+              document.body.append(dlg);
+              dlg.addEventListener('close',()=>dlg.remove(),{once:true});
+              dlg.showModal();
+            });
+            row.append(remove);
           }
           globalList.append(row);
         });
