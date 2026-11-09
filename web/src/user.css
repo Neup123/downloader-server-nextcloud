@@ -25,3 +25,18 @@
   .user-downloader .tabs button,.user-downloader .job-actions button { min-height:44px; }
   .user-downloader .layout,.user-downloader .settings-layout { display:grid; grid-template-columns:1fr; }
 }
+
+.user-downloader .download-options,
+.user-downloader .advanced-options {
+  margin: 12px 0; padding: 12px; border: 1px solid var(--color-border,#4b617e);
+  border-radius: var(--border-radius-large,12px);
+}
+.user-downloader .download-options summary,
+.user-downloader .advanced-options summary {
+  cursor: pointer; font-weight: 600; padding: 3px;
+}
+.user-downloader .download-options[open],
+.user-downloader .advanced-options[open] { display: grid; gap: 10px; }
+.user-downloader .download-options label,
+.user-downloader .advanced-options label { display: grid; gap: 6px; }
+.user-downloader .preset-visual { display: grid; gap: 10px; }

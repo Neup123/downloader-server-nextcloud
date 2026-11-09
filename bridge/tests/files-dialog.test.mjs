@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {filesJobRequest} from '../src/files-dialog-payload.mjs';
+import {filesJobRequest, selectedMediaFormat} from '../src/files-dialog-payload.mjs';
 
 const source = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
 const section = source.slice(source.indexOf('async function openDialog('), source.indexOf('\nfunction registerActions()'));
@@ -35,7 +35,17 @@ test('dialog is modal, themed and accessible, with optional controls collapsed',
 test('no download UI uses blocking browser alert, and submits via signed ExApp', () => {
   assert.doesNotMatch(source, /window\.alert\(/);
   assert.match(source, /Notification\?\.showTemporary/);
-  assert.match(section, /filesJobRequest\(url\.value\.trim\(\), folder, engines\.value, preset\.value\)/);
+  assert.match(section, /filesJobRequest\(url\.value\.trim\(\), folder, engines\.value, preset\.value, quality\.value, format\.value\)/);
   assert.match(source, /registerFileAction/);
   assert.match(source, /addNewFileMenuEntry/);
+});
+
+test('human quality choices produce constrained format overrides', () => {
+  assert.equal(selectedMediaFormat(), null);
+  assert.equal(selectedMediaFormat('audio', 'auto'), 'bestaudio/best');
+  assert.match(selectedMediaFormat('720','mp4'), /height<=720/);
+  assert.deepEqual(filesJobRequest('https://example.com/movie', 'Films', 'auto', '', '720'), {
+    url: 'https://example.com/movie', engine: 'auto', folder: 'Films',
+    overrides: {format: 'bestvideo[height<=720]+bestaudio/best[height<=720]'},
+  });
 });
