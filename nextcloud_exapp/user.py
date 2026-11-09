@@ -584,6 +584,11 @@ async def job_submission(
                 (preset for preset in (shared_presets or []) if preset["id"] == preset_id),
                 None,
             )
+        elif isinstance(preset_id, str) and preset_id.startswith("admin:"):
+            selected = next(
+                (preset for preset in await read_admin_presets(context.nc)
+                 if preset["id"] == preset_id), None,
+            )
         elif isinstance(preset_id, str) and preset_id.startswith("builtin:"):
             selected = next(
                 (preset for preset in built_in_presets() if preset["id"] == preset_id), None,
