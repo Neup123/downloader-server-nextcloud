@@ -11,10 +11,11 @@ import re
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from nc_py_api.ex_app import AppAPIAuthMiddleware, run_app, set_handlers
 from nc_py_api.nextcloud import AsyncNextcloudApp
@@ -104,12 +105,21 @@ if DIST.is_dir():
 
 @APP.get("/")
 async def dashboard(_admin: UserContext = Depends(require_admin)):
-    return FileResponse(DIST / "admin.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # Administer service access in Nextcloud, never a standalone Core UI.
+    # Core URL and token are installed in AppAPI configuration server-side.
+    return RedirectResponse(
+        url="/settings/admin/declarative_settings", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.get("/api-reference")
 async def reference(_admin: UserContext = Depends(require_admin)):
-    return FileResponse(DIST / "api-reference.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # Legacy HTML API-reference entry must not open a separate raw UI.
+    return RedirectResponse(
+        url="/settings/admin/declarative_settings", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.api_route(
@@ -205,23 +215,32 @@ async def core_json(method: str, path: str, *, payload: dict | None = None,
 
 @APP.get("/user/")
 async def user_page(request: Request):
-    # The signed identity remains mandatory; only the lack of a Downloader
-    # entitlement turns into friendly navigation rather than a raw 403 page.
+    # Preserve the AppAPI signed-identity check, while sending permitted and
+    # not-entitled users into Nextcloud's own chrome for the correct access UI.
+    # An unsigned request still fails authentication (never a public redirect
+    # bypass to user API data).
     try:
         await require_user(request)
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
-        return HTMLResponse(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
-            "<title>Downloader access</title>"
-            "<main style=\"max-width:36rem;margin:4rem auto;font:1rem system-ui;padding:1rem\">"
-            "<h1>Downloader is not enabled for your account</h1>"
-            "<p>Ask your Nextcloud administrator to give you access to Downloader.</p>"
-            "<a href=\"/\">Back to Nextcloud</a></main></html>",
-            headers={"Cache-Control": "no-store"},
-        )
-    return FileResponse(DIST / "user.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+    # AppAPI supplies NEXTCLOUD_URL for this installation. An absolute
+    # Location is essential: relative redirects get rewritten into the ExApp
+    # proxy prefix and never reach Nextcloud's native PHP Library route.
+    base_url = os.environ.get("NEXTCLOUD_URL", "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(base_url)
+        valid = (parsed.scheme in ("https", "http") and bool(parsed.hostname)
+                 and not parsed.username and not parsed.password
+                 and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=503, detail="Nextcloud base URL unavailable")
+    return RedirectResponse(
+        url=base_url + "/apps/downloader_bridge/library", status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @APP.get("/user/api/me")

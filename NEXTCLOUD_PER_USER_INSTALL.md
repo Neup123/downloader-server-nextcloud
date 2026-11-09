@@ -1,6 +1,6 @@
 # Install the per-user Downloader integration (Nextcloud 35)
 
-If the target cannot deploy AppAPI ExApps, use the separately tested [official External Sites fallback](NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md); it is a standalone, administrator-scoped UI, **not** per-user SSO.
+The product requires AppAPI and the native PHP bridge. If the target cannot deploy AppAPI ExApps, **do not use External Sites or link to the standalone Core UI**. Mark deployment blocked until a supported Nextcloud-native integration is available.
 
 
 ## Release images
