@@ -168,7 +168,7 @@ no UI actions in the native bridge. The ExApp also authorizes every user API
 request separately using the signed AppAPI identity.
 
 Nextcloud Personal settings > Downloader: each entitled user chooses a
-destination folder and default preset, enters their own dedicated Nextcloud
+destination folder and default video/audio quality, enters their dedicated Nextcloud
 WebDAV app password, and configures per-engine options and cookies.
 This password is stored as a sensitive Nextcloud preference; it is not the
 core APP_API_TOKEN. The defaults are private and user-scoped.
@@ -183,7 +183,7 @@ custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
 The PHP bridge does not execute jobs. It loads Nextcloud's supported Files
 actions script; the script checks entitlement before showing any action.
-Expect folder context-menu and + New actions, a small URL+engine+preset
+Expect folder context-menu and + New actions, a small URL+quality/Audio only
 dialog, and an ambient topbar progress/cancel/retry popover. The Viewer
 media action submits immediately only when a source URL is available in
 metadata, otherwise it opens the URL dialog.
@@ -194,7 +194,7 @@ metadata, otherwise it opens the URL dialog.
    folder. Confirm it completes and the result appears in A's Files.
 2. Log in as a distinct entitled user B. Confirm B cannot view/cancel/retry
    A's job, and submit a job into B's own Files.
-3. Confirm neither user can access the other's cookie files or presets.
+3. Confirm neither user can access the other's cookie files or job history.
 4. Log in as a non-entitled user C. Confirm no bridge actions/topbar appear
    and a direct request to the ExApp user API returns 403.
 5. Force quota exceeded, missing destination, and unwritable destination
@@ -221,29 +221,15 @@ Files without stored provenance cannot be re-downloaded without supplying
 their source URL.
 
 
-### Shared administrator presets and private personal presets
+### Preset-free download choices
 
-Core's administrator may mark a validated preset **Available to everyone**.
-Only explicitly marked, non-sensitive presets appear for signed-in,
-Downloader-entitled Nextcloud users. Existing Core presets remain private
-by default, including after database migration. The user's preset list
-combines those read-only shared choices with personal presets saved in that
-user's Nextcloud preferences; personal presets never leave their owner scope.
-
-Shared choices are labeled **Shared by administrator** and cannot be edited
-or deleted by ordinary Nextcloud users. Selection may be saved as the user's
-default or chosen for an individual download. The ExApp resolves the approval
-against the current Core `GET /presets/shared` collection on each submission,
-merges the approved options into that user's signed per-job settings and
-**never forwards the global Core preset ID** as a Core `preset_id`.
-Unshared, revoked, guessed or cross-user personal IDs fail closed.
-When Core is older and does not support the shared endpoint, personal presets
-still work and the shared list stays empty.
-
-The shared feature requires a Core deployment containing the new opt-in
-endpoint; it is **not** included in older tagged Core v0.3.1. It does not
-remove the need to verify a real Nextcloud target, AppAPI/HaRP routing,
-TLS/WebDAV delivery and entitlement behavior under #19.
+The Nextcloud ExApp no longer exposes a preset catalog or preset CRUD routes.
+The download dialog chooses the engine and media format from its Quality and
+Audio only controls, not a preset ID. Legacy personal preset records remain
+stored and can be parsed read-only for migration; an old default preset
+cannot change a new download. Existing history with an old preset ID remains
+readable. The standalone Core API and its separate historical preset model
+are not altered by this Nextcloud-specific change.
 
 
 ### Visual personal settings and safe automatic saving
@@ -255,7 +241,7 @@ The picker reads only existing directories from the signed-in, entitled
 Nextcloud user's own Files through a read-only, paginated endpoint.
 It does not create folders and never accepts another user's ID or file path.
 
-Changing a destination, default preset or notification toggle saves
+Changing a destination, quality default or notification toggle saves
 automatically and shows **Saving… / Saved ✓ / Changes not saved** with retry.
 Changes affect new downloads, not already-running transfers. Invalid
 destination paths never enter the autosave queue. An initial preferences
@@ -264,7 +250,7 @@ read does **not** write them back to Nextcloud.
 **Passwords are not autosaved.** Creating or replacing the dedicated
 WebDAV app password requires an explicit **Connect my Files** action.
 This patch changes only the sensitive credential field; ordinary autosave
-patches contain only destination, default preset and notification booleans,
+patches contain only destination, quality defaults and notification booleans,
 so they cannot silently clear or expose the password. The Core API token
 is never sent to the user's browser.
 

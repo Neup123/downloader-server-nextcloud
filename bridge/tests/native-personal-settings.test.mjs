@@ -15,13 +15,14 @@ test('personal forms render within Nextcloud profile settings and enforce entitl
   assert.match(section,/implements IIconSection/);
   assert.match(form,/Util::addScript\(Application::APP_ID, 'settings'\)/);
 });
-test('three explained settings cards avoid exposing service API keys or raw preset IDs',()=>{
+test('personal settings cards avoid exposing service API keys or preset controls',()=>{
   for(const part of ['Where your downloads go','Files connection','Notifications',
-    'Browse my Files folders','Default preset','Notify me when a download finishes',
+    'Browse my Files folders','Default download quality','Notify me when a download finishes',
     'Notify me if a download fails','Saved ✓ Changes apply to new downloads.',
     'Advanced — technical engine settings','Connect my Files']){
     assert.ok(js.includes(part),part);
   }
+  assert.doesNotMatch(js,/preset/i);
   assert.match(js,/queue|changed\(/);
   assert.match(js,/\/folders\?/);
   assert.doesNotMatch(js,/X-API-Key|DOWNLOADER_API_TOKEN|\bapi_key\b/);

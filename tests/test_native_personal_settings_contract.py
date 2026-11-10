@@ -13,7 +13,8 @@ def test_nextcloud_profile_section_is_registered_and_entitled():
     assert "new TemplateResponse(Application::APP_ID, 'personal'" in PHP
 
 def test_standard_form_never_requires_core_key_or_raw_json():
-    assert "Default preset" in JS
+    assert "Default download quality" in JS
+    assert "preset" not in JS.lower()
     assert "Advanced — technical engine settings" in JS
     assert "Browse my Files folders" in JS
     assert "DOWNLOADER_API_TOKEN" not in JS
