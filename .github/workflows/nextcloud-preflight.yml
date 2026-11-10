@@ -36,7 +36,21 @@ jobs:
           python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
           python -m unittest discover -s tests -p 'test_target_*.py' -v
 
-      - name: Run full Python contract test suite
+      - name: Run complete reviewed downstream and design-round Python contracts
         env:
           DATA_DIR: /tmp/downloader-nextcloud-merge-contracts
-        run: python -m pytest -q tests/
+        run: |
+          # Imported Core tests are validated in the upstream Core worktree,
+          # not against downstream-only maintenance scripts.
+          python scripts/run_downstream_acceptance.py
+          python -m pytest -q \
+            tests/test_delivery_paths.py \
+            tests/test_builtin_nextcloud_presets.py \
+            tests/test_nextcloud_user.py \
+            tests/test_nextcloud_delivery_flat.py \
+            tests/test_nextcloud_history_hide.py \
+            tests/test_nextcloud_library_gateway.py \
+            tests/test_native_only_user_surface.py \
+            tests/test_native_personal_settings_contract.py \
+            tests/test_dialog_quality_contract.py \
+            tests/test_preset_catalog_design.py
