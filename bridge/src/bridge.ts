@@ -39,6 +39,13 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
+    if (path === '/media-preview') {
+      // The Core detail may be a raw extractor error. Keep only the structured
+      // gateway HTTP status; the dialog must never show that detail to users.
+      const failure = new Error('Media preview check failed') as Error & {httpStatus: number};
+      failure.httpStatus = res.status;
+      throw failure;
+    }
     const detail = (body as {detail?: string} | null)?.detail;
     throw new Error(detail || 'Downloader request failed (' + res.status + ')');
   }
