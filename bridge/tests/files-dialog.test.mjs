@@ -187,7 +187,7 @@ test('Core thumbnail, duration, dates and Live metadata survive without invented
   assert.deepEqual(rows.map(r=>r.index),[1,2,3,4]);
   assert.match(dialog,/row.is_live/);
   assert.match(dialog,/dl-entry-live-badge/);
-  assert.match(dialog,/preview?.is_live===true/);
+  assert.match(dialog,/preview\?\.is_live===true/);
   assert.match(dialog,/Thumbnail unavailable/);
   assert.match(dialog,/previewMeta\(row\)/);
 });

@@ -157,6 +157,7 @@ function pick(choices, value) {
 function sizeLabel(value) {
   if (!Number.isSafeInteger(value) || value < 0) return 'Size not available';
   if (value < 1024) return value + ' B';
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB';
   return (value / (1024 * 1024)).toFixed(1) + ' MiB';
 }
 
@@ -203,7 +204,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const available=()=>!busy && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
-    if(count)count.textContent=selected.size+' selected';
+    if(count && kind!=='torrent')count.textContent=selected.size+' selected';
     download.disabled=!available() || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
     buttons.hidden=kind==='unsupported' || (kind==='torrent' && torrentSource!=='magnet');
   }
