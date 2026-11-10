@@ -139,3 +139,36 @@ routes are denied to regular users, including direct HTTP callers.
 Older personal presets are retained as read-only entries for migration safety.
 Global settings are stored in Nextcloud application configuration; each user's
 order/hide list remains in their own Nextcloud preferences.
+
+
+## Downloads header and compact layouts
+
+The header uses a fixed-width, transparent **down-arrow icon** matching the
+neighbouring Nextcloud actions, with a numbered unfinished-download badge.
+When there are active jobs, a thin rounded-square border sweeps from
+bottom-centre in the header's foreground colour. The border aggregates
+progress across all unfinished jobs by the download/extraction/delivery
+stages; progress is not written as text in the header. With no active jobs,
+the default personal setting hides the button while keeping the header slot
+stable, so neighbouring icons do not jump. The optional always-show setting
+leaves the arrow visible without the border when idle.
+
+Clicking the arrow opens a compact square-edged popover. Its small **+**
+opens the same download confirmation dialog as the Files action. Each row
+uses a small verified-file thumbnail (or type icon), title/subtitle, a
+percentage, and a subtle progress fill. The Personal settings **Dropdown
+content** choice controls active-only vs active-first with finished history
+ordered by finish timestamp. A separate native Library page retains the
+full download history, regardless of this choice.
+
+Dashboard and Library rows are compact by default. Their bold vertical
+**⋮** overflow control sits at the row edge without a surrounding box;
+actions remain in an accessible menu rather than occupying separate
+full-size buttons.
+
+**Pause limitation:** the currently deployed Core/ExApp action contract
+exposes cancel, retry and redeliver, but no pause/resume operation. The row
+retains the requested **Ⅱ** icon, disabled with an explicit explanation for
+active jobs, rather than making cancellation look like a reversible pause.
+The API must gain true suspend/resume before this action can be enabled.
+No production Nextcloud instance was used for these changes.

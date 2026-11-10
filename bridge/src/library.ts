@@ -43,14 +43,21 @@ const STYLES = `
 #downloader-library-app .library-primary{background:var(--color-primary,#377bd1);color:var(--color-primary-text,#fff)}
 #downloader-library-app .library-message{min-height:20px;font-size:13px;color:var(--color-text-maxcontrast,#666)}
 #downloader-library-app .library-list{display:grid;border-top:1px solid var(--color-border,#ddd);max-width:100%;min-width:0}
-#downloader-library-app .library-row{display:flex;gap:12px;align-items:center;min-width:0;border-bottom:1px solid var(--color-border,#ddd);padding:10px 4px}
-#downloader-library-app .library-icon{width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;background:var(--color-background-dark,#eee);border-radius:8px}
-#downloader-library-app .library-row-main{min-width:0;flex:1;display:grid;gap:4px}
-#downloader-library-app .library-title{width:100%;min-width:0;text-align:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:0;background:transparent;padding:0;font-weight:600}
-#downloader-library-app .library-status{font-size:12px;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#downloader-library-app .library-progress{width:100%;height:4px}
-#downloader-library-app .library-row-actions{display:flex;gap:5px;flex-shrink:0}
-#downloader-library-app .library-row-actions button{min-width:36px;min-height:36px;padding:5px}
+#downloader-library-app .library-row{display:flex;gap:6px;align-items:center;min-width:0;border-bottom:1px solid var(--color-border,#ddd);padding:2px 0}
+#downloader-library-app .library-icon{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;background:var(--color-background-dark,#eee);border-radius:5px}
+#downloader-library-app .library-row-main{min-width:0;flex:1;display:grid;gap:1px}
+#downloader-library-app .library-title{width:100%;min-width:0;min-height:0;height:auto;line-height:1.1;font-size:12px;text-align:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:0;background:transparent;padding:0;font-weight:600}
+#downloader-library-app .library-status{font-size:11px;line-height:1.1;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#downloader-library-app .library-progress{width:100%;height:2px}
+#downloader-library-app .library-row-actions{display:flex;align-items:center;gap:0;flex-shrink:0;margin-inline-end:0}
+#downloader-library-app .library-overflow{position:relative;flex:0 0 20px}
+#downloader-library-app .library-overflow summary{list-style:none;width:20px;height:24px;display:grid;place-items:center;font-size:21px;font-weight:800;line-height:1;border:0;border-radius:0;background:transparent;cursor:pointer}
+#downloader-library-app .library-overflow summary::-webkit-details-marker{display:none}
+#downloader-library-app .library-overflow summary:hover{color:var(--color-primary,#377bd1)}
+#downloader-library-app .library-overflow-list{position:absolute;inset-inline-end:0;top:100%;z-index:30;width:max-content;min-width:160px;padding:4px;display:grid;gap:2px;background:var(--color-main-background,#fff);border:1px solid var(--color-border,#ddd);border-radius:8px;box-shadow:0 6px 18px #0003}
+#downloader-library-app .library-overflow-list button{width:100%;min-height:30px;padding:5px 9px;border:0;background:transparent;text-align:start;font-size:12px}
+#downloader-library-app .library-overflow-list button:hover{background:var(--color-background-hover,#eee)}
+#downloader-library-app .library-row-actions .library-overflow-list button{min-width:0}
 #downloader-library-app .library-empty{padding:32px 12px;color:var(--color-text-maxcontrast,#666)}
 #downloader-library-app .library-more{margin-top:18px}
 .downloader-library-modal[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(560px,calc(100vw - 30px));max-width:calc(100vw - 30px);max-height:calc(100dvh - 30px);padding:22px;overflow:auto;border:1px solid var(--color-border,#bbb);border-radius:14px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
@@ -58,7 +65,7 @@ const STYLES = `
 .downloader-library-modal pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}
 .downloader-library-modal .modal-actions{display:flex;justify-content:flex-end;gap:8px}
 #downloader-library-app :is(button,a,summary):focus-visible,.downloader-library-modal :is(button,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:3px}
-@media(max-width:520px){#downloader-library-app{padding:15px}#downloader-library-app .library-row{gap:8px}#downloader-library-app .library-row-actions button{min-width:36px}}
+@media(max-width:520px){#downloader-library-app{padding:15px}#downloader-library-app .library-row{gap:6px}}
 `;
 
 function main() {
@@ -168,20 +175,27 @@ function main() {
       bar.setAttribute('aria-label','Download progress');
       info.append(bar);
     }
+
     const controls=el('div');controls.className='library-row-actions';
-    function control(symbol:string, label:string,fn:()=>void){
-      const b=el('button',symbol);b.type='button';b.title=label;b.setAttribute('aria-label',label);
-      b.addEventListener('click',fn);controls.append(b);
+    const overflow=el('details');overflow.className='library-overflow';
+    const trigger=el('summary','⋮');
+    trigger.title='More actions';trigger.setAttribute('aria-label','More actions for '+downloadTitle(job));
+    const menu=el('div');menu.className='library-overflow-list';
+    function control(label:string,fn:()=>void){
+      const button=el('button',label);button.type='button';
+      button.addEventListener('click',()=>{overflow.open=false;fn();});
+      menu.append(button);
     }
     const query=deliveredFilesQuery(job);
-    if (query) control('▣','Open in Files',()=>{
+    if(query)control('Open in Files',()=>{
       window.location.href=oc()!.generateUrl('/apps/files/files')+query;
     });
     const op=job.status==='completed'?'redeliver':(['failed','cancelled'].includes(job.status)?'retry':'cancel');
-    control(op==='cancel'?'×':'↻',op==='redeliver'?'Deliver again':op==='retry'?'Try again':'Cancel download',
+    control(op==='redeliver'?'Deliver again':op==='retry'?'Try again':'Cancel download',
       ()=>{void runAction(job,op);});
-    control('⋯','View details',()=>showModal(job));
-    control('×','Remove from history',()=>{void hide(job);});
+    control('View details',()=>showModal(job));
+    control('Remove from history',()=>{void hide(job);});
+    overflow.append(trigger,menu);controls.append(overflow);
     row.append(icon,info,controls);
     return row;
   }
