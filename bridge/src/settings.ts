@@ -48,6 +48,7 @@ const CSS=`
 #downloader-settings-app button{cursor:pointer;border:1px solid var(--color-border,#aaa);border-radius:8px;background:var(--color-main-background,#fff);color:inherit;padding:8px 12px;min-height:38px}
 #downloader-settings-app button.primary{background:var(--color-primary,#377bd1);color:var(--color-primary-text,#fff)}
 #downloader-settings-app button:disabled{opacity:.6;cursor:default}
+#downloader-settings-app .downloader-route-error{color:var(--color-error,#c0392b);font-size:12px;margin:4px 0}
 #downloader-settings-app .downloader-picker{padding:10px;border:1px solid var(--color-border,#bbb);border-radius:9px;margin:12px 0;max-height:320px;overflow-y:auto}
 #downloader-settings-app .downloader-picker li{list-style:none;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--color-border,#ccc)}
 #downloader-settings-app .downloader-picker li button{height:26px;min-height:26px;padding:2px 7px;line-height:1.2}
@@ -198,17 +199,57 @@ function start() {
     const routeFields:Record<string,HTMLInputElement>={};
     for(const [kind,subfolder] of Object.entries(routeSubfolders)){
       const group=element('div');group.className='downloader-route-item';
-      const field=element('input');field.readOnly=true;
+      const field=element('input');
       field.value=data.destination_routes?.[kind]||[data.destination_folder,subfolder].filter(Boolean).join('/');
       routeFields[kind]=field;
       group.append(label(routeLabels[kind]+' folder',field));
+      const inlineError=element('p');
+      inlineError.className='downloader-route-error';
+      inlineError.setAttribute('role','alert');
+      inlineError.hidden=true;
+      group.append(inlineError);
+      let edited=0;
+      const showError=(message:string)=>{
+        inlineError.textContent=message;
+        inlineError.hidden=!message;
+      };
+      field.addEventListener('input',()=>{
+        edited++;
+        showError('');
+      });
+      field.addEventListener('change',()=>{
+        const revision=++edited;
+        const typed=field.value;
+        const path=typed.trim().replace(/^\/+|\/+$/g,'');
+        void (async()=>{
+          // Never revert the text: keep it visible if the path is invalid.
+          if (!path || path.split('/').some(part=>!part||part==='.'||part==='..')
+            || /[\\\u0000-\u001f]/.test(path) || path.length>512) {
+            showError('Enter an existing folder path in your Files.');
+            return;
+          }
+          try {
+            const page=await api<FolderList>('/folders?'+new URLSearchParams({path,offset:'0'}));
+            if(revision!==edited)return;
+            if(page.path!==path)throw new Error('Folder not found');
+            showError('');
+            customRoutes.add(kind);
+            data.destination_routes={...data.destination_routes,[kind]:path};
+            changed('destination_routes',{[kind]:path});
+          }catch{
+            if(revision===edited)showError('Folder not found in your Files. Check the path or choose a folder.');
+          }
+        })();
+      });
       const actions=element('div');actions.className='downloader-picker-buttons';
       const selectFolder=element('button','Choose folder');
       selectFolder.type='button';
       selectFolder.addEventListener('click',()=>{
         routes.append(picker);picker.hidden=true;
         onFolderChosen=(path)=>{
-          field.value=path||'(Files root)';
+          edited++;
+          showError('');
+          field.value=path;
           customRoutes.add(kind);
           data.destination_routes={...data.destination_routes,[kind]:path};
           changed('destination_routes',{[kind]:path});
@@ -219,6 +260,8 @@ function start() {
       const reset=element('button','Use default');
       reset.type='button';
       reset.addEventListener('click',()=>{
+        edited++;
+        showError('');
         customRoutes.delete(kind);
         const next=[data.destination_folder,subfolder].filter(Boolean).join('/');
         field.value=next;
