@@ -41,6 +41,7 @@ def listing(ctx, rows):
         answer = asyncio.run(user_jobs(context=ctx))
         core.assert_awaited_once_with("GET", "jobs", params={
             "owner_id": ctx.user_id, "limit": 50,
+            "offset": 0, "state": "all", "q": "",
         })
     return answer
 

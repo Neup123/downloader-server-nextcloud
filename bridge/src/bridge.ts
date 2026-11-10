@@ -6,13 +6,15 @@ import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@ne
 import { getClient, getDefaultPropfind, getRootPath, resultToNode } from '@nextcloud/files/dav';
 import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
-import { filesJobRequest } from './files-dialog-payload.mjs';
+import { filesJobRequest, presetEngineForSubmission } from './files-dialog-payload.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadStatus, deliveredFilesQuery } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
 type Job = {
   id: string; url: string; status: string; owner_id?: string; engine?: string;
-  progress?: {percent?: number}; error?: string | null;
+  progress?: {percent?: number; speed_bytes_per_second?: number}; error?: string | null;
+  pause_capability?: {can_pause?:boolean;can_resume?:boolean;reason?:string|null};
+  finished_at?:string;completed_at?:string;updated_at?:string;created_at?:string;
   output_files?: {filename: string; path?: string; verified?: boolean; file_id?: string | number}[];
 };
 type Preset = {id: string; name: string; engine: string};
@@ -88,7 +90,11 @@ function cleanFolder(path?: string): string {
 async function openDialog(folder: string | null, suggested = '') {
   // The Files folder action already supplies its destination. For Viewer/Talk,
   // omit it so the signed ExApp applies the user's own Files default.
-  const presets = await api<Preset[]>('/presets').catch(() => []);
+  const [presets, userSettings] = await Promise.all([
+    api<Preset[]>('/presets').catch(() => []),
+    api<{default_preset?:string;default_video_quality?:string;default_audio_quality?:string}>('/settings').catch(
+      () => ({default_video_quality:'best',default_audio_quality:'best'})),
+  ]);
   const dialog = node('dialog', '', 'dl-dialog');
   const form = node('form');
   form.method = 'dialog';
@@ -113,13 +119,41 @@ async function openDialog(folder: string | null, suggested = '') {
     {value: '', label: 'Use my default preset'},
     ...presets.map(item => ({value: item.id, label: item.name})),
   ]);
-  const quality = select([
-    {value: 'default', label: 'Use preset or automatic quality'},
-    {value: 'best', label: 'Best quality'},
-    {value: '1080', label: 'Up to 1080p'},
-    {value: '720', label: 'Up to 720p'},
-    {value: 'audio', label: 'Audio only'},
-  ]);
+  // Main-form controls: the checkbox is OFF every time a dialog opens;
+  // each mode remembers its own per-user saved quality preference.
+  const audioOnly = node('input');
+  audioOnly.type = 'checkbox';
+  audioOnly.checked = false;
+  const audioToggle = node('label', '', 'dl-audio-toggle');
+  audioToggle.append(audioOnly, node('span', 'Audio only'));
+  const quality = select([]);
+  const mediaRow = node('div', '', 'dl-media-row');
+  mediaRow.append(audioToggle, label('Quality', quality));
+  function updateQualityChoices() {
+    const choices = audioOnly.checked
+      ? [
+        {value:'best', label:'Best available audio'},
+        {value:'192', label:'Up to 192 kbps'},
+        {value:'128', label:'Up to 128 kbps'},
+        {value:'small', label:'Smallest audio'},
+      ]
+      : [
+        {value:'best', label:'Best available video'},
+        {value:'1080', label:'Up to 1080p'},
+        {value:'720', label:'Up to 720p'},
+        {value:'480', label:'Up to 480p'},
+      ];
+    quality.replaceChildren(...choices.map(item => {
+      const option = node('option', item.label);
+      option.value = item.value;
+      return option;
+    }));
+    const preferred = audioOnly.checked
+      ? userSettings.default_audio_quality : userSettings.default_video_quality;
+    quality.value = choices.some(item => item.value === preferred) ? preferred! : 'best';
+  }
+  audioOnly.addEventListener('change', updateQualityChoices);
+  updateQualityChoices();
   const format = select([
     {value: 'auto', label: 'Best available format'},
     {value: 'mp4', label: 'Prefer MP4 (M4A for audio)'},
@@ -130,7 +164,7 @@ async function openDialog(folder: string | null, suggested = '') {
   options.append(summary,
     node('p', 'Automatic chooses the right downloader. Change this only if a download fails.', 'dl-muted'),
     label('Engine', engines), label('Preset (optional)', preset),
-    label('Quality (video or audio)', quality), label('Preferred format', format),
+    label('Preferred format', format),
     node('p', 'These options apply to this download only. The engine chooses a compatible format when needed.', 'dl-muted'));
 
   const buttons = node('div', '', 'dl-buttons');
@@ -139,7 +173,7 @@ async function openDialog(folder: string | null, suggested = '') {
   const submit = node('button', 'Download', 'dl-primary');
   submit.type = 'submit';
   buttons.append(cancel, submit);
-  form.append(title, label('Source URL', url), options, buttons);
+  form.append(title, label('Source URL', url), mediaRow, options, buttons);
   dialog.append(form);
   document.body.append(dialog);
 
@@ -158,7 +192,9 @@ async function openDialog(folder: string | null, suggested = '') {
     }
     submit.disabled = true;
     try {
-      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value));
+      const presetEngine = presetEngineForSubmission(presets, preset.value, userSettings.default_preset);
+      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value,
+        quality.value, format.value, audioOnly.checked, presetEngine));
       notify('Download added to your Nextcloud Files.');
       window.dispatchEvent(new Event('downloader:job-queued'));
       close();
@@ -324,24 +360,81 @@ function headerProgress(ownerId: string) {
     ?? document.querySelector('.header-end')
     ?? document.querySelector('#header-right');
   if (!header || document.getElementById('downloader-topbar-progress')) return;
+
+  // Reserve a fixed-size icon slot to avoid moving neighbouring header icons.
+  // When the default active-only preference is idle, the slot is visually empty.
   const container = node('div', '', 'dl-header');
   container.id = 'downloader-topbar-progress';
-  const button = node('button', 'Downloads', 'dl-trigger');
+  const button = node('button', '', 'dl-trigger');
   button.type = 'button';
-  button.setAttribute('aria-label', 'Show download progress');
+  button.setAttribute('aria-label', 'Downloads');
+  button.setAttribute('aria-haspopup', 'true');
   button.setAttribute('aria-expanded', 'false');
-  const bubble = node('progress', '', 'dl-header-meter');
-  bubble.max = 100;
-  bubble.hidden = true;
-  bubble.setAttribute('aria-label', 'Current download progress');
-  const panel = node('div', '', 'dl-popover');
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 44 44');
+  svg.setAttribute('width', '44');
+  svg.setAttribute('height', '44');
+  svg.classList.add('dl-indicator-svg');
+  const arrow = document.createElementNS(ns, 'path');
+  arrow.setAttribute('d', 'M22 11V29 M15 22L22 29L29 22');
+  arrow.classList.add('dl-arrow');
+  const frame = document.createElementNS(ns, 'path');
+  // Start at bottom-centre and sweep around the rounded square clockwise.
+  const square = 'M22 39 H14 Q5 39 5 30 V14 Q5 5 14 5 H30 Q39 5 39 14 V30 Q39 39 30 39 H22';
+  frame.setAttribute('d',square);
+  frame.classList.add('dl-frame-progress');
+  const length = 134;
+  frame.style.strokeDasharray = String(length);
+  frame.style.strokeDashoffset = String(length);
+  svg.append(frame,arrow);
+  const badge = node('span','', 'dl-count');
+  badge.hidden = true;
+  button.append(svg,badge);
+  const panel = node('section', '', 'dl-popover');
   panel.hidden = true;
+  panel.id = 'downloader-header-popover';
+  panel.setAttribute('aria-label', 'My downloads');
+  button.setAttribute('aria-controls', panel.id);
+  const panelHeader = node('div', '', 'dl-popover-head');
+  const title = node('h3', 'My downloads');
+  const add = node('button', '+', 'dl-popover-add');
+  add.type = 'button';
+  add.title = 'Add download';
+  add.setAttribute('aria-label', 'Add a download');
+  add.addEventListener('click', () => { panel.hidden = true; button.setAttribute('aria-expanded','false'); void openDialog(null); });
+  panelHeader.append(title,add);
+  const list = node('div', '', 'dl-popover-list');
+  const fullLink = node('a', 'Open history', 'dl-link dl-history-link');
+  fullLink.href = oc()!.generateUrl('/apps/downloader_bridge/library');
+  panel.append(panelHeader,list,fullLink);
   button.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
     button.setAttribute('aria-expanded', String(!panel.hidden));
   });
-  container.append(button, bubble, panel);
-  header.append(container);
+  document.addEventListener('pointerdown', event => {
+    if(!panel.hidden && !container.contains(event.target as Node)){
+      panel.hidden = true; button.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if(event.key === 'Escape' && !panel.hidden){
+      panel.hidden = true;button.setAttribute('aria-expanded','false');button.focus();
+    }
+  });
+  container.append(button,panel);
+  // Position in the native icon cluster, immediately BEFORE the bell rather
+  // than appending at the far (trailing) end of the header.
+  const bell=header.querySelector<HTMLElement>(
+    '#notifications, [id^="notifications"], [data-id="notifications"], .notifications, [aria-label*="Notifications"]');
+  const bellSlot=bell?.closest<HTMLElement>('.header-menu') || bell;
+  if(bellSlot?.parentElement && header.contains(bellSlot)){
+    bellSlot.parentElement.insertBefore(container,bellSlot);
+  }else{
+    // The bell may not be installed by this Nextcloud configuration; keep
+    // our slot in the icon cluster's leading edge, never at the far end.
+    header.insertBefore(container,header.firstChild);
+  }
 
   let active = true;
   let refreshing = false;
@@ -378,81 +471,161 @@ function headerProgress(ownerId: string) {
     }
   }
 
+
+  type DisplayPrefs={header_indicator_visibility?:'active'|'always';dropdown_content?:'active'|'all'};
+  let displayPrefs:DisplayPrefs={header_indicator_visibility:'active',dropdown_content:'active'};
+  let lastPreferences=0;
+  const jobProgress=(job:Job)=>{
+    const raw=Number(job.progress?.percent??0);
+    const percent=Number.isFinite(raw)?Math.max(0,Math.min(100,raw)):0;
+    switch(job.status){
+      case 'queued':return 0;
+      case 'starting':return 3;
+      case 'extracting':return 8;
+      case 'downloading':return 8+percent*.74;
+      case 'post-processing':return 82+percent*.1;
+      case 'delivering':return 92+percent*.08;
+      default:return percent;
+    }
+  };
+  // The progress ring is aggregate stage work, never a numeric header label.
+  function updateIndicator(running:Job[]){
+    const show = running.length>0 || displayPrefs.header_indicator_visibility==='always';
+    button.hidden=!show;
+    const total = running.length
+      ? running.reduce((sum,job)=>sum+jobProgress(job),0)/running.length : 0;
+    const bounded=Math.max(0,Math.min(100,total));
+    const activeRing=running.length>0;
+    frame.style.strokeDashoffset=String(length*(1-bounded/100));
+    frame.style.display=activeRing?'':'none';
+    badge.hidden=!running.length;
+    badge.textContent=String(running.length);
+    button.setAttribute('aria-label',running.length
+      ? 'Downloads: '+running.length+' unfinished' : 'My downloads');
+    // If a user hides the indicator while the panel is open, close it too.
+    if(!show){panel.hidden=true;button.setAttribute('aria-expanded','false');}
+  }
+  const finishTimestamp=(job:Job)=>{
+    const value=job.finished_at||job.completed_at||job.updated_at||job.created_at||'';
+    const parsed=Date.parse(value);
+    return Number.isFinite(parsed)?parsed:0;
+  };
+  function renderRow(job:Job){
+    const row=node('article','','dl-job');
+    row.dataset.jobId=job.id;
+    const percent=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
+    const safePercent=Number.isFinite(percent)?Math.round(percent):0;
+    row.style.setProperty('--dl-row-fill', (TERMINAL.has(job.status)?100:safePercent)+'%');
+    const thumbnail=node('span',downloadSymbol(job),'dl-thumbnail');
+    thumbnail.setAttribute('aria-hidden','true');
+    const file=(job.output_files||[]).find(file=>file.verified && file.file_id!==undefined
+      && /^\d{1,32}$/.test(String(file.file_id)));
+    if(file){
+      const image=node('img');
+      image.alt='';image.loading='lazy';image.width=24;image.height=24;
+      image.src=oc()!.generateUrl('/core/preview')+'?fileId='
+        +encodeURIComponent(String(file.file_id))+'&x=96&y=96&a=true';
+      image.addEventListener('error',()=>image.remove(),{once:true});
+      thumbnail.append(image);
+    }
+    const info=node('div','','dl-job-info');
+    const name=node('a',downloadTitle(job),'dl-job-title');
+    name.href=oc()!.generateUrl('/apps/downloader_bridge/library')
+      +'?job='+encodeURIComponent(job.id);
+    name.dir='auto';
+    const subtitle=node('span',downloadBubbleStatus(job),'dl-job-state');
+    subtitle.dir='auto';
+    info.append(name,subtitle);
+    const pct=node('span',TERMINAL.has(job.status)?'':safePercent+'%','dl-job-pct');
+    if(TERMINAL.has(job.status)){
+      pct.textContent=job.status==='completed'?'✓':'—';
+    }
+    const action=node('button',TERMINAL.has(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
+    action.type='button';
+    if(TERMINAL.has(job.status)){
+      const operation=job.status==='completed'?'redeliver':'retry';
+      action.title=operation==='redeliver'?'Deliver again':'Retry download';
+      action.setAttribute('aria-label',action.title);
+      action.addEventListener('click',()=>{
+        action.disabled=true;
+        void api('/jobs/'+encodeURIComponent(job.id)+'/'+operation,'POST')
+          .then(()=>{window.dispatchEvent(new Event('downloader:job-queued'));})
+          .catch(error=>{notify(error instanceof Error?error.message:'Download action failed');})
+          .finally(()=>{action.disabled=false;});
+      });
+    }else{
+      const resume=job.status==='paused';
+      const operation=resume?'resume':'pause';
+      const supported=resume?job.pause_capability?.can_resume:job.pause_capability?.can_pause;
+      action.title=supported?(resume?'Resume this download':'Pause this download')
+        :(job.pause_capability?.reason || 'Pause capability is unavailable for this job');
+      action.setAttribute('aria-label',action.title);
+      if(!supported){
+        action.disabled=true;
+      }else{
+        action.addEventListener('click',()=>{
+          action.disabled=true;
+          void api('/jobs/'+encodeURIComponent(job.id)+'/'+operation,'POST')
+            .then(()=>{
+              window.dispatchEvent(new Event('downloader:jobs-updated'));
+              void refresh();
+            })
+            .catch(error=>{notify(error instanceof Error?error.message:'Unable to '+operation+' this download');})
+            .finally(()=>{action.disabled=false;});
+        });
+      }
+    }
+    row.append(thumbnail,info,pct,action);
+    return row;
+  }
   async function refresh() {
     if (!active || !container.isConnected || refreshing) return;
     refreshing = true;
     try {
-      const jobs = await api<Job[]>('/jobs?limit=15');
-      const running = jobs.filter(job => !TERMINAL.has(job.status));
-      const current = running[0];
-      const percent = Math.min(100, Math.max(0, Number(current?.progress?.percent ?? 0)));
-      const safePercent = Number.isFinite(percent) ? Math.round(percent) : 0;
-      button.textContent = running.length
-        ? 'Downloads (' + running.length + ') · ' + safePercent + '%'
-        : 'Downloads';
-      bubble.hidden = !running.length;
-      bubble.value = safePercent;
-      button.title = running.length ? 'Download progress: ' + safePercent + '%' : 'My downloads';
-
-      panel.replaceChildren(node('h3', 'My downloads'));
-      const fullLink = node('a', 'Open history', 'dl-link');
-      fullLink.href = oc()!.generateUrl('/apps/downloader_bridge/library');
-      panel.append(fullLink);
-      if (!jobs.length) panel.append(node('p', 'No downloads yet.', 'dl-muted'));
-
-      for (const job of jobs.slice(0, 10)) {
-        const old = lastStatuses.get(job.id);
-        if (initialized && old && old !== job.status && TERMINAL.has(job.status)) {
-          notify(job.status === 'completed'
-            ? 'Download complete. Open it in Nextcloud Files.'
-            : job.status === 'failed' ? 'Download failed. Open Downloads for details.'
-              : 'Download cancelled.');
+      const now=Date.now();
+      if(now-lastPreferences>20000){
+        const saved=await api<DisplayPrefs>('/settings').catch(()=>displayPrefs);
+        displayPrefs={
+          header_indicator_visibility:saved.header_indicator_visibility==='always'?'always':'active',
+          dropdown_content:saved.dropdown_content==='all'?'all':'active',
+        };
+        lastPreferences=now;
+      }
+      const running=await api<Job[]>('/jobs?limit=200&state=active');
+      // Keep polling terminal transitions even when the visible list is active-only.
+      // Delivery refresh and notifications must not disappear with finished rows.
+      const jobs=await api<Job[]>('/jobs?limit=200');
+      updateIndicator(running);
+      let displayed=[...running];
+      if(displayPrefs.dropdown_content==='all'){
+        const known=new Set(displayed.map(job=>job.id));
+        const finished=jobs.filter(job=>TERMINAL.has(job.status)&&!known.has(job.id))
+          .sort((a,b)=>finishTimestamp(b)-finishTimestamp(a));
+        displayed=[...displayed,...finished];
+      }
+      // Preserve the browser's scroll when jobs are updated while open.
+      const scroll=list.scrollTop;
+      list.replaceChildren(...(displayed.length
+        ?displayed.slice(0,75).map(renderRow)
+        :[node('p','No active downloads.','dl-empty')]));
+      list.scrollTop=scroll;
+      for(const job of jobs){
+        const old=lastStatuses.get(job.id);
+        if(initialized && old && old!==job.status && TERMINAL.has(job.status)){
+          notify(job.status==='completed'
+            ?'Download complete. Open it in Nextcloud Files.'
+            :job.status==='failed'?'Download failed. Open Downloads for details.'
+             :'Download cancelled.');
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
-        lastStatuses.set(job.id, job.status);
-        if (job.status === 'completed') void publishDeliveredFiles(job);
-
-        const row = node('div', '', 'dl-job');
-        const title = node('a', downloadTitle(job), 'dl-job-title');
-        title.href = oc()!.generateUrl('/apps/downloader_bridge/library') +
-          '?job=' + encodeURIComponent(job.id);
-        row.append(title, node('div', downloadStatus(job), 'dl-job-state'));
-        if (job.engine) row.append(node('small', job.engine, 'dl-muted'));
-        if (!TERMINAL.has(job.status)) {
-          const p = node('progress');
-          p.max = 100;
-          p.value = Math.min(100, Math.max(0, Number(job.progress?.percent ?? 0)));
-          row.append(p);
-        }
-        if (job.status === 'failed' && job.error) row.append(node('small', job.error, 'dl-error'));
-        const actions = node('div', '', 'dl-job-actions');
-        const query = deliveredFilesQuery(job);
-        if (query) {
-          const fileLink = node('a', 'Open in Files', 'dl-small dl-link');
-          fileLink.href = oc()!.generateUrl('/apps/files/files') + query;
-          actions.append(fileLink);
-        }
-        const operation = job.status === 'completed' ? 'redeliver'
-          : TERMINAL.has(job.status) ? 'retry' : 'cancel';
-        const action = node('button', operation === 'retry' ? 'Try again'
-          : operation === 'redeliver' ? 'Re-deliver' : 'Cancel', 'dl-small');
-        action.type = 'button';
-        action.addEventListener('click', async () => {
-          action.disabled = true;
-          try { await api('/jobs/' + encodeURIComponent(job.id) + '/' + operation, 'POST'); await refresh(); }
-          catch (error) { notify(error instanceof Error ? error.message : 'Action failed'); action.disabled = false; }
-        });
-        actions.append(action);
-        row.append(actions);
-        panel.append(row);
+        lastStatuses.set(job.id,job.status);
+        if(job.status==='completed')void publishDeliveredFiles(job);
       }
-      initialized = true;
-    } catch {
-      // Keep the bubble and retry transient connectivity errors; the ExApp
-      // independently checks entitlement before returning any user job data.
-      button.title = 'Unable to refresh downloads. Retrying automatically.';
-    } finally {
-      refreshing = false;
+      initialized=true;
+    }catch {
+      button.title='Unable to refresh downloads. Retrying automatically.';
+    }finally{
+      refreshing=false;
     }
   }
   window.addEventListener('downloader:job-queued', () => { void refresh(); });
@@ -553,6 +726,11 @@ function styles() {
     'box-shadow:0 16px 48px #0004;z-index:11000}',
     '.dl-dialog::backdrop{background:#0008}',
     '.dl-dialog form{display:grid;gap:16px}.dl-dialog h2{margin:0;font-size:19px}',
+    '.dl-media-row{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}',
+    '.dl-media-row .dl-audio-toggle{display:flex;align-items:center;gap:6px;white-space:nowrap;',
+    'cursor:pointer;font-size:13px;font-weight:600;flex:0 0 auto}',
+    '.dl-media-row .dl-audio-toggle input{width:18px;height:18px;margin:0}',
+    '.dl-media-row .dl-label{flex:1 1 0;margin:0;min-width:0}',
     '.dl-options{border-top:1px solid var(--color-border,#ddd);padding-top:12px}',
     '.dl-options summary{cursor:pointer;font-weight:600;list-style-position:inside}',
     '.dl-options[open]{display:grid;gap:10px}.dl-options[open] summary{margin-bottom:6px}',
@@ -569,18 +747,53 @@ function styles() {
     'border:1px solid var(--color-border,#ddd);border-radius:6px}',
     '.dl-primary{background:var(--color-primary,#3a7dde)!important;color:#fff!important}',
     '.dl-muted{font-size:12px;color:var(--color-text-maxcontrast,#777)}',
-    '.dl-header{position:relative;display:grid;align-items:center}.dl-header-meter{width:100%;height:4px}',
-    '.dl-header-meter[hidden]{display:none}.dl-popover{position:absolute;top:100%;right:0;',
-    'z-index:10000;width:min(350px,92vw);max-height:65vh;overflow-y:auto;padding:12px;',
-    'border:1px solid var(--color-border,#ddd);border-radius:8px;',
-    'background:var(--color-main-background,#fff);box-shadow:0 5px 24px #0003}',
-    '.dl-popover[hidden]{display:none}.dl-job{display:grid;gap:5px;padding:9px 0;',
-    'border-bottom:1px solid var(--color-border,#ddd);font-size:12px}',
-    '.dl-job-title{display:block;font-weight:600;overflow-wrap:anywhere}', 
-    '.dl-job-state{font-size:13px;color:var(--color-text-maxcontrast,#777)}',
-    '.dl-job-actions{display:flex;gap:8px;flex-wrap:wrap}',
-    '.dl-job progress{width:100%}.dl-error{color:var(--color-error,#c33)}',
-    '.dl-small{justify-self:end;padding:3px 6px}',
+
+    '.dl-header{position:relative;display:flex;flex:0 0 44px;width:44px;height:44px;align-items:center}',
+    '.dl-trigger{display:grid;place-items:center;width:44px;height:44px;min-width:44px;',
+    'padding:0!important;margin:0!important;background:transparent!important;',
+    'color:var(--color-primary-text,#fff)!important;',
+    'border:0!important;box-shadow:none!important;border-radius:0!important;position:relative;cursor:pointer}',
+    '.dl-trigger[hidden]{display:none!important}.dl-trigger:hover{background:var(--color-background-hover,#fff2)!important}',
+    '.dl-trigger:focus-visible{outline:2px solid currentColor;outline-offset:-3px}',
+    '.dl-indicator-svg{display:block;width:44px;height:44px;overflow:visible;fill:none;',
+    'stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}',
+    '.dl-arrow{stroke-width:2.1}',
+    '.dl-frame-progress{stroke-width:2.6;transition:stroke-dashoffset .5s ease}',
+    '.dl-count{position:absolute;top:1px;right:0;min-width:16px;height:16px;border-radius:9px;',
+    'background:var(--color-primary-text,#fff);color:var(--color-primary,#2066ae);',
+    'border:1px solid currentColor;font-size:10px;font-weight:700;line-height:16px;text-align:center;padding:0 2px}',
+    '.dl-count[hidden]{display:none}',
+    '.dl-popover{position:absolute;top:100%;inset-inline-end:0;z-index:10000;box-sizing:border-box;',
+    'width:max-content;min-width:280px;max-width:min(380px,92vw);max-height:70vh;',
+    'display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--color-border,#ddd);',
+    'border-radius:6px;background:var(--color-main-background,#fff);',
+    'color:var(--color-main-text,#222);box-shadow:0 6px 25px #0003}',
+    '.dl-popover[hidden]{display:none!important}',
+    '.dl-popover-head{display:flex;align-items:center;gap:8px;padding:8px 10px;',
+    'border-bottom:1px solid var(--color-border,#ddd)}',
+    '.dl-popover-head h3{font-size:13px;margin:0;flex:1;font-weight:600}',
+    '.dl-popover-add{width:24px;height:24px;border:0!important;background:transparent!important;',
+    'border-radius:5px;padding:0!important;font-size:19px;color:inherit;cursor:pointer}',
+    '.dl-popover-list{overflow-y:auto;max-height:55vh;min-height:0}',
+    '.dl-history-link{display:block;padding:8px 10px;font-size:12px}',
+    '.dl-empty{margin:0;padding:14px;font-size:12px;color:var(--color-text-maxcontrast,#666)}',
+    '.dl-job{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr) 32px 22px;',
+    'align-items:center;gap:5px;min-height:0;padding:2px 5px;',
+    'border-bottom:1px solid var(--color-border,#ddd);isolation:isolate;font-size:12px}',
+    '.dl-job::before{content:"";position:absolute;inset:0 auto 0 0;width:var(--dl-row-fill,0%);',
+    'background:var(--color-primary,#377bd1);opacity:.095;z-index:-1;pointer-events:none}',
+    '.dl-thumbnail{width:24px;height:24px;display:grid;place-items:center;',
+    'background:var(--color-background-dark,#eee);border-radius:5px;overflow:hidden;font-size:15px}',
+    '.dl-thumbnail img{width:24px;height:24px;object-fit:cover}',
+    '.dl-job-info{min-width:0;display:grid;gap:1px}',
+    '.dl-job-title{font-weight:600;font-size:12px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit}',
+    '.dl-job-state{font-size:11px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+    'color:var(--color-text-maxcontrast,#777)}',
+    '.dl-job-pct{font-size:11px;text-align:end;font-variant-numeric:tabular-nums}',
+    '.dl-job-pause{border:0!important;background:transparent!important;color:inherit!important;',
+    'width:22px;height:24px;padding:0!important;font-size:16px;font-weight:700;cursor:pointer}',
+    '.dl-job-pause:disabled{opacity:.5;cursor:not-allowed}',
+    '.dl-popover :is(a,button):focus-visible{outline:2px solid var(--color-primary,#377bd1);outline-offset:2px}',
     '.dl-provenance-source{display:block;overflow-wrap:anywhere;margin:10px 0}',
     '.dl-provenance-details{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;font-size:13px}',
     '.dl-provenance-details dt{color:var(--color-text-maxcontrast,#777)}',

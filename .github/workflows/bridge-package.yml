@@ -38,6 +38,21 @@ jobs:
           test -s js/dashboard.js
           test -s js/library.js
           test -s js/settings.js
+      - name: Verify build chain with only the bridge package mounted
+        run: |
+          isolated="$(mktemp -d)"
+          trap 'rm -rf "$isolated"' EXIT
+          mkdir -p "$isolated/bridge"
+          cp -a bridge/. "$isolated/bridge/"
+          rm -rf "$isolated/bridge/node_modules" "$isolated/bridge/js"
+          cd "$isolated/bridge"
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+          test -s js/bridge.js
+          test -s js/dashboard.js
+          test -s js/library.js
+          test -s js/settings.js
       - name: Verify native PHP contract is generated from imported Core source
         run: python3 -m scripts.bridge_job_state_contract --check
       - name: Check native PHP syntax

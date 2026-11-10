@@ -25,11 +25,32 @@ jobs:
 
       - name: Compile script and tests
         run: python -m compileall -q scripts tests
-      - name: Install pinned AppAPI runtime for real per-user unit tests
-        run: python -m pip install -r nextcloud_exapp/requirements.lock
+      - name: Install Core test dependencies and pinned AppAPI runtime
+        run: |
+          python -m pip install -r requirements.txt pytest
+          python -m pip install -r nextcloud_exapp/requirements.lock
 
       - name: Run Nextcloud-specific offline preflight tests
         run: |
           python -m unittest discover -s tests -p 'test_appapi_*.py' -v
           python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
           python -m unittest discover -s tests -p 'test_target_*.py' -v
+
+      - name: Run complete reviewed downstream and design-round Python contracts
+        env:
+          DATA_DIR: /tmp/downloader-nextcloud-merge-contracts
+        run: |
+          # Imported Core tests are validated in the upstream Core worktree,
+          # not against downstream-only maintenance scripts.
+          python scripts/run_downstream_acceptance.py
+          python -m pytest -q \
+            tests/test_delivery_paths.py \
+            tests/test_builtin_nextcloud_presets.py \
+            tests/test_nextcloud_user.py \
+            tests/test_nextcloud_delivery_flat.py \
+            tests/test_nextcloud_history_hide.py \
+            tests/test_nextcloud_library_gateway.py \
+            tests/test_native_only_user_surface.py \
+            tests/test_native_personal_settings_contract.py \
+            tests/test_dialog_quality_contract.py \
+            tests/test_preset_catalog_design.py

@@ -215,6 +215,12 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         "first_download_verified": await preferences.get_value("first_download_verified", "0") == "1",
         "notify_finished": await preferences.get_value("notify_finished", "1") != "0",
         "notify_failed": await preferences.get_value("notify_failed", "1") != "0",
+        "header_indicator_visibility": await preferences.get_value("header_indicator_visibility", "active"),
+        "dropdown_content": await preferences.get_value("dropdown_content", "active"),
+        "default_video_quality": await preferences.get_value("default_video_quality", "best"),
+        "default_audio_quality": await preferences.get_value("default_audio_quality", "best"),
+        "preset_hidden": await read_preset_id_list(preferences, "preset_hidden"),
+        "preset_order": await read_preset_id_list(preferences, "preset_order"),
     }
 
 
@@ -222,7 +228,9 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
     if not isinstance(patch, dict):
         raise HTTPException(status_code=422, detail="Invalid personal settings")
     allowed = {"destination_folder", "default_preset", "engine_settings", "app_password",
-               "notify_finished", "notify_failed"}
+               "notify_finished", "notify_failed", "header_indicator_visibility",
+               "dropdown_content", "preset_hidden", "preset_order",
+               "default_video_quality", "default_audio_quality"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
     pref = context.nc.preferences_ex
@@ -251,6 +259,20 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
             if not isinstance(value, bool):
                 raise HTTPException(status_code=422, detail="Notification preference must be on or off")
             await pref.set_value(name, "1" if value else "0")
+    for name, choices in (
+        ("header_indicator_visibility", {"active", "always"}),
+        ("dropdown_content", {"active", "all"}),
+        ("default_video_quality", {"best", "1080", "720", "480"}),
+        ("default_audio_quality", {"best", "192", "128", "small"}),
+    ):
+        if name in patch:
+            if not isinstance(patch[name], str) or patch[name] not in choices:
+                raise HTTPException(status_code=422, detail="Invalid downloads display preference")
+            await pref.set_value(name, patch[name])
+    for name in ("preset_hidden", "preset_order"):
+        if name in patch:
+            ids = validate_preset_id_list(patch[name])
+            await pref.set_value(name, json.dumps(ids, separators=(",", ":")))
     if "app_password" in patch:
         password = patch["app_password"]
         if not isinstance(password, str) or len(password) > 1024:
@@ -263,21 +285,133 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
 
 
 
+
+def validate_preset_id_list(value: Any) -> list[str]:
+    """Bound, deduplicate and validate the private ordering and hide list."""
+    if (not isinstance(value, list) or len(value) > 300
+            or any(not isinstance(item, str) or len(item) > 100 or not item
+                   or any(ord(c) < 32 for c in item) for item in value)):
+        raise HTTPException(status_code=422, detail="Invalid preset selection")
+    return list(dict.fromkeys(value))
+
+
+async def read_preset_id_list(preferences: Any, key: str) -> list[str]:
+    try:
+        value = json.loads(await preferences.get_value(key, "[]") or "[]")
+        return validate_preset_id_list(value)
+    except (ValueError, TypeError, HTTPException):
+        return []
+
+
+async def is_administrator(context: UserContext) -> bool:
+    """Fail closed if Nextcloud administrator membership cannot be checked."""
+    try:
+        info = await context.nc.users.get_user(context.user_id)
+        return isinstance(info.groups, (list, tuple, set, frozenset)) and "admin" in info.groups
+    except Exception:
+        return False
+
+
+ADMIN_PRESETS_KEY = "admin_presets"
+ADMIN_ORDER_KEY = "admin_preset_order"
+ADMIN_HIDDEN_KEY = "admin_preset_hidden"
+
+
+async def read_admin_preset_config(nc: AsyncNextcloudApp, key: str) -> list[Any]:
+    try:
+        value = json.loads(await nc.appconfig_ex.get_value(key, "[]") or "[]")
+        return value if isinstance(value, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+def validate_admin_preset(body: Any) -> dict[str, Any]:
+    """Limit all custom options to safe predefined form selections."""
+    if not isinstance(body, dict) or set(body) - {"name", "description", "engine", "format"}:
+        raise HTTPException(status_code=422, detail="Invalid shared preset")
+    name, description = body.get("name"), body.get("description", "")
+    engine, fmt = body.get("engine"), body.get("format", "")
+    allowed_formats = {
+        "", "bv*+ba/b", "bv*[height<=1080]+ba/b[height<=1080]",
+        "bv*[height<=720]+ba/b[height<=720]",
+        "bv*[height<=480]+ba/b[height<=480]", "bestaudio/best",
+        "bestaudio[ext=m4a]/bestaudio/best",
+        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+    }
+    if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
+            or not isinstance(description, str) or len(description) > 500
+            or engine not in {"yt-dlp", "aria2c", "generic", "gallery-dl"}
+            or not isinstance(fmt, str) or fmt not in allowed_formats
+            or (engine != "yt-dlp" and fmt)):
+        raise HTTPException(status_code=422, detail="Invalid shared preset fields")
+    return {"name": name.strip(), "description": description.strip(),
+            "engine": engine, "settings": {"format": fmt} if fmt else {}}
+
+
+async def read_admin_presets(nc: AsyncNextcloudApp) -> list[dict[str, Any]]:
+    rows = await read_admin_preset_config(nc, ADMIN_PRESETS_KEY)
+    return [row for row in rows if isinstance(row, dict)
+            and isinstance(row.get("id"), str) and row["id"].startswith("admin:")
+            and isinstance(row.get("name"), str)
+            and row.get("engine") in {"yt-dlp", "aria2c", "generic", "gallery-dl"}
+            and isinstance(row.get("settings"), dict)][:100]
+
+
+async def save_admin_presets(nc: AsyncNextcloudApp, rows: list[dict[str, Any]]) -> None:
+    if len(rows) > 100:
+        raise HTTPException(status_code=422, detail="Shared preset limit reached")
+    await nc.appconfig_ex.set_value(ADMIN_PRESETS_KEY, json.dumps(rows, separators=(",", ":")))
+
+
+def order_presets(rows: list[dict[str, Any]], order: list[str], hidden: list[str]) -> list[dict[str, Any]]:
+    """Preserve the built-in order for catalogue entries not yet reordered."""
+    positions = {identifier: index for index, identifier in enumerate(order)}
+    visible = [row for row in rows if row["id"] not in hidden]
+    return [row for _, row in sorted(enumerate(visible),
+        key=lambda pair: (positions.get(pair[1]["id"], len(order) + pair[0]), pair[0]))]
+
+
 # Stable, read-only options are shipped by this Nextcloud ExApp, not seeded
 # in the administrator's Core database or another user's private preferences.
 BUILTIN_PRESETS = (
-    {"id": "builtin:best", "name": "Best quality", "engine": "yt-dlp",
-     "description": "Best available video and audio quality.",
-     "settings": {"format": "bv*+ba/b"}, "is_builtin": True},
-    {"id": "builtin:audio", "name": "Audio only", "engine": "yt-dlp",
-     "description": "Choose an audio-only stream when available.",
-     "settings": {"format": "bestaudio/best"}, "is_builtin": True},
-    {"id": "builtin:720", "name": "Up to 720p", "engine": "yt-dlp",
-     "description": "Limit video resolution to 720p.",
-     "settings": {"format": "bestvideo[height<=720]+bestaudio/best[height<=720]"}, "is_builtin": True},
-    {"id": "builtin:small", "name": "Small file", "engine": "yt-dlp",
-     "description": "Prefer the smallest available video stream.",
-     "settings": {"format": "worst[height<=480]/worst"}, "is_builtin": True},
+    {"id": "builtin:best", "name": "Best available video", "engine": "yt-dlp",
+     "description": "Highest video and audio quality.", "settings": {"format": "bv*+ba/b"}, "is_builtin": True},
+    {"id": "builtin:balanced", "name": "Balanced MP4 video", "engine": "yt-dlp",
+     "description": "Prefer MP4 for everyday sharing.", "settings": {"format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b"}, "is_builtin": True},
+    {"id": "builtin:1080", "name": "Full HD · up to 1080p", "engine": "yt-dlp",
+     "description": "High-definition video up to 1080p.", "settings": {"format": "bv*[height<=1080]+ba/b[height<=1080]"}, "is_builtin": True},
+    {"id": "builtin:720", "name": "HD · up to 720p", "engine": "yt-dlp",
+     "description": "High-definition video in a smaller file.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
+    {"id": "builtin:480", "name": "SD · up to 480p", "engine": "yt-dlp",
+     "description": "Standard-definition video.", "settings": {"format": "bv*[height<=480]+ba/b[height<=480]"}, "is_builtin": True},
+    {"id": "builtin:360", "name": "Mobile · up to 360p", "engine": "yt-dlp",
+     "description": "Small video for limited bandwidth.", "settings": {"format": "bv*[height<=360]+ba/b[height<=360]"}, "is_builtin": True},
+    {"id": "builtin:audio", "name": "Audio only · best", "engine": "yt-dlp",
+     "description": "Best available audio stream.", "settings": {"format": "bestaudio/best"}, "is_builtin": True},
+    {"id": "builtin:m4a", "name": "Audio only · M4A", "engine": "yt-dlp",
+     "description": "Prefer a compatible M4A audio stream.", "settings": {"format": "bestaudio[ext=m4a]/bestaudio/best"}, "is_builtin": True},
+    {"id": "builtin:opus", "name": "Audio only · Opus", "engine": "yt-dlp",
+     "description": "Prefer an Opus audio stream.", "settings": {"format": "bestaudio[acodec=opus]/bestaudio/best"}, "is_builtin": True},
+    {"id": "builtin:small", "name": "Smallest video", "engine": "yt-dlp",
+     "description": "Minimum-size video for quick sharing.", "settings": {"format": "worst[height<=480]/worst"}, "is_builtin": True},
+    {"id": "builtin:webm", "name": "WebM video", "engine": "yt-dlp",
+     "description": "Prefer WebM video and audio streams.", "settings": {"format": "bv*[ext=webm]+ba[ext=webm]/b[ext=webm]/b"}, "is_builtin": True},
+    {"id": "builtin:mp4", "name": "MP4 video", "engine": "yt-dlp",
+     "description": "Prefer an MP4-compatible video.", "settings": {"format": "b[ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/b"}, "is_builtin": True},
+    {"id": "builtin:social", "name": "Social-media clip", "engine": "yt-dlp",
+     "description": "Compact social video at 720p.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
+    {"id": "builtin:lecture", "name": "Lecture recording", "engine": "yt-dlp",
+     "description": "Clear lecture video up to 720p.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
+    {"id": "builtin:music", "name": "Music audio", "engine": "yt-dlp",
+     "description": "High-quality music audio stream.", "settings": {"format": "bestaudio/best"}, "is_builtin": True},
+    {"id": "builtin:direct", "name": "Direct file", "engine": "generic",
+     "description": "Download a direct file URL.", "settings": {}, "is_builtin": True},
+    {"id": "builtin:large", "name": "Large direct file", "engine": "aria2c",
+     "description": "Direct download using aria2c.", "settings": {}, "is_builtin": True},
+    {"id": "builtin:gallery", "name": "Image gallery", "engine": "gallery-dl",
+     "description": "Download a supported image gallery.", "settings": {}, "is_builtin": True},
+    {"id": "builtin:collection", "name": "Image collection", "engine": "gallery-dl",
+     "description": "Collect supported source images.", "settings": {}, "is_builtin": True},
 )
 
 
@@ -433,7 +567,7 @@ async def job_submission(
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
-    allowed = {"url", "engine", "preset_id", "overrides", "folder"}
+    allowed = {"url", "engine", "preset_id", "overrides", "folder", "audio_only", "quality"}
     if set(data) - allowed:
         raise HTTPException(status_code=422, detail="Unsupported job field")
     source = data.get("url")
@@ -455,6 +589,11 @@ async def job_submission(
                 (preset for preset in (shared_presets or []) if preset["id"] == preset_id),
                 None,
             )
+        elif isinstance(preset_id, str) and preset_id.startswith("admin:"):
+            selected = next(
+                (preset for preset in await read_admin_presets(context.nc)
+                 if preset["id"] == preset_id), None,
+            )
         elif isinstance(preset_id, str) and preset_id.startswith("builtin:"):
             selected = next(
                 (preset for preset in built_in_presets() if preset["id"] == preset_id), None,
@@ -475,6 +614,23 @@ async def job_submission(
     options = data.get("overrides", {})
     if not isinstance(options, dict) or len(json.dumps(options)) > 16000:
         raise HTTPException(status_code=422, detail="Invalid engine overrides")
+    # The dialog's explicit mode/quality must be represented by the actual
+    # yt-dlp format sent to Core, not cosmetic client-only controls. The
+    # signed ExApp accepts mode metadata and validates it before stripping
+    # those UI-only fields from the Core request.
+    if "audio_only" in data or "quality" in data:
+        audio_only = data.get("audio_only")
+        quality = data.get("quality")
+        choices = {"best", "192", "128", "small"} if audio_only else {"best", "1080", "720", "480"}
+        if not isinstance(audio_only, bool) or not isinstance(quality, str) or quality not in choices:
+            raise HTTPException(status_code=422, detail="Invalid audio/video quality selection")
+        fmt = options.get("format")
+        if engine != "yt-dlp" or not isinstance(fmt, str) or not fmt:
+            raise HTTPException(status_code=422, detail="Quality selection requires yt-dlp format overrides")
+        if audio_only and not (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
+            raise HTTPException(status_code=422, detail="Audio-only choice must submit an audio-only format")
+        if not audio_only and (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
+            raise HTTPException(status_code=422, detail="Video quality must submit a video format")
     chosen = prefs["engine_settings"].get(engine, {})
     overrides = {**(selected["settings"] if selected else {}), **chosen, **options}
     # Replace user-visible cookie filenames with the own user's opaque core key.

@@ -1,7 +1,8 @@
-"""Validate the actual Docker Compose model used by the External Sites fallback.
+"""Validate the legacy Compose model without endorsing External Sites use.
 
 Compose JSON is the source of truth. These tests run in CI with the Docker
 Compose plugin and intentionally do not start any production containers.
+The native-only documentation contract must forbid this legacy fallback.
 """
 from __future__ import annotations
 
@@ -108,13 +109,15 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
 
-    def test_documented_fallback_does_not_claim_per_user_sso(self):
+    def test_legacy_fallback_is_explicitly_unsupported(self):
         doc = (ROOT / "NEXTCLOUD_EXTERNAL_SITES_FALLBACK.md").read_text()
         self.assertIn("External Sites", doc)
-        self.assertIn("app password", doc)
-        self.assertIn("not authenticate to Downloader", doc)
-        self.assertIn("Do not run", doc)
-        self.assertIn("redirect", doc.lower())
+        self.assertIn("not supported", doc.lower())
+        self.assertIn("AppAPI ExApp", doc)
+        self.assertIn("native PHP bridge", doc)
+        self.assertIn("deployment as blocked", doc)
+        self.assertIn("Do not link users or", doc)
+        self.assertIn("standalone Core UI from within Nextcloud", doc)
 
 
 if __name__ == "__main__":

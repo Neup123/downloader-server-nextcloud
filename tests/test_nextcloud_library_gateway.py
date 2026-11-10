@@ -57,7 +57,7 @@ def test_clear_history_is_explicit_and_only_hides_terminal_owned_records():
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(side_effect=core)):
         result = asyncio.run(clear_owner_history(request,ctx))
     assert result == {"hidden":2, "files_retained":True}
-    assert set(__import__("json").loads(ctx.nc.preferences_ex.values["hidden_history"])) == {"done","failed"}
+    assert set(__import__("json").loads(ctx.nc.preferences_ex.values["hidden_history"])) == {"done","33333333-3333-4333-8333-333333333333"}
     request._json = {"confirm": False}
     with pytest.raises(HTTPException) as exc:
         asyncio.run(clear_owner_history(request,ctx))
