@@ -183,8 +183,10 @@ custom_apps/downloader_bridge/js/bridge.js. Enable it:
 
 The PHP bridge does not execute jobs. It loads Nextcloud's supported Files
 actions script; the script checks entitlement before showing any action.
-Expect folder context-menu and + New actions, a small URL+quality/Audio only
-dialog, and an ambient topbar progress/cancel/retry popover. The Viewer
+Expect folder context-menu and + New actions, a link-first dialog that detects
+supported content and then offers Quality/Audio only as appropriate, and an
+ambient topbar progress/cancel/retry popover. Unsupported sources do not
+submit automatically. The Viewer
 media action submits immediately only when a source URL is available in
 metadata, otherwise it opens the URL dialog.
 

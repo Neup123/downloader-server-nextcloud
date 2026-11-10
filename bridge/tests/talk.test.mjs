@@ -36,7 +36,9 @@ test('Native Talk action is registered only after signed entitlement, with confi
 test('Native Files/Viewer/Talk preserve implicit default destination without a second prompt', () => {
   const payloadSource = readFileSync(new URL('../src/files-dialog-payload.mjs', import.meta.url), 'utf8');
   assert.match(bridge, /openDialog\(folder: string \| null/);
-  assert.match(bridge, /filesJobRequest\(\s*url\.value\.trim\(\), folder,/);
+  const linkDialog = readFileSync(new URL('../src/link-first-dialog.mjs', import.meta.url), 'utf8');
+  assert.match(bridge, /showLinkDialog\(\{folder, suggested, api, notify,/);
+  assert.match(linkDialog, /filesJobRequest\(target,folder,/);
   assert.match(payloadSource, /if \(folder !== null\) payload\.folder = folder/);
   const dialog = bridge.slice(bridge.indexOf('async function openDialog('), bridge.indexOf('function registerActions()'));
   assert.doesNotMatch(dialog, /label\('Destination/);

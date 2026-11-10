@@ -300,6 +300,26 @@ async def update_user_settings(request: Request, context: UserContext = Depends(
     return await write_user_preferences(context, await request.json())
 
 
+@APP.post("/user/api/media-preview")
+async def user_media_preview(request: Request, context: UserContext = Depends(require_user)):
+    """Use Core's bounded yt-dlp preview, not an ExApp-side extractor.
+
+    Core performs its URL and DNS policy checks; no browser can reach its
+    privileged API token or trigger an unbounded channel enumeration here.
+    """
+    body = await request.json()
+    if not isinstance(body, dict) or set(body) != {"url", "max_entries"}:
+        raise HTTPException(status_code=422, detail="Invalid media inspection request")
+    url, count = body["url"], body["max_entries"]
+    if (not isinstance(url, str) or not 8 <= len(url) <= 4096
+            or not isinstance(count, int) or isinstance(count, bool)
+            or not 1 <= count <= 100):
+        raise HTTPException(status_code=422, detail="Invalid media inspection parameters")
+    return await core_json("POST", "preview", payload={
+        "url": url, "max_entries": count,
+    })
+
+
 @APP.get("/user/api/engines")
 async def user_engines(context: UserContext = Depends(require_user)):
     return await core_json("GET", "engines")

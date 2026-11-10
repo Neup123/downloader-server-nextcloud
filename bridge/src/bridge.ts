@@ -6,7 +6,7 @@ import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@ne
 import { getClient, getDefaultPropfind, getRootPath, resultToNode } from '@nextcloud/files/dav';
 import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
-import { filesJobRequest } from './files-dialog-payload.mjs';
+import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
@@ -86,98 +86,9 @@ function cleanFolder(path?: string): string {
 }
 
 async function openDialog(folder: string | null, suggested = '') {
-  // The Files folder action already supplies its destination. For Viewer/Talk,
-  // omit it so the signed ExApp applies the user's own Files default.
-  const userSettings = await api<{default_video_quality?:string;default_audio_quality?:string}>('/settings')
-    .catch(() => ({default_video_quality:'best', default_audio_quality:'best'}));
-  const dialog = node('dialog', '', 'dl-dialog');
-  const form = node('form');
-  form.method = 'dialog';
-  const title = node('h2', 'Download into my Files');
-  title.id = 'dl-dialog-heading';
-  dialog.setAttribute('aria-labelledby', title.id);
-  dialog.setAttribute('aria-modal', 'true');
-
-  const url = node('input', '', 'dl-input');
-  url.type = 'url';
-  url.required = true;
-  url.placeholder = 'https://…';
-  url.autocomplete = 'url';
-  url.value = suggested;
-  url.setAttribute('aria-label', 'Source URL');
-
-  // Main-form controls: the checkbox is OFF every time a dialog opens;
-  // each mode remembers its own per-user saved quality preference.
-  const audioOnly = node('input');
-  audioOnly.type = 'checkbox';
-  audioOnly.checked = false;
-  const audioToggle = node('label', '', 'dl-audio-toggle');
-  audioToggle.append(audioOnly, node('span', 'Audio only'));
-  const quality = select([]);
-  const mediaRow = node('div', '', 'dl-media-row');
-  mediaRow.append(audioToggle, label('Quality', quality));
-  function updateQualityChoices() {
-    const choices = audioOnly.checked
-      ? [
-        {value:'best', label:'Best available audio'},
-        {value:'192', label:'Up to 192 kbps'},
-        {value:'128', label:'Up to 128 kbps'},
-        {value:'small', label:'Smallest audio'},
-      ]
-      : [
-        {value:'best', label:'Best available video'},
-        {value:'1080', label:'Up to 1080p'},
-        {value:'720', label:'Up to 720p'},
-        {value:'480', label:'Up to 480p'},
-      ];
-    quality.replaceChildren(...choices.map(item => {
-      const option = node('option', item.label);
-      option.value = item.value;
-      return option;
-    }));
-    const preferred = audioOnly.checked
-      ? userSettings.default_audio_quality : userSettings.default_video_quality;
-    quality.value = choices.some(item => item.value === preferred) ? preferred! : 'best';
-  }
-  audioOnly.addEventListener('change', updateQualityChoices);
-  updateQualityChoices();
-  const buttons = node('div', '', 'dl-buttons');
-  const cancel = node('button', 'Cancel');
-  cancel.type = 'button';
-  const submit = node('button', 'Download', 'dl-primary');
-  submit.type = 'submit';
-  buttons.append(cancel, submit);
-  form.append(title, label('Source URL', url), mediaRow, buttons);
-  dialog.append(form);
-  document.body.append(dialog);
-
-  const close = () => {
-    if (dialog.open) dialog.close();
-    else dialog.remove();
-  };
-  cancel.addEventListener('click', close);
-  dialog.addEventListener('close', () => dialog.remove(), {once: true});
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (!sourceIsHttp(url.value)) {
-      notify('Paste a valid HTTP or HTTPS source URL.');
-      url.focus();
-      return;
-    }
-    submit.disabled = true;
-    try {
-      await api('/jobs', 'POST', filesJobRequest(
-        url.value.trim(), folder, quality.value, audioOnly.checked));
-      notify('Download added to your Nextcloud Files.');
-      window.dispatchEvent(new Event('downloader:job-queued'));
-      close();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Download submission failed');
-      submit.disabled = false;
-    }
-  });
-  dialog.showModal();
-  url.focus();
+  // One Nextcloud-native dialog shared by Files, Viewer, Talk and the bubble.
+  showLinkDialog({folder, suggested, api, notify,
+    queued: () => window.dispatchEvent(new Event('downloader:job-queued'))});
 }
 
 function registerActions() {
@@ -692,7 +603,7 @@ function styles() {
   const style = node('style');
   style.textContent = [
     '.dl-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;',
-    'box-sizing:border-box;width:min(460px,calc(100vw - 32px));max-width:calc(100vw - 32px);',
+    'box-sizing:border-box;width:min(700px,calc(100vw - 32px));max-width:calc(100vw - 32px);',
     'max-height:calc(100dvh - 32px);overflow-y:auto;padding:24px;',
     'color:var(--color-main-text,#222);background:var(--color-main-background,#fff);',
     'border:1px solid var(--color-border,#bbb);border-radius:var(--border-radius-large,12px);',
@@ -720,6 +631,43 @@ function styles() {
     'border:1px solid var(--color-border,#ddd);border-radius:6px}',
     '.dl-primary{background:var(--color-primary,#3a7dde)!important;color:#fff!important}',
     '.dl-muted{font-size:12px;color:var(--color-text-maxcontrast,#777)}',
+
+    '.dl-link-line{display:flex;align-items:center;gap:10px}',
+    '.dl-link-line input{flex:1;min-width:0}',
+    '.dl-detect-spinner{width:16px;height:16px;border:2px solid var(--color-border,#ccc);',
+    'border-top-color:var(--color-primary,#377bd1);border-radius:50%;animation:dl-spin .7s linear infinite}',
+    '.dl-detect-spinner[hidden],.dl-detected[hidden],.dl-buttons[hidden]{display:none!important}',
+    '@keyframes dl-spin{to{transform:rotate(360deg)}}',
+    '.dl-detect-status{min-height:0;margin:0}.dl-detected{display:grid;gap:10px}',
+    '.dl-detected h3{font-size:15px;margin:0}.dl-detected p{margin:0}',
+    '.dl-playlist-list{display:grid;gap:5px;max-height:390px;overflow-y:auto}',
+    '.dl-playlist-item{display:grid;grid-template-columns:20px 60px 1fr;align-items:center;',
+    'gap:10px;padding:4px;border-bottom:1px solid var(--color-border,#ddd);cursor:pointer}',
+    '.dl-gallery-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;',
+    'max-height:470px;overflow-y:auto;align-content:start}',
+    '.dl-grid-item{position:relative;min-width:0;aspect-ratio:1/1;overflow:hidden;',
+    'border:1px solid var(--color-border,#ccc);border-radius:5px;cursor:pointer}',
+    '.dl-grid-item>input{position:absolute;top:6px;left:6px;z-index:2;',
+    'width:18px;height:18px;accent-color:var(--color-primary,#377bd1)}',
+    '.dl-entry-media{position:relative;display:grid;place-items:center;min-width:0;min-height:60px;',
+    'width:100%;height:100%;background:var(--color-background-dark,#444);color:var(--color-main-text,#eee)}',
+    '.dl-entry-media img{width:100%;height:100%;object-fit:cover}',
+    '.dl-entry-placeholder{font-size:11px;text-align:center;opacity:.7}',
+    '.dl-entry-caption{position:absolute;inset:auto 0 0 0;display:grid;gap:2px;',
+    'background:linear-gradient(transparent,#000d);color:white;padding:22px 8px 7px;',
+    'font-size:12px;font-weight:650;line-height:1.2;overflow-wrap:anywhere}',
+    '.dl-entry-caption small{font-weight:400;font-size:10px}',
+    '.dl-playlist-item .dl-entry-media{width:60px;height:48px}',
+    '.dl-playlist-item .dl-entry-caption{position:static;background:none;color:inherit;padding:0}',
+    '.dl-entry-details{display:grid;gap:2px;font-size:12px}',
+    '.dl-load-sentinel{grid-column:1/-1;text-align:center;padding:8px;font-size:12px}',
+    '.dl-live-badge{display:inline-block;margin-inline-start:7px;color:var(--color-primary,#377bd1);',
+    'font-size:11px;font-weight:700;text-transform:uppercase}',
+    '.dl-picker-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+    '.dl-picker-controls .dl-audio-toggle{display:flex;align-items:center;gap:6px}',
+    '.dl-options .dl-audio-toggle{display:flex;align-items:center;gap:6px}',
+    '.dl-detected button:disabled{opacity:.5}',
+
 
     '.dl-header{position:relative;display:flex;flex:0 0 44px;width:44px;height:44px;align-items:center}',
     '.dl-trigger{display:grid;place-items:center;width:44px;height:44px;min-width:44px;',
