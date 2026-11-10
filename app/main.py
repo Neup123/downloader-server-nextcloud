@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import json
+import httpx
 import os
 import re
 import shutil
@@ -11,7 +12,7 @@ import subprocess
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -19,15 +20,17 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy import select, cast, or_, Text, delete
 from sqlalchemy.orm import Session
 
+from app.adapters.aria2 import Aria2Rpc
 from app.adapters.process_env import downloader_environment
 from app.completion import load_completed_files
 from app.config import Settings
+from app.version import product_version
 from app.discovery import PreviewError, inspect_ytdlp
 from app.options_catalog import get_catalog
 from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make_engine, make_session_factory, initialize_database, append_log, requeue_job, utcnow
 from app.job_states import JobStatus, TERMINAL_STATUSES, ACTIVE_STATUSES, transition_job
 from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery, verify_delivery_destination
-from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn
+from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn
 from app.security import UnsafeUrlError, preflight_source_dns, validate_target_url
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
 
@@ -60,7 +63,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
 
     app = FastAPI(
         title="Downloader Server API",
-        version="0.1.0",
+        version=product_version(),
         description="Standalone media download job manager. The checked-in OpenAPI YAML is the public API contract.",
         docs_url=None,
         redoc_url=None,
@@ -91,8 +94,39 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             url = validate_target_url(payload.url, "yt-dlp", config.allow_private_targets)
             if not config.allow_private_targets:
                 await asyncio.to_thread(preflight_source_dns, url)
-            return await inspect_ytdlp(url, max_entries=payload.max_entries)
+            return await inspect_ytdlp(url, max_entries=payload.max_entries, offset=payload.offset)
         except (UnsafeUrlError, ValueError, PreviewError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+    @app.post("/api/v1/torrent/manifest", tags=["jobs"])
+    async def torrent_manifest(payload: TorrentManifestIn, _: bool = Depends(authenticate)):
+        """Inspect magnet metadata or uploaded .torrent bytes without a download job."""
+        try:
+            url = None
+            torrent_base64 = None
+            if payload.url is not None:
+                url = validate_target_url(payload.url, "aria2c", config.allow_private_targets)
+                if not url.startswith("magnet:?"):
+                    raise ValueError("Provide a magnet link or upload .torrent bytes as torrent_base64")
+            else:
+                try:
+                    raw = base64.b64decode(payload.torrent_base64 or "", validate=True)
+                except (ValueError, binascii.Error) as exc:
+                    raise ValueError("torrent_base64 must be valid base64-encoded .torrent data") from exc
+                if not 20 <= len(raw) <= 2_000_000:
+                    raise ValueError(".torrent metadata must be between 20 bytes and 2 MB")
+                torrent_base64 = base64.b64encode(raw).decode("ascii")
+
+            # A real worker shares its RPC daemon with downloads; test/standalone
+            # apps without a worker use a lifecycle-scoped temporary daemon.
+            rpc = worker.get_aria2() if worker is not None else Aria2Rpc(config.data_dir, config.aria2_rpc_port)
+            try:
+                return await rpc.inspect_torrent(url=url, torrent_base64=torrent_base64)
+            finally:
+                if worker is None:
+                    await rpc.close()
+        except (UnsafeUrlError, ValueError, RuntimeError, TimeoutError, httpx.HTTPError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/v1/engines", response_model=list[EngineStatusOut], tags=["engines"])
@@ -539,6 +573,52 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         session.refresh(job)
         return job_to_dict(job)
 
+    @app.post("/api/v1/jobs/{job_id}/pause", response_model=JobOut, tags=["jobs"])
+    async def pause_job(job_id: str, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        capability = pause_capability(job)
+        if not capability["can_pause"]:
+            raise HTTPException(status_code=409, detail=capability["reason"])
+        controller = app.state.worker
+        if controller is None:
+            raise HTTPException(status_code=409, detail="This job has no active engine transfer to pause")
+        try:
+            await controller.pause_job(job_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        session.refresh(job)
+        if job.status == JobStatus.DOWNLOADING:
+            transition_job(job, JobStatus.PAUSED)
+        append_log(job, "Paused current aria2 transfer (same job and GID)")
+        session.commit()
+        session.refresh(job)
+        return job_to_dict(job)
+
+    @app.post("/api/v1/jobs/{job_id}/resume", response_model=JobOut, tags=["jobs"])
+    async def resume_job(job_id: str, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        capability = pause_capability(job)
+        if not capability["can_resume"]:
+            raise HTTPException(status_code=409, detail=capability["reason"])
+        controller = app.state.worker
+        if controller is None:
+            raise HTTPException(status_code=409, detail="This job has no paused engine transfer to resume")
+        try:
+            await controller.resume_job(job_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        session.refresh(job)
+        if job.status == JobStatus.PAUSED:
+            transition_job(job, JobStatus.DOWNLOADING)
+        append_log(job, "Resumed the same aria2 transfer (no restart)")
+        session.commit()
+        session.refresh(job)
+        return job_to_dict(job)
+
     @app.post("/api/v1/jobs/{job_id}/retry", status_code=202, response_model=JobOut, tags=["jobs"])
     def retry_job(job_id: str, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
         job = session.get(Job, job_id)
@@ -642,7 +722,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         index_file = WEB_DIST / "index.html"
         if index_file.is_file():
             return FileResponse(index_file)
-        return HTMLResponse("<h1>Downloader Server</h1><p>Web UI build is not present. See <a href='/api-reference'>API reference</a>.</p>")
+        return HTMLResponse("<h1>Downloader Server</h1><p>Web UI build is not present.</p>")
 
     if WEB_DIST.is_dir():
         from fastapi.staticfiles import StaticFiles
@@ -926,6 +1006,24 @@ def build_job(payload: JobCreate, session: Session, config: Settings) -> Job:
     )
 
 
+def pause_capability(job: Job) -> dict[str, Any]:
+    """Per-job reversible action contract; other engines must never fake pause."""
+    status = str(job.status)
+    if job.engine != "aria2c":
+        reason = f"{job.engine} cannot pause this job without restarting the download"
+    elif status == JobStatus.DOWNLOADING:
+        reason = None
+    elif status == JobStatus.PAUSED:
+        reason = None
+    else:
+        reason = f"This aria2c job is {status}; pause is available during active transfer"
+    return {
+        "can_pause": job.engine == "aria2c" and status == JobStatus.DOWNLOADING,
+        "can_resume": job.engine == "aria2c" and status == JobStatus.PAUSED,
+        "reason": reason,
+    }
+
+
 def job_to_dict(job: Job) -> dict:
     return {
         "id": job.id,
@@ -934,6 +1032,7 @@ def job_to_dict(job: Job) -> dict:
         "delivery_subfolder": job.delivery_subfolder,
         "engine": job.engine,
         "status": job.status,
+        "pause_capability": pause_capability(job),
         "overrides": job.overrides or {},
         "progress": job.progress or {},
         "output_files": job.output_files or [],

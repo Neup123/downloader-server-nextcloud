@@ -20,6 +20,14 @@ DOWNSTREAM = frozenset({
     "web/src/App.tsx",
     "scripts/cleanup_merged_branches.py",
     "tests/test_cleanup_equivalent_branches.py",
+    # The Nextcloud ExApp build runs `npm run build -- --mode nextcloud`:
+    # vite.config.ts carries the mode-aware relative base and the user/admin
+    # entrypoints, and package.json's build script must stay the last command
+    # in its chain so the appended mode argument reaches vite. Both files are
+    # downstream-owned; only package.json's version field is hand-synced to
+    # the imported Core VERSION at each sync.
+    "web/package.json",
+    "web/vite.config.ts",
 })
 # Use core CI workflow versions *temporarily* while running the merged core
 # test suite, then restore the Nextcloud CI directory before committing.
@@ -28,7 +36,15 @@ CORE_TEST_ONLY = frozenset({
     ".github/workflows/egress-guard-e2e.yml",
     ".github/workflows/manual-p2-site-webdav.yml",
     ".github/workflows/pinned-engine-updates.yml",
+    ".github/workflows/release-v0.3.1.yml",
     ".github/workflows/safe-merged-branch-cleanup.yml",
+})
+
+
+# Core owns the web dependency lockfile. Its content must match the
+# verified upstream revision exactly, unlike the Nextcloud-specific App.tsx.
+UPSTREAM = frozenset({
+    "web/package-lock.json",
 })
 
 
@@ -36,7 +52,7 @@ def plan_conflicts(paths: list[str]) -> dict[str, str]:
     """Return an exact allowlisted resolution plan; reject before modifying any file."""
     if not paths:
         raise ValueError("No unresolved merge paths found")
-    unexpected = sorted(set(paths) - DOWNSTREAM - CORE_TEST_ONLY)
+    unexpected = sorted(set(paths) - DOWNSTREAM - CORE_TEST_ONLY - UPSTREAM)
     if unexpected:
         raise ValueError("Unexpected upstream merge conflict(s): " + ", ".join(unexpected))
     return {

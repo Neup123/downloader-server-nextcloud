@@ -74,7 +74,33 @@ class JobWorker:
         # authority for deciding which DB jobs to cancel at shutdown.
         self._active_jobs: dict[str, asyncio.Task] = {}
         self._active_engines: dict[str, str] = {}
+        self._engine_deadlines: dict[str, asyncio.Timeout] = {}
+        self._paused_remaining: dict[str, float] = {}
         self._stopping = False
+
+    def get_aria2(self) -> Aria2Rpc:
+        """Use one daemon for manifests and downloads, not competing RPC ports."""
+        if self.aria2 is None:
+            self.aria2 = Aria2Rpc(self.settings.data_dir, self.settings.aria2_rpc_port)
+        return self.aria2
+
+    async def pause_job(self, job_id: str) -> None:
+        if self.aria2 is None or not self.aria2.can_control(job_id):
+            raise RuntimeError("This job has no active aria2 transfer to pause")
+        await self.aria2.pause(job_id)
+        deadline = self._engine_deadlines.get(job_id)
+        if deadline is not None and deadline.when() is not None:
+            self._paused_remaining[job_id] = max(0.0, deadline.when() - asyncio.get_running_loop().time())
+            deadline.reschedule(None)
+
+    async def resume_job(self, job_id: str) -> None:
+        if self.aria2 is None or not self.aria2.can_control(job_id):
+            raise RuntimeError("This job has no paused aria2 transfer to resume")
+        await self.aria2.resume(job_id)
+        remaining = self._paused_remaining.pop(job_id, None)
+        deadline = self._engine_deadlines.get(job_id)
+        if deadline is not None and remaining is not None:
+            deadline.reschedule(asyncio.get_running_loop().time() + remaining)
 
     async def start(self) -> None:
         self.settings.prepare_directories()
@@ -216,6 +242,9 @@ class JobWorker:
                     state = data.get("state", JobStatus.DOWNLOADING.value)
                     if state not in ENGINE_PROGRESS_STATUSES:
                         raise InvalidJobTransition("Engine emitted an unsupported progress state")
+                    # RPC polling may briefly report an old active state after pause.
+                    if current.status == JobStatus.PAUSED and state == JobStatus.DOWNLOADING and job_id in self._paused_remaining:
+                        return
                     transition_job(current, state, progress={**data, "state": state})
                     current.updated_at = utcnow()
                     session.commit()
@@ -272,7 +301,8 @@ class JobWorker:
                 await asyncio.to_thread(preflight_source_dns, url)
             # Deadline covers the engine invocation, not verified delivery or
             # checksum readback; an expired engine fails with a distinct error.
-            async with asyncio.timeout(self.settings.job_timeout_seconds):
+            async with asyncio.timeout(self.settings.job_timeout_seconds) as deadline:
+                self._engine_deadlines[job_id] = deadline
                 if existing_files:
                     await on_log(f"Recovery verified {len(existing_files)} completed output file(s); skipping another download")
                     files = existing_files
@@ -317,9 +347,7 @@ class JobWorker:
                         on_progress=on_progress, on_log=on_log, is_cancelled=is_cancelled,
                     )
                 elif engine == "aria2c":
-                    if self.aria2 is None:
-                        self.aria2 = Aria2Rpc(self.settings.data_dir, self.settings.aria2_rpc_port)
-                    files = await self.aria2.download(
+                    files = await self.get_aria2().download(
                         url=url, job_id=job_id, workdir=workdir,
                         global_settings=global_settings, overrides=overrides,
                         on_progress=on_progress, on_log=on_log, is_cancelled=is_cancelled,
@@ -390,3 +418,7 @@ class JobWorker:
                     current.finished_at = utcnow()
                     append_log(current, f"Job failed: {message}")
                     session.commit()
+
+        finally:
+            self._engine_deadlines.pop(job_id, None)
+            self._paused_remaining.pop(job_id, None)
