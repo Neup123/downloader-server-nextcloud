@@ -361,7 +361,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'File details are shown above. Review them before downloading.':'We have not confirmed this file's type or size. Review the filename before downloading.');
+      message(result?'File details are shown above. Review them before downloading.':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
       refreshSubmit();return;
     }
     const prefs=await settings;
