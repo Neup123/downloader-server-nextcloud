@@ -278,7 +278,7 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         raise HTTPException(status_code=422, detail="Choose Rename or Skip; overwrite is never offered")
     if "destination_routes" in patch:
         route_patch = patch["destination_routes"]
-        if not isinstance(route_patch, dict) or set(route_patch) - ROUTE_SUBFOLDERS:
+        if not isinstance(route_patch, dict) or set(route_patch) - set(ROUTE_SUBFOLDERS):
             raise HTTPException(status_code=422, detail="Invalid content-type destination routes")
         for route_path in route_patch.values():
             if route_path is not None:
@@ -397,7 +397,7 @@ async def job_submission(
     if not password:
         raise HTTPException(status_code=409, detail="Connect your Nextcloud Files app password in personal settings first")
     content_type = data.get("content_type")
-    if content_type is not None and content_type not in ROUTE_SUBFOLDERS:
+    if content_type is not None and (not isinstance(content_type, str) or content_type not in ROUTE_SUBFOLDERS):
         raise HTTPException(status_code=422, detail="Unsupported detected content type")
     explicit_folder = "folder" in data
     # Older untyped submissions continue to use the prior default destination.
