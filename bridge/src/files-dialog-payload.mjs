@@ -24,11 +24,23 @@ export function selectedMediaFormat(quality = 'best', audioOnly = false, contain
 }
 
 export function playlistIndices(indices) {
-  if (!Array.isArray(indices) || !indices.length || indices.length > 100 ||
-      indices.some(index => !Number.isInteger(index) || index < 1 || index > 100)) {
+  if (!Array.isArray(indices) || !indices.length || indices.length > 100100 ||
+      indices.some(index => !Number.isInteger(index) || index < 1 || index > 100100)) {
     throw new Error('Select at least one listed item.');
   }
-  return [...new Set(indices)].sort((a,b)=>a-b).join(',');
+  const ordered=[...new Set(indices)].sort((a,b)=>a-b);
+  // Keep old small-list formatting stable. Large collections must not exceed
+  // the signed gateway's 16k options limit when "all" was selected.
+  if(ordered.length<=100) return ordered.join(',');
+  const ranges=[];
+  for(let i=0;i<ordered.length;){
+    let j=i;while(j+1<ordered.length && ordered[j+1]===ordered[j]+1)j++;
+    ranges.push(j>i ? ordered[i]+'-'+ordered[j] : String(ordered[i]));
+    i=j+1;
+  }
+  const expression=ranges.join(',');
+  if(expression.length>14000)throw new Error('Select fewer separate items.');
+  return expression;
 }
 
 export function filesJobRequest(url, folder, quality = 'best', audioOnly = false, options = {}) {
@@ -38,16 +50,19 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
     throw new Error('Unsupported audio/video quality.');
   }
   const kind = options.kind || 'auto';
-  if (!['auto','video','audio','playlist','channel','gallery','manga','direct'].includes(kind)) {
+  if (!['auto','video','audio','playlist','channel','gallery','manga','direct','torrent'].includes(kind)) {
     throw new Error('Unsupported content type.');
   }
   if (kind === 'manga' && options.cbz !== false) {
     throw new Error('The extractor does not provide a CBZ packaging capability.');
   }
-  const media = !['auto','direct'].includes(kind);
+  if(kind==='torrent' && !/^magnet:\\?/i.test(url)) {
+    throw new Error('Torrent download requires a magnet link.');
+  }
+  const media = !['auto','direct','torrent'].includes(kind);
   const container = options.container || 'original';
-  const format = kind === 'direct' ? null : selectedMediaFormat(quality, audioOnly, container);
-  const engine = kind === 'direct' ? 'generic' : media || format ? 'yt-dlp' : 'auto';
+  const format = ['direct','torrent'].includes(kind) ? null : selectedMediaFormat(quality, audioOnly, container);
+  const engine = kind === 'torrent' ? 'aria2c' : kind === 'direct' ? 'generic' : media || format ? 'yt-dlp' : 'auto';
   const category = kind === 'audio' || audioOnly ? 'audio'
     : kind === 'direct' ? 'direct'
     : kind === 'gallery' ? 'images'
@@ -73,6 +88,9 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
   if (['playlist','channel','gallery','manga'].includes(kind)) {
     overrides.allow_playlist = true;
     overrides.playlist_items = playlistIndices(options.selectedIndices);
+  }
+  if(kind==='torrent') {
+    overrides.options = {'select-file': playlistIndices(options.selectedIndices)};
   }
   if (Object.keys(overrides).length) payload.overrides = overrides;
   return payload;
