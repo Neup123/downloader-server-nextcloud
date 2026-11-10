@@ -98,9 +98,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   dialog.setAttribute('aria-modal','true');
   const form = e('form');
   form.method='dialog';
-  const heading = e('h2', 'Download into my Files');
-  heading.id = 'dl-dialog-heading';
-  dialog.setAttribute('aria-labelledby', heading.id);
+  dialog.setAttribute('aria-label','Download link');
   const line = e('div', '', 'dl-link-line');
   const url = e('input', '', 'dl-input');
   url.type='text'; url.inputMode='url'; url.autocomplete='url'; url.spellcheck=false;
@@ -111,13 +109,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   line.append(url,spinner);
   const status=e('p','', 'dl-muted dl-detect-status');
   status.setAttribute('aria-live','polite');
+  status.hidden=true;
   const details=e('section', '', 'dl-detected');
   details.hidden=true;
   const buttons=e('div','','dl-buttons');
   const download=e('button','Download','dl-primary');
   download.type='submit';
   buttons.append(download);buttons.hidden=true;
-  form.append(heading,line,status,details,buttons);
+  form.append(line,status,details,buttons);
   dialog.append(form);
   document.body.append(dialog);
   dialog.showModal();
@@ -131,7 +130,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
-  const message=(text)=>{status.textContent=text;};
+  const message=(text)=>{status.textContent=text;status.hidden=!text;};
   const available=()=>!busy && kind!=='unsupported' && kind!=='torrent' && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
@@ -151,8 +150,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const update=()=>{
       const audio=soundOnly || Boolean(audioOnly?.checked);
       const options=audio
-        ? [['best','Best available audio'],['192','Up to 192 kbps'],['128','Up to 128 kbps'],['small','Smallest audio']]
-        : [['best','Best available video'],['1080','Up to 1080p'],['720','Up to 720p'],['480','Up to 480p']];
+        ? [['best','Best quality'],['192','Up to 192 kbps'],['128','Up to 128 kbps'],['small','Smallest audio']]
+        : [['best','Best quality'],['1080','Up to 1080p'],['720','Up to 720p'],['480','Up to 480p']];
       qualityPicker.replaceChildren(...options.map(([value,label])=>{
         const node=e('option',label); node.value=value; return node;
       }));
@@ -165,7 +164,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         subtitles.disabled=audioOnly.checked;subtitleLanguage.disabled=!subtitles.checked || audioOnly.checked;
       }
     });
-    update();media.append(labeled('Quality',qualityPicker));
+    update();
+    const qualityLabel=labeled('Quality',qualityPicker);
+    qualityLabel.classList.add('dl-quality-label');
+    media.append(qualityLabel);
     return media;
   }
   function advancedVideo(subtitleLanguages=[], soundOnly=false) {
@@ -251,7 +253,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const urlAtStart=currentUrl;
     if(busy || !preview || choices.length>=MAX)return;
     const next=Math.min(MAX,choices.length+PAGE);
-    busy=true;refreshSubmit();message('Loading more items…');
+    busy=true;refreshSubmit();message('');
     try {
       const result=await api('/media-preview','POST',{url:currentUrl,max_entries:next});
       if(urlAtStart!==currentUrl||closed)return;
@@ -259,8 +261,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       choices=previewRows(result);preview=result;previewCount=next;
       if(choices.length===previous)limit=choices.length;
       drawRows(list,type);
-      message(choices.length===MAX ? 'Only the first 100 items are available to select.'
-        : 'Choose items to download.');
+      message(choices.length===MAX ? 'Only the first 100 items are available to select.' : '');
     }catch(error){
       message('Could not load more items. Please try again.');
     }finally{busy=false;refreshSubmit();}
@@ -333,6 +334,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
+    message('');
     if(kind==='unsupported'){
       details.append(e('h3','Unsupported or unrecognized link'),
         e('p','We could not find a supported download at this link. Ordinary web pages cannot be downloaded here.','dl-muted'));
@@ -362,7 +364,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'File details are shown below. Review them before downloading.':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
+      message(result?'':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
       refreshSubmit();return;
     }
     const prefs=await settings;
@@ -392,7 +394,6 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
       details.append(itemPicker(kind));
     }
-    message('Link checked. Review your choices, then select Download.');
     refreshSubmit();
   }
   async function detect(input) {
@@ -400,11 +401,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const value=input.trim();currentUrl=value;observation?.disconnect();
     details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
     details.replaceChildren();preview=null;previewCount=PAGE;choices=[];selected=new Set();
+    message('');
     const magnet=/^magnet:\?/i.test(value);
     let valid=false;
     try {valid=magnet || ['http:','https:'].includes(new URL(value).protocol);}catch{}
     if(!valid){spinner.hidden=true;message(value?'Paste an HTTP(S) link or a magnet URI.':'');return;}
-    spinner.hidden=false;message('Detecting content type…');
+    spinner.hidden=false;
     if(magnet || (()=>{try{return TORRENT.test(new URL(value).pathname)}catch{return false}})()){
       spinner.hidden=true;await render('torrent',null);return;
     }
@@ -428,7 +430,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   }
   function schedule(){
     clearTimeout(timer);++generation;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
-    kind='unsupported';download.disabled=true;
+    kind='unsupported';download.disabled=true;message('');
     timer=setTimeout(()=>{void detect(url.value);},220);
   }
   url.addEventListener('input',schedule);
