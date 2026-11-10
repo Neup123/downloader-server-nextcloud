@@ -76,7 +76,7 @@ jobs:
         env:
           DATA_DIR: /tmp/downloader-nextcloud-139-ci
         run: |
-          python3 -m pip install -r requirements.txt pytest
+          python3 -m pip install -r requirements.txt -r nextcloud_exapp/requirements.lock pytest
           python3 -m pytest -q tests/test_nextcloud_collision_policy.py tests/test_nextcloud_delivery_flat.py
 
       - name: Create installable native Nextcloud app
