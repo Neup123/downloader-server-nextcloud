@@ -2,7 +2,7 @@ import {filesJobRequest} from './files-dialog-payload.mjs';
 
 const PAGE = 24;
 const MAX = 100;
-const DIRECT = /\.(?:zip|7z|rar|pdf|epub|cbz|iso|exe|dmg|apk|tar|gz|csv|json|mp3|flac|wav|m4a|mp4|mkv|webm|png|jpe?g|gif|webp)$/i;
+const DIRECT = /\.(?:zip|7z|rar|pdf|epub|cbz|iso|exe|dmg|apk|tar|gz|csv|json|dat|bin|txt|mp3|flac|wav|m4a|mp4|mkv|webm|png|jpe?g|gif|webp)$/i;
 const TORRENT = /\.torrent$/i;
 const CHANNEL = /\/(?:channels?|series|shows|seasons|users?|@[^/]+\/(?:videos|streams))(?:\/|$)/i;
 const GALLERY = /\/(?:albums?|galleries|photos)(?:\/|$)/i;
@@ -19,6 +19,8 @@ export function classifyPreview(url, preview) {
   if (/^magnet:\?/i.test(input) || (() => {
     try { return TORRENT.test(new URL(input).pathname); } catch { return false; }
   })()) return 'torrent';
+  // A file-shaped URL remains a direct file even if a generic preview guesses video.
+  if (looksLikeDirectFile(input)) return 'direct';
   if (!preview || typeof preview !== 'object') return 'unsupported';
   if (preview.kind === 'direct') return 'direct';
   if (preview.kind === 'playlist' && Array.isArray(preview.entries)) {
@@ -30,9 +32,14 @@ export function classifyPreview(url, preview) {
   }
   if (preview.kind === 'video') {
     const formats = Array.isArray(preview.formats) ? preview.formats : [];
-    const codecs = formats.filter(item => item && item.acodec && item.acodec !== 'none');
-    if (codecs.length && codecs.every(item => item.vcodec === 'none')) return 'audio';
-    return 'video';
+    // A missing or blank codec field is unknown, never proof of video/audio.
+    // Check every format: modern split streams have separate video-only formats.
+    const realCodec = codec => typeof codec === 'string' && codec.trim() !== ''
+      && codec.toLowerCase() !== 'none';
+    if (formats.some(item => item && realCodec(item.vcodec))) return 'video';
+    if (formats.some(item => item && realCodec(item.acodec))) return 'audio';
+    // No usable format identified: a generic video guess is not sufficient.
+    return 'direct';
   }
   return 'unsupported';
 }
@@ -81,7 +88,7 @@ function pick(choices, value) {
   return select;
 }
 function sizeLabel(value) {
-  if (!Number.isSafeInteger(value) || value < 0) return 'Size unavailable from extractor';
+  if (!Number.isSafeInteger(value) || value < 0) return 'Size not available';
   if (value < 1024) return value + ' B';
   return (value / (1024 * 1024)).toFixed(1) + ' MiB';
 }
@@ -243,7 +250,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const urlAtStart=currentUrl;
     if(busy || !preview || choices.length>=MAX)return;
     const next=Math.min(MAX,choices.length+PAGE);
-    busy=true;refreshSubmit();message('Loading another bounded extractor batch…');
+    busy=true;refreshSubmit();message('Loading more items…');
     try {
       const result=await api('/media-preview','POST',{url:currentUrl,max_entries:next});
       if(urlAtStart!==currentUrl||closed)return;
@@ -251,10 +258,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       choices=previewRows(result);preview=result;previewCount=next;
       if(choices.length===previous)limit=choices.length;
       drawRows(list,type);
-      message(choices.length===MAX ? 'Core preview limit reached: only the first 100 entries are available.'
+      message(choices.length===MAX ? 'Only the first 100 items are available to select.'
         : 'Choose items to download.');
     }catch(error){
-      message(error instanceof Error?error.message:'Could not load more entries.');
+      message('Could not load more items. Please try again.');
     }finally{busy=false;refreshSubmit();}
   }
   function itemPicker(type) {
@@ -292,8 +299,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         cbz=e('input');cbz.type='checkbox';cbz.checked=true;
         const pack=e('label','','dl-audio-toggle');pack.append(cbz,e('span','Pack as a single CBZ file'));
         cbz.addEventListener('change',refreshSubmit);
-        advanced.append(pack,e('p','The current extractor does not expose CBZ packaging; Download stays disabled while this is checked.','dl-muted'));
-        pageChoice=e('input');pageChoice.placeholder='Pages (requires extractor support)';pageChoice.disabled=true;
+        advanced.append(pack,e('p','Packing these pages into one comic book file is not available yet. Turn this off to download individual items.','dl-muted'));
+        pageChoice=e('input');pageChoice.placeholder='Page selection is not available yet';pageChoice.disabled=true;
         advanced.append(labeled('Pages',pageChoice));
       }
       picker.append(advanced);
@@ -315,7 +322,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     // exports a real torrent file manifest. Never pretend an empty manifest
     // means the user selected all files.
     view.disabled=true;sort.disabled=true;filter.disabled=true;all.disabled=true;
-    const files=e('div','Torrent metadata and selectable file list are unavailable from the current Core API.','dl-muted');
+    const files=e('div','We cannot show or select the files inside this torrent yet.','dl-muted');
     advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',filter));
     const bulk=e('label','','dl-audio-toggle');
     bulk.append(all,e('span','Check/uncheck matching torrent files'));advanced.append(bulk,files);
@@ -327,21 +334,21 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
     if(kind==='unsupported'){
       details.append(e('h3','Unsupported or unrecognized link'),
-        e('p','No supported media type was detected in this link. A regular web page is not a downloadable media file.','dl-muted'));
+        e('p','We could not find a supported download at this link. Ordinary web pages cannot be downloaded here.','dl-muted'));
       if(warning)details.append(e('p',warning,'dl-muted'));
       if(looksLikeDirectFile(currentUrl)){
         const tryDirect=e('button','Try as a direct file');tryDirect.type='button';
         tryDirect.addEventListener('click',()=>{void render('direct',null);});
         details.append(tryDirect);
       }
-      message('This link cannot be downloaded without a supported extractor.');
+      message('This link is not supported. Try a direct file link or another media link.');
       return;
     }
     if(kind==='torrent'){
       details.append(e('h3','Torrent or magnet link'),
-        e('p','The Core API does not expose torrent metadata or file selections. Download is blocked rather than silently fetching every file.','dl-muted'),
+        e('p','Torrent downloads are not available yet because the files inside cannot be checked and selected. No download will start.','dl-muted'),
         torrentPicker());
-      message('Torrent file selection is not supported by the current extractor API.');
+      message('Torrent downloads are not available yet.');
       return;
     }
     if(kind==='direct'){
@@ -354,7 +361,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'Direct file metadata provided by extractor.':'Direct-file attempt selected; MIME and size have not been verified.');
+      message(result?'File details are shown above. Review them before downloading.':'We have not confirmed this file's type or size. Review the filename before downloading.');
       refreshSubmit();return;
     }
     const prefs=await settings;
@@ -380,11 +387,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         if(preview?.entry_count>choices.length)
           details.append(e('p','Only the first '+choices.length+' entries can be selected from the current preview.','dl-muted'));
       }else{
-        details.append(e('p','Extractor order is preserved; timestamps and thumbnails may not be provided. More results are fetched in bounded batches.','dl-muted'));
+        details.append(e('p','Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.','dl-muted'));
       }
       details.append(itemPicker(kind));
     }
-    message('Detected by Core extractor. Review your choices, then Download.');
+    message('Link checked. Review your choices, then select Download.');
     refreshSubmit();
   }
   async function detect(input) {
@@ -415,8 +422,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }catch(error){
       if(token!==generation||closed)return;
       spinner.hidden=true;
-      const reason=error instanceof Error?error.message:'Extractor inspection failed.';
-      await render('unsupported',null,reason);
+      await render('unsupported',null,'We could not check this link. Try another link or use the direct-file option if it is a file.');
     }
   }
   function schedule(){
@@ -442,13 +448,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
           (navigator.language||'en').split('-')[0].toLowerCase(),
         selectedIndices:[...selected],cbz:cbz?.checked,
       });
-    }catch(error){notify(error instanceof Error?error.message:'Invalid selection');return;}
+    }catch(error){notify('Please review your download options and try again.');return;}
     busy=true;refreshSubmit();
     try{
       const created=await api('/jobs','POST',body);
       notify('Download added to your Nextcloud Files.');
       queued(created);dialog.close();
-    }catch(error){notify(error instanceof Error?error.message:'Download submission failed');}
+    }catch(error){notify('Could not start the download. Please check your connection and try again.');}
     finally{busy=false;refreshSubmit();}
   });
   return dialog;

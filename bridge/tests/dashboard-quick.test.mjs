@@ -5,6 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {classifyPreview} from '../src/link-first-dialog.mjs';
 
 const dashboard = readFileSync(new URL('../src/dashboard.ts', import.meta.url), 'utf8');
 const bridge = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
@@ -193,4 +194,17 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
   } finally {
     rmSync(dir, {recursive: true, force: true});
   }
+});
+
+test('dashboard blocks magnets and .torrent URLs before submitting any job',()=>{
+  for (const value of ['magnet:?xt=urn:btih:012345', 'https://example.org/file.torrent?download=1']) {
+    assert.equal(classifyPreview(value,null),'torrent',value);
+  }
+  assert.match(dashboard,/classifyPreview\(value, null\) === 'torrent'/);
+  assert.match(dashboard,/submit.disabled = torrent/);
+  assert.match(dashboard,/if \(isTorrent\(value\)\)/);
+  assert.match(dashboard,/feedback.textContent = torrentNotice/);
+  assert.match(dashboard,/field.type = 'text'/);
+  assert.ok(dashboard.indexOf('if (isTorrent(value))') <
+    dashboard.indexOf("api<Job>('/jobs', 'POST'"));
 });
