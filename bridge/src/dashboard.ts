@@ -1,6 +1,7 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
 import { filesJobRequest } from './files-dialog-payload.mjs';
+import { classifyPreview } from './link-first-dialog.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
 type Job = {
   id: string; url: string; status: string; created_at: string;
@@ -82,7 +83,8 @@ function renderDashboard(element: HTMLElement) {
   const label = elem('label', 'Quick download link');
   label.style.cssText = 'display:grid;gap:7px;font-size:13px';
   const field = elem('input');
-  field.type = 'url'; field.required = true;
+  // A magnet URI is not HTTP: accept the text to display the disabled state.
+  field.type = 'text'; field.required = true;
   field.placeholder = 'https://example.org/file';
   field.setAttribute('aria-label', 'Link to download into my Files');
   field.style.cssText = 'width:100%;min-height:44px;padding:9px;border:1px solid var(--color-border,#777);border-radius:8px';
@@ -91,6 +93,13 @@ function renderDashboard(element: HTMLElement) {
   submit.style.cssText = 'padding:9px 12px;min-height:44px;cursor:pointer';
   const feedback = elem('p'); feedback.setAttribute('role', 'status');
   feedback.style.cssText = 'margin:0;font-size:12px';
+  const isTorrent = (value: string) => classifyPreview(value, null) === 'torrent';
+  const torrentNotice = 'Torrent downloads are not available yet because their files cannot be reviewed. No download will start.';
+  field.addEventListener('input', () => {
+    const torrent = isTorrent(field.value.trim());
+    submit.disabled = torrent;
+    feedback.textContent = torrent ? torrentNotice : '';
+  });
   label.append(field); quick.append(label, submit, feedback);
   const list = elem('div');
   list.className = 'job-list';
@@ -98,6 +107,12 @@ function renderDashboard(element: HTMLElement) {
   quick.addEventListener('submit', async event => {
     event.preventDefault();
     let value = field.value.trim();
+    // Enter may submit even when the button is disabled.
+    if (isTorrent(value)) {
+      submit.disabled = true;
+      feedback.textContent = torrentNotice;
+      return;
+    }
     try {
       const parsed = new URL(value);
       if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname ||
