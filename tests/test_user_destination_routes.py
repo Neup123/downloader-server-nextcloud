@@ -120,6 +120,26 @@ class DestinationRouteTests(TestCase):
                     "nextcloud_exapp/tracking.py").read_text()
         self.assertIn('if choice != "0" or skipped:', tracking)
 
+    def test_typed_route_must_exist_and_failed_save_keeps_saved_override(self):
+        ctx = context()
+        run(write_user_preferences(ctx, {"destination_routes": {"audio": "Custom/Podcasts"}}))
+        self.assertEqual(run(read_user_preferences(ctx))["destination_routes"]["audio"],
+                         "Custom/Podcasts")
+        with self.assertRaisesRegex(HTTPException, "422"):
+            run(write_user_preferences(ctx, {"destination_routes": {"audio": "Custom/Missing"}}))
+        # No silent change to a missing path or a different folder.
+        self.assertEqual(run(read_user_preferences(ctx))["destination_routes"]["audio"],
+                         "Custom/Podcasts")
+        ctx.nc.files.paths.add("/Custom/File.txt")
+        original = ctx.nc.files.by_path
+        async def file_path(path):
+            if path == "/Custom/File.txt":
+                return SimpleNamespace(is_dir=False)
+            return await original(path)
+        ctx.nc.files.by_path = file_path
+        with self.assertRaises(HTTPException):
+            run(write_user_preferences(ctx, {"destination_routes": {"audio": "Custom/File.txt"}}))
+
     def test_bad_modes_types_and_paths_rejected_without_downgrade(self):
         for bad in ("overwrite", "", "SKIP", None):
             with self.subTest(mode=bad):
