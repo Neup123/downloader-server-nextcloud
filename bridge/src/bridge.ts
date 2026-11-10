@@ -666,6 +666,7 @@ function styles() {
     '.dl-picker-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
     '.dl-picker-controls .dl-audio-toggle{display:flex;align-items:center;gap:6px}',
     '.dl-options .dl-audio-toggle{display:flex;align-items:center;gap:6px}',
+    '.dl-options .dl-subtitle-toggle input{width:18px;height:18px;margin:0}',
     '.dl-detected button:disabled{opacity:.5}',
 
 

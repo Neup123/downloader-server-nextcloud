@@ -173,7 +173,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     advanced.append(e('summary','Advanced'));
     if(!soundOnly){
       subtitles=e('input'); subtitles.type='checkbox';subtitles.checked=false;
-      const subToggle=labeled('Download subtitles',subtitles);
+      const subToggle=e('label','','dl-audio-toggle dl-subtitle-toggle');
+      subToggle.append(subtitles,e('span','Download subtitles'));
       advanced.append(subToggle);
       const system=(navigator.language||'en').split('-')[0].toLowerCase();
       subtitleLanguage=pick([['', 'System language ('+system+')'],
@@ -361,7 +362,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'File details are shown above. Review them before downloading.':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
+      message(result?'File details are shown below. Review them before downloading.':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
       refreshSubmit();return;
     }
     const prefs=await settings;

@@ -51,6 +51,22 @@ test('single-video quality, audio/music, subtitles and original container map co
   assert.match(dialog,/\['original','Original format'\]/);
 });
 
+
+test('advanced subtitle checkbox and label share the Audio only row alignment',()=>{
+  assert.match(dialog,/const subToggle=e\('label','','dl-audio-toggle dl-subtitle-toggle'\)/);
+  assert.match(dialog,/subToggle\.append\(subtitles,e\('span','Download subtitles'\)\)/);
+  assert.match(dialog,/advanced\.append\(subToggle\)/);
+  assert.doesNotMatch(dialog,/labeled\('Download subtitles',subtitles\)/);
+  assert.match(source,/\.dl-options \.dl-audio-toggle\{display:flex;align-items:center;gap:6px\}/);
+  assert.match(source,/\.dl-options \.dl-subtitle-toggle input\{width:18px;height:18px;margin:0\}/);
+});
+
+test('direct-file details are described as below the status line in plain language',()=>{
+  assert.match(dialog,/form\.append\(heading,line,status,details,buttons\)/);
+  assert.match(dialog,/File details are shown below\. Review them before downloading\./);
+  assert.doesNotMatch(dialog,/File details are shown above/);
+});
+
 test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=>{
   assert.equal(playlistIndices([3,1,2,2]),'1,2,3');
   assert.deepEqual(filesJobRequest('https://example.org/list','Folder','best',false,{
