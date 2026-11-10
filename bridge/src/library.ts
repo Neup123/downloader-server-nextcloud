@@ -1,10 +1,10 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, downloadStatusDetail, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
 type Job = {
   id:string;url:string;status:string;owner_id?:string;engine?:string;
   progress?:{percent?:number};error?:string|null;log_text?:string;
-  output_files?:Array<{filename:string;path?:string;verified?:boolean;file_id?:string|number}>;
+  output_files?:Array<{filename:string;path?:string;verified?:boolean;skipped?:boolean;file_id?:string|number}>;
 };
 type Page = {jobs: Job[]; next_offset: number|null};
 type Oc = {generateUrl: (path:string)=>string;requestToken?:string;
@@ -111,10 +111,10 @@ function main() {
     const heading = el('h2',downloadTitle(job));heading.id='library-job-title';
     dlg.setAttribute('aria-labelledby',heading.id);
     const source=el('p','Source: '+job.url);source.style.overflowWrap='anywhere';
-    dlg.append(heading,el('p',downloadStatus(job)),source);
+    dlg.append(heading,el('p',downloadStatusDetail(job)),source);
     if (job.error) dlg.append(el('p',job.error));
     for (const file of job.output_files||[]) {
-      dlg.append(el('p',file.filename+(file.verified?' · Verified':' · Awaiting verification')));
+      dlg.append(el('p',file.filename+(file.verified?' · Verified':file.skipped?' · Skipped':' · Awaiting verification')));
     }
     const technical=el('details');
     technical.append(el('summary','Technical log (advanced)'),el('pre',job.log_text||'No log output.'));
@@ -167,9 +167,9 @@ function main() {
     title.title=downloadTitle(job);
     title.addEventListener('click',()=>showModal(job));
     const status=el('span',downloadStatus(job));status.className='library-status';
-    status.title=downloadStatus(job);
+    status.title=downloadStatusDetail(job);
     info.append(title,status);
-    if (!['completed','failed','cancelled'].includes(job.status)){
+    if (!['completed','skipped','failed','cancelled'].includes(job.status)){
       const bar=el('progress');bar.className='library-progress';bar.max=100;
       bar.value=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
       bar.setAttribute('aria-label','Download progress');
@@ -190,7 +190,7 @@ function main() {
     if(query)control('Open in Files',()=>{
       window.location.href=oc()!.generateUrl('/apps/files/files')+query;
     });
-    const op=job.status==='completed'?'redeliver':(['failed','cancelled'].includes(job.status)?'retry':'cancel');
+    const op=['completed','skipped'].includes(job.status)?'redeliver':(['failed','cancelled'].includes(job.status)?'retry':'cancel');
     control(op==='redeliver'?'Deliver again':op==='retry'?'Try again':'Cancel download',
       ()=>{void runAction(job,op);});
     control('View details',()=>showModal(job));

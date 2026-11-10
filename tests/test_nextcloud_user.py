@@ -286,6 +286,11 @@ class UserUnitTests(TestCase):
             self.assertIn(snippet, message)
         subject, _ = delivery_notification({"status": "completed"})
         self.assertEqual(subject, "Download complete")
+        subject, detail = delivery_notification({"status": "skipped", "output_files": [
+            {"filename": "existing.mp4", "skipped": True, "skip_reason": "exists"}]})
+        self.assertEqual(subject, "Download skipped")
+        self.assertIn("already exists", detail)
+        self.assertIn("left unchanged", detail)
 
 
     def test_old_personal_preset_data_is_readable_but_not_applied(self):

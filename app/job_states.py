@@ -21,12 +21,13 @@ class JobStatus(StrEnum):
     POST_PROCESSING = "post-processing"
     DELIVERING = "delivering"
     COMPLETED = "completed"
+    SKIPPED = "skipped"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
 TERMINAL_STATUSES = frozenset({
-    JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
+    JobStatus.COMPLETED, JobStatus.SKIPPED, JobStatus.FAILED, JobStatus.CANCELLED,
 })
 ACTIVE_STATUSES = frozenset(JobStatus) - TERMINAL_STATUSES
 ENGINE_PROGRESS_STATUSES = frozenset({
@@ -52,9 +53,10 @@ TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
         JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.QUEUED,
     }),
     JobStatus.DELIVERING: frozenset({
-        JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.QUEUED,
+        JobStatus.COMPLETED, JobStatus.SKIPPED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.QUEUED,
     }),
     JobStatus.COMPLETED: frozenset({JobStatus.QUEUED}),
+    JobStatus.SKIPPED: frozenset({JobStatus.QUEUED}),
     JobStatus.FAILED: frozenset({JobStatus.QUEUED}),
     JobStatus.CANCELLED: frozenset({JobStatus.QUEUED}),
 }

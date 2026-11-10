@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {downloadTitle,downloadStatus,downloadBubbleStatus,downloadSymbol,downloadAmount,deliveredFilesQuery} from '../src/download-labels.mjs';
+import {downloadTitle,downloadStatus,downloadStatusDetail,SKIPPED_DETAIL,downloadBubbleStatus,downloadSymbol,downloadAmount,deliveredFilesQuery} from '../src/download-labels.mjs';
 
 test('safe titles and statuses use human file labels rather than job IDs or URL tokens', () => {
   const raw = {id:'123',status:'downloading',url:'https://example.org/media/video.mp4?token=secret'};
@@ -57,4 +57,22 @@ test('Bubble subtitle shows downloading state and speed but not duplicate percen
   assert.equal(downloadStatus(job),'Downloading 32% · 17 MB/s');
   assert.equal(downloadBubbleStatus(job),'Downloading · 17 MB/s');
   assert.equal(downloadBubbleStatus({...job,status:'queued'}),'Queued');
+});
+
+
+test('skipped history rows are terminal after refresh and show the unchanged skip reason only as detail', () => {
+  const job = {id:'collision',status:'skipped',owner_id:'alice',url:'https://media.example/movie.mp4',
+    output_files:[{filename:'movie.mp4',verified:false,skipped:true,skip_reason:'exists'}]};
+  assert.equal(downloadStatus(job),'Skipped');
+  assert.equal(downloadBubbleStatus(job),'Skipped');
+  assert.equal(downloadStatusDetail(job),SKIPPED_DETAIL);
+  assert.equal(SKIPPED_DETAIL,'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.');
+  assert.equal(downloadStatus(JSON.parse(JSON.stringify(job))),'Skipped');
+  assert.doesNotMatch(downloadStatus(job),/checking delivery/i);
+  assert.equal(deliveredFilesQuery(job),null);
+  const renamed = {...job,status:'completed',output_files:[{filename:'movie (1).mp4',verified:true}]};
+  const normal = {...job,status:'completed',output_files:[{filename:'movie.mp4',verified:true}]};
+  assert.equal(downloadStatus(renamed),'Delivered ✓ Verified');
+  assert.equal(downloadStatus(normal),'Delivered ✓ Verified');
+  assert.equal(downloadStatusDetail(normal),downloadStatus(normal));
 });

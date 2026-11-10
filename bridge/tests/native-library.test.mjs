@@ -31,3 +31,10 @@ test('top-level Library GET is CSRF-exempt while remaining owner-entitled', () =
   assert.match(php, /#\[NoAdminRequired\]\s*#\[NoCSRFRequired\]\s*public function index\(/);
   assert.match(php, /EntitlementPolicy::allows/);
 });
+
+
+test('compact Library skipped rows use canonical final status and reason tooltip', () => {
+  assert.match(source,/status\.title=downloadStatusDetail\(job\)/);
+  assert.match(source,/\['completed','skipped','failed','cancelled'\]\.includes\(job\.status\)/);
+  assert.match(source,/const op=\['completed','skipped'\]\.includes\(job\.status\)/);
+});

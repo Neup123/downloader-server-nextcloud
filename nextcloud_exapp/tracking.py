@@ -32,7 +32,7 @@ def notification_link(job: dict, owner_id: str) -> str:
     fallback = "/apps/downloader_bridge/library"
     if re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", identifier):
         fallback += "?job=" + quote(identifier, safe="")
-    if job.get("status") != "completed":
+    if job.get("status") not in ("completed", "skipped"):
         return fallback
     for item in job.get("output_files") or []:
         if not isinstance(item, dict) or item.get("verified") is not True:
@@ -126,12 +126,12 @@ class JobTracker:
                 nc = AsyncNextcloudApp(user=owner_id)
                 if not notified:
                     subject, message = delivery_notification(job)
-                    key = "notify_finished" if job["status"] == "completed" else "notify_failed"
+                    key = "notify_finished" if job["status"] in ("completed", "skipped") else "notify_failed"
                     # Failed preference reads must not bypass an opt-out.
                     choice = await nc.preferences_ex.get_value(key, "1")
                     # A collision skip must never be silent even when normal
                     # finished-download notifications are disabled.
-                    skipped = job["status"] == "completed" and any(
+                    skipped = job["status"] == "skipped" or any(
                         isinstance(item, dict) and item.get("skipped") is True
                         for item in job.get("output_files") or []
                     )
