@@ -61,7 +61,7 @@ test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=
   });
   assert.throws(()=>playlistIndices([]),/Select at least/);
   assert.match(dialog,/for\(const row of choices\)selected\.add\(row\.index\)/);
-  assert.match(dialog,/detected==='playlist' && result\.entry_count>PAGE/);
+  assert.match(dialog,/detected==='playlist' && \(result\.entry_count>PAGE \|\| result\.entries\?\.length===PAGE\)/);
 });
 
 test('nine content types are never inferred from fabricated metadata',()=>{
