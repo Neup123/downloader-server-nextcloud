@@ -297,6 +297,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const sort=pick([['name','Sort by name'],['size','Sort by size']], 'name');
     const filter=e('input');filter.type='search';filter.placeholder='Filter torrent files';
     const all=e('input');all.type='checkbox';all.checked=true;
+    // These are intentionally disabled until the existing Core extractor
+    // exports a real torrent file manifest. Never pretend an empty manifest
+    // means the user selected all files.
+    view.disabled=true;sort.disabled=true;filter.disabled=true;all.disabled=true;
     const files=e('div','Torrent metadata and selectable file list are unavailable from the current Core API.','dl-muted');
     advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',filter));
     const bulk=e('label','','dl-audio-toggle');

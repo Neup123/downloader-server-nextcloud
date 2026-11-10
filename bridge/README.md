@@ -128,6 +128,41 @@ choose **Always show** to keep it visible when idle without a progress
 frame. Its dropdown can show only active jobs or active jobs followed by
 finished history. Library history stays independent.
 
+## Link-first content inspection (issue #138)
+
+The shared Nextcloud Files/Talk/Viewer/header dialog opens with a single URL field
+and no submission button. After pasting, the signed ExApp sends a bounded request
+to **Core's existing** `POST /api/v1/preview` yt-dlp extractor (24 entries
+initially; maximum 100), which retains Core's URL, DNS and egress protections.
+No separate browser-side engine and no preset catalog are used.
+
+Single-video and audio previews offer quality, Audio only (video), and advanced
+container/subtitle choices. yt-dlp playlists use its supported
+`allow_playlist`/`playlist_items` selection contract. A recognized channel
+can progressively re-request bounded prefixes (24 entries per step, at most 100)
+and offers a multi-select gallery with placeholder tiles when Core does not
+provide thumbnails. Exact newest-first ordering requires extractor timestamps,
+which are **not** exposed by the current Core preview. Bounded-prefix requests
+are not genuine offset pagination.
+
+The present Core preview does not provide gallery-dl album/manga metadata,
+chapter covers, CBZ packaging, torrent file metadata, or HTTP direct-file
+headers. These are shown as unsupported or unavailable rather than inventing
+entries, file sizes, or thumbnails. A link with an apparent direct-file
+extension can be explicitly tried with Core's generic engine, but its MIME
+and size remain unverified. Torrent selection and CBZ packaging are blocked
+when unsupported. The existing Core preview also does not expose a live
+broadcast flag, so live badges only appear if an extractor provides one.
+
+**Torrent seeding inspection:** `app/adapters/aria2.py` does not set a
+`seed-time` startup default, and the Core admin/API can accept nonzero
+overrides. The signed Nextcloud ExApp now overrides `seed-time=0` on
+aria2 submissions (including magnet links), which aria2 documents as disabling
+seeding once complete. Zero `seed-ratio` is **not** the disable switch.
+This is not a guarantee for direct Core administrator submissions. Core-owned
+server-level enforcement must be addressed separately before claiming the
+whole instance is incapable of seeding.
+
 ## Downloads header and compact layouts
 
 The header uses a fixed-width, transparent **down-arrow icon** matching the
