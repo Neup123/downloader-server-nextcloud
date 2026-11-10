@@ -116,7 +116,8 @@ class ExternalSitesFallbackContractTests(unittest.TestCase):
         self.assertIn("AppAPI ExApp", doc)
         self.assertIn("native PHP bridge", doc)
         self.assertIn("deployment as blocked", doc)
-        self.assertIn("Do not link users or administrators", doc)
+        self.assertIn("Do not link users or", doc)
+        self.assertIn("standalone Core UI from within Nextcloud", doc)
 
 
 if __name__ == "__main__":
