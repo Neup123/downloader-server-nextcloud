@@ -120,7 +120,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=MAX;
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
   let cbz=null, pageChoice=null, filter=null;
-  let observation=null, currentUrl='', busy=false;
+  let observation=null, currentUrl='', busy=false, previewCount=PAGE;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
@@ -220,7 +220,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
       containerNode.append(card);
     }
-    if(type!=='playlist' && choices.length<MAX && preview?.entry_count>choices.length && choices.length<limit) {
+    // Core often reports the sampled count, not the full collection count.
+    // A full response may therefore have another page even without a total.
+    const fullBatch=choices.length===previewCount;
+    const knownMore=Number.isInteger(preview?.entry_count) && preview.entry_count>choices.length;
+    if(type!=='playlist' && choices.length<MAX && (knownMore||fullBatch) && choices.length<limit) {
       const sentinel=e('div','Loading additional entries…','dl-load-sentinel');
       containerNode.append(sentinel);
       if(typeof IntersectionObserver!=='undefined'){
@@ -244,7 +248,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       const result=await api('/media-preview','POST',{url:currentUrl,max_entries:next});
       if(urlAtStart!==currentUrl||closed)return;
       const previous=choices.length;
-      choices=previewRows(result);preview=result;
+      choices=previewRows(result);preview=result;previewCount=next;
       if(choices.length===previous)limit=choices.length;
       drawRows(list,type);
       message(choices.length===MAX ? 'Core preview limit reached: only the first 100 entries are available.'
@@ -387,7 +391,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const token=++generation;
     const value=input.trim();currentUrl=value;observation?.disconnect();
     details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
-    details.replaceChildren();preview=null;choices=[];selected=new Set();
+    details.replaceChildren();preview=null;previewCount=PAGE;choices=[];selected=new Set();
     const magnet=/^magnet:\?/i.test(value);
     let valid=false;
     try {valid=magnet || ['http:','https:'].includes(new URL(value).protocol);}catch{}
@@ -402,7 +406,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       const detected=classifyPreview(value,result);
       // A playlist begins with all returned items selected. Request the
       // bounded complete preview (up to 100) before showing its item list.
-      if(detected==='playlist' && result.entry_count>PAGE){
+      if(detected==='playlist' && (result.entry_count>PAGE || result.entries?.length===PAGE)){
         result=await api('/media-preview','POST',{url:value,max_entries:MAX});
         if(token!==generation||closed)return;
       }
