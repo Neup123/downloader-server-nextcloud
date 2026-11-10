@@ -57,6 +57,12 @@ function notify(message: string) {
   document.body.append(toast);
   window.setTimeout(() => toast.remove(), 5000);
 }
+function contentTypeFromMime(mime: string): 'video'|'audio'|'images'|'direct' {
+  if(mime.startsWith('video/')) return 'video';
+  if(mime.startsWith('audio/')) return 'audio';
+  if(mime.startsWith('image/')) return 'images';
+  return 'direct';
+}
 function sourceIsHttp(value: string): boolean {
   try { return ['https:', 'http:'].includes(new URL(value).protocol); }
   catch { return false; }
@@ -122,7 +128,9 @@ function registerActions() {
         && sourceIsHttp(attributes.download_source_url) ? attributes.download_source_url : '';
       if (original) {
         try {
-          await api('/jobs', 'POST', {url: original});
+          await api('/jobs', 'POST', {
+            url: original, content_type: contentTypeFromMime(context.nodes[0].mime),
+          });
           notify('Download submitted to your Files.');
           return true;
         } catch (error) {
@@ -157,11 +165,13 @@ function attachLegacyViewerAction() {
   button.type = 'button';
   button.addEventListener('click', () => {
     const current = (window as unknown as {OCA?: {Viewer?: {
-      fileInfo?: {download_source_url?: string};
+      fileInfo?: {download_source_url?: string; mime?: string; mimetype?: string};
     }}}).OCA?.Viewer?.fileInfo;
     const source = current?.download_source_url;
     if (source && sourceIsHttp(source)) {
-      void api('/jobs', 'POST', {url: source}).then(
+      void api('/jobs', 'POST', {
+        url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
+      }).then(
         () => notify('Download submitted to your Files.'),
         error => notify(error instanceof Error ? error.message : 'Download failed'),
       );
