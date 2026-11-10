@@ -5,25 +5,50 @@ import unittest
 from unittest.mock import patch
 
 from scripts.resolve_upstream_conflicts import (
-    CORE_TEST_ONLY, DOWNSTREAM, main, plan_conflicts,
+    CORE_TEST_ONLY, DOWNSTREAM, UPSTREAM, main, plan_conflicts,
 )
 
 
 class ResolverPolicyTests(unittest.TestCase):
     def test_only_exact_audited_paths_are_allowed(self):
-        paths = sorted(DOWNSTREAM | CORE_TEST_ONLY)
+        paths = sorted(DOWNSTREAM | CORE_TEST_ONLY | UPSTREAM)
         result = plan_conflicts(paths)
         self.assertEqual(result.keys(), set(paths))
         self.assertTrue(all(result[p] == "ours" for p in DOWNSTREAM))
         self.assertTrue(all(result[p] == "theirs" for p in CORE_TEST_ONLY))
+        self.assertTrue(all(result[p] == "theirs" for p in UPSTREAM))
         self.assertIn(".github/workflows/pinned-engine-updates.yml", CORE_TEST_ONLY)
+        self.assertIn(".github/workflows/release-v0.3.1.yml", CORE_TEST_ONLY)
         self.assertIn(".github/workflows/egress-guard-e2e.yml", CORE_TEST_ONLY)
         self.assertIn(".github/workflows/manual-p2-site-webdav.yml", CORE_TEST_ONLY)
         self.assertNotIn(".github/workflows/pinned-engine-updates-copy.yml", CORE_TEST_ONLY)
+        self.assertEqual(UPSTREAM, frozenset({
+            "web/package.json", "web/package-lock.json", "web/vite.config.ts",
+        }))
+
+    def test_new_conflict_classes_have_audited_resolution_sides(self):
+        # Temporary upstream workflow checkout is removed again by the
+        # sync workflow before commit; deleted Nextcloud-owned files stay deleted.
+        self.assertEqual(plan_conflicts([
+            ".github/workflows/release-v0.3.1.yml",
+            ".github/workflows/pinned-engine-updates.yml",
+            "web/package.json", "web/package-lock.json", "web/vite.config.ts",
+            "README.md", "web/src/App.tsx",
+        ]), {
+            ".github/workflows/release-v0.3.1.yml": "theirs",
+            ".github/workflows/pinned-engine-updates.yml": "theirs",
+            "web/package.json": "theirs",
+            "web/package-lock.json": "theirs",
+            "web/vite.config.ts": "theirs",
+            "README.md": "ours",
+            "web/src/App.tsx": "ours",
+        })
 
     def test_unknown_conflicts_are_rejected_without_partial_resolution(self):
         for path in (
             "app/main.py",
+            "web/other-build-file.ts",
+            ".github/workflows/release-v0.3.1-copy.yml",
             ".github/workflows/pinned-engine-updates-copy.yml",
             "scripts/cleanup_merged_branches.py.bak",
             "../README.md",
