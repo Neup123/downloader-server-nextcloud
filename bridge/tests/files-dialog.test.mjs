@@ -125,3 +125,14 @@ test('skip outcome produces native toast and never claims delivered Files verifi
   assert.match(source,/Download skipped: a file already exists in Nextcloud Files/);
   assert.match(source,/The existing file was kept/);
 });
+
+test('dialog passes created job ID to header and supports a skip toast even for fast jobs',()=>{
+  const bridgeSource=source;
+  assert.match(dialog,/const created=await api\('\/jobs','POST',body\)/);
+  assert.match(dialog,/queued\(created\);dialog.close\(\)/);
+  assert.match(bridgeSource,/new CustomEvent\('downloader:job-queued'/);
+  assert.match(bridgeSource,/const justQueued = new Set<string>\(\)/);
+  assert.match(bridgeSource,/justQueued.has\(job.id\)/);
+  assert.match(bridgeSource,/Download skipped: a file already exists/);
+  assert.match(bridgeSource,/justQueued.delete\(job.id\)/);
+});
