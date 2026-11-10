@@ -281,8 +281,19 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         if not isinstance(route_patch, dict) or set(route_patch) - set(ROUTE_SUBFOLDERS):
             raise HTTPException(status_code=422, detail="Invalid content-type destination routes")
         for route_path in route_patch.values():
-            if route_path is not None:
-                validate_folder(route_path)
+            if route_path is None:
+                continue  # Reset to the implicit route; created on first use.
+            validated = validate_folder(route_path)
+            # Persist only existing folders belonging to the signed-in owner.
+            # A structurally valid but nonexistent typed path is not a valid route.
+            try:
+                node = await context.nc.files.by_path("/" + validated if validated else "/")
+            except (FileNotFoundError, NextcloudException) as exc:
+                raise HTTPException(status_code=422, detail="Folder not found in your Files. Choose an existing folder") from exc
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail="Could not check this folder in your Files. Try again") from exc
+            if node is None or not bool(getattr(node, "is_dir", False)):
+                raise HTTPException(status_code=422, detail="Folder not found in your Files. Choose an existing folder")
     if "destination_folder" in patch:
         folder = validate_folder(patch["destination_folder"])
         await pref.set_value("destination_folder", folder)
