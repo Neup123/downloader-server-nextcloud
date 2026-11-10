@@ -94,7 +94,7 @@ test('selection works within filtered entries without touching the other checked
 });
 
 test('unsupported direct fallback and torrent metadata limitations are explicit',()=>{
-  assert.match(dialog,/No supported media type was detected in this link/);
+  assert.match(dialog,/We could not find a supported download at this link/);
   assert.match(dialog,/Try as a direct file/);
   assert.match(dialog,/Torrent downloads are not available yet/);
   assert.match(dialog,/Packing these pages into one comic book file is not available yet/);
