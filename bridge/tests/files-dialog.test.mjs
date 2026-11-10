@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {filesJobRequest, selectedMediaFormat, playlistIndices} from '../src/files-dialog-payload.mjs';
-import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows} from '../src/link-first-dialog.mjs';
+import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows, previewMeta,
+  appendPreviewPage, torrentRows, torrentMatches, torrentTree} from '../src/link-first-dialog.mjs';
 
 const source=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf8');
 const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
@@ -26,7 +27,7 @@ test('link step has no Download control until detection, and signed Core preview
   assert.match(dialog,/setTimeout\(\(\)=>\{void detect\(url\.value\);\},220\)/);
   assert.match(dialog,/buttons\.hidden=true/);
   assert.match(dialog,/max_entries:PAGE/);
-  assert.match(dialog,/max_entries:MAX/);
+  assert.match(dialog,/max_entries:PAGE,offset:next/);
   assert.match(dialog,/const download=e\('button','Download','dl-primary'\)/);
   assert.doesNotMatch(dialog,/e\('button','Confirm'/);
   assert.match(dialog,/await api\('\/jobs','POST',body\)/);
@@ -61,7 +62,8 @@ test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=
   });
   assert.throws(()=>playlistIndices([]),/Select at least/);
   assert.match(dialog,/for\(const row of choices\)selected\.add\(row\.index\)/);
-  assert.match(dialog,/detected==='playlist' && \(result\.entry_count>PAGE \|\| result\.entries\?\.length===PAGE\)/);
+  assert.equal(playlistIndices(Array.from({length:115},(_,i)=>i+1)),'1-115');
+  assert.match(dialog,/playlistAutoSelect/);
 });
 
 test('nine content types are never inferred from fabricated metadata',()=>{
@@ -87,7 +89,7 @@ test('selection works within filtered entries without touching the other checked
   assert.deepEqual([...selected].sort(),[1,3]);
   assert.deepEqual([...chooseFiltered(selected,[{index:4}],true)].sort(),[1,3,4]);
   assert.deepEqual(previewRows({entries:[{index:2,title:'Older',timestamp:1},
-    {index:1,title:'Newer',timestamp:2}]}).map(item=>item.index),[1,2]);
+    {index:1,title:'Newer',timestamp:2}]}).map(item=>item.index),[2,1]);
   assert.match(dialog,/IntersectionObserver/);
   assert.match(dialog,/root:containerNode/);
   assert.match(dialog,/grid-item/);
@@ -96,7 +98,8 @@ test('selection works within filtered entries without touching the other checked
 test('unsupported direct fallback and torrent metadata limitations are explicit',()=>{
   assert.match(dialog,/We could not find a supported download at this link/);
   assert.match(dialog,/Try as a direct file/);
-  assert.match(dialog,/Torrent downloads are not available yet/);
+  assert.match(dialog,/Remote HTTP \.torrent URLs are not supported/);
+  assert.match(dialog,/api\('\/torrent-manifest','POST'/);
   assert.match(dialog,/Packing these pages into one comic book file is not available yet/);
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
@@ -161,4 +164,88 @@ test('dialog hides technical errors and does not expose internal engines',()=>{
   assert.doesNotMatch(dialog,/Detected by Core extractor|Size unavailable from extractor|Core API does not expose|yt-dlp metadata inspection failed/);
   assert.doesNotMatch(dialog,/message\(error instanceof Error\?error.message/);
   assert.doesNotMatch(dialog,/render\('unsupported',null,reason\)/);
+});
+
+test('Core thumbnail, duration, dates and Live metadata survive without invented fields',()=>{
+  const rows=previewRows({entries:[
+    {index:1,title:'Missing',thumbnail:null,duration:null,timestamp:null,upload_date:null,is_live:null},
+    {index:2,title:'Live event',thumbnail:'https://cdn.example/real.jpg',duration:81,
+      timestamp:1730000000,upload_date:'20241027',is_live:true},
+    {index:3,title:'HTTP image',thumbnail:'http://cdn.example/cover.png',timestamp:1700000000},
+    {index:4,title:'Unsafe image',thumbnail:'javascript:alert(1)',duration:0},
+  ]});
+  assert.equal(rows[0].thumbnail,null);
+  assert.equal(rows[0].duration,null);
+  assert.equal(rows[0].timestamp,null);
+  assert.equal(previewMeta(rows[0]),'');
+  assert.equal(rows[1].thumbnail,'https://cdn.example/real.jpg');
+  assert.equal(previewMeta(rows[1]),'2024-10-27 · 1:21');
+  assert.equal(rows[1].is_live,true);
+  assert.equal(rows[2].thumbnail,'http://cdn.example/cover.png');
+  assert.equal(previewMeta(rows[2]),'2023-11-14');
+  assert.equal(rows[3].thumbnail,null);
+  assert.deepEqual(rows.map(r=>r.index),[1,2,3,4]);
+  assert.match(dialog,/row.is_live/);
+  assert.match(dialog,/dl-entry-live-badge/);
+  assert.match(dialog,/preview?.is_live===true/);
+  assert.match(dialog,/Thumbnail unavailable/);
+  assert.match(dialog,/previewMeta\(row\)/);
+});
+
+test('Core next_offset pages beyond 100 with no client-side timestamp sorting',()=>{
+  const initial={offset:0,has_more:true,next_offset:100,entries:
+    Array.from({length:100},(_,i)=>({index:i+1,title:String(i),timestamp:100-i}))};
+  const later={offset:100,has_more:true,next_offset:124,entries:
+    Array.from({length:24},(_,i)=>({index:i+101,title:'Later '+i,timestamp:i+10000}))};
+  const done={offset:124,has_more:false,next_offset:null,entries:[
+    {index:125,title:'Final',timestamp:1}]};
+  const first=appendPreviewPage([],initial,0);
+  assert.equal(first.rows.length,100);assert.equal(first.nextOffset,100);
+  const second=appendPreviewPage(first.rows,later,100);
+  assert.equal(second.rows.length,124);assert.equal(second.nextOffset,124);
+  assert.deepEqual(second.rows.slice(99,102).map(r=>r.index),[100,101,102]);
+  const complete=appendPreviewPage(second.rows,done,124);
+  assert.equal(complete.rows.length,125);assert.equal(complete.nextOffset,null);
+  const repeated=appendPreviewPage(complete.rows,later,100);
+  assert.equal(repeated.rows.length,125,'duplicates must not accumulate');
+  assert.match(dialog,/max_entries:PAGE,offset:next/);
+  assert.match(dialog,/result.offset!==next/);
+  assert.match(dialog,/previewNextOffset!==null/);
+});
+
+test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep other selections',()=>{
+  const files=torrentRows({file_count:3,files:[
+    {index:1,path:'Album/a.mp3',name:'a.mp3',size_bytes:20},
+    {index:2,path:'Album/Sub/b.mp3',name:'b.mp3',size_bytes:300},
+    {index:3,path:'Cover.jpg',name:'Cover.jpg',size_bytes:10},
+  ]});
+  assert.equal(files.length,3);
+  assert.deepEqual(torrentMatches(files,'Album').map(f=>f.index),[1,2]);
+  assert.deepEqual(torrentMatches(files,'','size').map(f=>f.index),[3,1,2]);
+  const tree=torrentTree(files);
+  assert.equal(tree.folders.get('Album').files[0].name,'a.mp3');
+  assert.equal(tree.folders.get('Album').folders.get('Sub').files[0].index,2);
+  let selected=new Set(files.map(f=>f.index));
+  selected=chooseFiltered(selected,torrentMatches(files,'Sub'),false);
+  assert.deepEqual([...selected].sort(),[1,3]);
+  selected=chooseFiltered(selected,torrentMatches(files,'Sub'),true);
+  assert.deepEqual([...selected].sort(),[1,2,3]);
+  assert.match(dialog,/drawTree\(torrentTree\(matches\),files\)/);
+  assert.match(dialog,/else for\(const file of matches\)files.append\(fileLabel\(file,true\)\)/);
+  assert.match(dialog,/all.addEventListener\('change'/);
+  assert.match(dialog,/selected=chooseFiltered\(selected,matching\(\),all.checked\)/);
+  assert.match(dialog,/torrent_base64:btoa\(binary\)/);
+  assert.doesNotMatch(dialog,/seed-time|seed-ratio|Seeding controls/i);
+});
+
+test('Torrent submission selects actual one-based aria2 file indices and never accepts a remote URL',()=>{
+  const magnet='magnet:?xt=urn:btih:0123456789012345678901234567890123456789';
+  const payload=filesJobRequest(magnet,null,'best',false,{kind:'torrent',selectedIndices:[3,1,2]});
+  assert.equal(payload.engine,'aria2c');
+  assert.equal(payload.content_type,'torrent');
+  assert.deepEqual(payload.overrides,{options:{'select-file':'1,2,3'}});
+  assert.throws(()=>filesJobRequest('https://example.org/data.torrent',null,'best',false,
+    {kind:'torrent',selectedIndices:[1]}),/magnet link/);
+  assert.throws(()=>filesJobRequest(magnet,null,'best',false,
+    {kind:'torrent',selectedIndices:[]}),/Select at least/);
 });

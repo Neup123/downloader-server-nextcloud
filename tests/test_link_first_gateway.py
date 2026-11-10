@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
@@ -9,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from nextcloud_exapp.main import APP, user_media_preview
+from nextcloud_exapp.main import APP, user_media_preview, user_torrent_manifest
 from nextcloud_exapp.user import UserContext, job_submission
 
 
@@ -97,6 +98,89 @@ class LinkFirstGatewayTests(TestCase):
         self.assertEqual(job["engine"], "yt-dlp")
         self.assertNotIn("options", job["overrides"])
         self.assertEqual(job["delivery"]["username"], "alice")
+
+
+    def test_offset_window_is_forwarded_and_invalid_offsets_are_rejected(self):
+        request = Request({"type": "http", "headers": []})
+        request._json = {"url": "https://example.org/playlist", "max_entries": 100, "offset": 100}
+
+        async def run():
+            with patch("nextcloud_exapp.main.core_json", new=AsyncMock(
+                return_value={"kind": "playlist", "has_more": False,
+                              "next_offset": None, "entries": [{"index": 101}]},
+            )) as core:
+                data = await user_media_preview(request, context())
+                self.assertEqual(data["entries"][0]["index"], 101)
+                core.assert_awaited_once_with("POST", "preview", payload={
+                    "url": "https://example.org/playlist", "max_entries": 100, "offset": 100,
+                })
+
+        asyncio.run(run())
+        for offset in (-1, 100001, "100", True, None):
+            invalid = Request({"type": "http", "headers": []})
+            invalid._json = {"url": "https://example.org/list", "max_entries": 24, "offset": offset}
+
+            async def reject():
+                with patch("nextcloud_exapp.main.core_json", new=AsyncMock()) as core:
+                    with self.assertRaises(HTTPException) as error:
+                        await user_media_preview(invalid, context())
+                    self.assertEqual(error.exception.status_code, 422)
+                    core.assert_not_awaited()
+
+            asyncio.run(reject())
+
+    def test_authenticated_manifest_route_forwards_magnet_or_uploaded_bytes_only(self):
+        routes = {route.path: route for route in APP.routes if hasattr(route, "dependant")}
+        manifest = routes["/user/api/torrent-manifest"]
+        self.assertTrue(any(
+            dep.call.__name__ == "require_user" for dep in manifest.dependant.dependencies
+        ))
+        magnet = "magnet:?xt=urn:btih:0123456789012345678901234567890123456789"
+        encoded = base64.b64encode(b"x" * 40).decode("ascii")
+        for payload in ({"url": magnet}, {"torrent_base64": encoded}):
+            request = Request({"type": "http", "headers": []})
+            request._json = payload
+
+            async def run():
+                with patch("nextcloud_exapp.main.core_json", new=AsyncMock(
+                    return_value={"file_count": 1, "files": [
+                        {"index": 1, "path": "Album/a.mp3", "name": "a.mp3", "size_bytes": 50},
+                    ]},
+                )) as core:
+                    received = await user_torrent_manifest(request, context())
+                    self.assertEqual(received["files"][0]["path"], "Album/a.mp3")
+                    core.assert_awaited_once_with("POST", "torrent/manifest", payload=payload)
+
+            asyncio.run(run())
+
+        for invalid in (
+            {"url": "https://example.org/x.torrent"},
+            {"url": magnet, "torrent_base64": encoded},
+            {"torrent_base64": "not base64!!"},
+            {"torrent_base64": base64.b64encode(b"tiny").decode("ascii")},
+            {"torrent_base64": base64.b64encode(b"x" * 2_000_001).decode("ascii")},
+        ):
+            request = Request({"type": "http", "headers": []})
+            request._json = invalid
+
+            async def reject():
+                with patch("nextcloud_exapp.main.core_json", new=AsyncMock()) as core:
+                    with self.assertRaises(HTTPException) as error:
+                        await user_torrent_manifest(request, context())
+                    self.assertEqual(error.exception.status_code, 422)
+                    core.assert_not_awaited()
+
+            asyncio.run(reject())
+
+    def test_torrent_selected_indices_preserve_no_seed_policy_in_gateway(self):
+        job = asyncio.run(job_submission(context(), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c", "content_type": "torrent",
+            "overrides": {"options": {"select-file": "1,3", "seed-time": "999"}},
+        }))
+        self.assertEqual(job["engine"], "aria2c")
+        self.assertEqual(job["overrides"]["options"]["select-file"], "1,3")
+        self.assertEqual(job["overrides"]["options"]["seed-time"], "0")
 
 
 if __name__ == "__main__":
