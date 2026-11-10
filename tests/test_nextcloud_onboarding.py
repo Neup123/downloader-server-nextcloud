@@ -63,20 +63,21 @@ def test_other_peoples_jobs_cannot_complete_my_onboarding():
     assert "first_download_verified" not in context.nc.preferences_ex.data
 
 
-def test_direct_link_explains_non_entitlement_without_a_raw_403():
+def test_direct_link_sends_non_entitled_users_to_native_library_without_a_raw_403():
     request = Request({"type": "http", "headers": [], "username": "alice"})
     async def denied(code):
         with patch("nextcloud_exapp.main.require_user", new=AsyncMock(
             side_effect=HTTPException(status_code=code, detail="Denied")
         )):
             return await user_page(request)
-    response = asyncio.run(denied(403))
-    assert response.status_code == 200
-    assert b"not enabled for your account" in response.body
-    assert b"administrator" in response.body
-    try:
-        asyncio.run(denied(401))
-    except HTTPException as error:
-        assert error.status_code == 401
-    else:
-        raise AssertionError("Unsigned identities must remain denied")
+    with patch.dict("os.environ", {"NEXTCLOUD_URL": "https://cloud.example.org"}):
+        response = asyncio.run(denied(403))
+        assert response.status_code == 303
+        assert response.headers["location"] == "https://cloud.example.org/apps/downloader_bridge/library"
+        assert response.headers["cache-control"] == "no-store"
+        try:
+            asyncio.run(denied(401))
+        except HTTPException as error:
+            assert error.status_code == 401
+        else:
+            raise AssertionError("Unsigned identities must remain denied")
