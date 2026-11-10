@@ -46,7 +46,7 @@ export function chooseFiltered(indices, matching, checked) {
 }
 export function previewRows(preview) {
   if (!preview || !Array.isArray(preview.entries)) return [];
-  return preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX)
+  const rows = preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX)
     .map(item => ({
       index: item.index,
       title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
@@ -56,6 +56,10 @@ export function previewRows(preview) {
       duration: Number.isFinite(item.duration) ? item.duration : null,
       timestamp: Number.isFinite(item.timestamp) ? item.timestamp : null,
     }));
+  if (rows.length && rows.every(item => item.timestamp !== null)) {
+    rows.sort((a,b) => b.timestamp-a.timestamp);
+  }
+  return rows;
 }
 const e = (tag, text='', cls='') => {
   const item = document.createElement(tag);
@@ -123,6 +127,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const message=(text)=>{status.textContent=text;};
   const available=()=>!busy && kind!=='unsupported' && kind!=='torrent' && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
+    const count=details.querySelector('.dl-picker-count');
+    if(count)count.textContent=selected.size+' selected';
     download.disabled=!available() || (['playlist','channel','gallery','manga'].includes(kind) && selected.size===0);
     buttons.hidden=kind==='unsupported' || kind==='torrent';
   }
@@ -240,14 +246,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   function itemPicker(type) {
     const picker=e('div','','dl-picker');
     const operations=e('div','','dl-picker-controls');
-    const selectedLabel=e('span','', 'dl-muted');
+    const selectedLabel=e('span','', 'dl-muted dl-picker-count');
     const selectAll=e('input');selectAll.type='checkbox';
     selectAll.checked=type==='playlist';
-    selectAll.addEventListener('change',()=>{
-      selected=chooseFiltered(selected, choices, selectAll.checked);
-      drawRows(rows,type);refreshSubmit();
-    });
     if(type==='playlist'){
+      selectAll.addEventListener('change',()=>{
+        selected=chooseFiltered(selected, choices, selectAll.checked);
+        drawRows(rows,type);refreshSubmit();
+      });
       const action=e('label','','dl-audio-toggle');
       action.append(selectAll,e('span','Select all / none (loaded entries)'));
       operations.append(action);
@@ -376,10 +382,16 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       spinner.hidden=true;await render('torrent',null);return;
     }
     try{
-      const result=await api('/media-preview','POST',{url:value,max_entries:PAGE});
+      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE});
       if(token!==generation||closed)return;
-      spinner.hidden=true;
       const detected=classifyPreview(value,result);
+      // A playlist begins with all returned items selected. Request the
+      // bounded complete preview (up to 100) before showing its item list.
+      if(detected==='playlist' && result.entry_count>PAGE){
+        result=await api('/media-preview','POST',{url:value,max_entries:MAX});
+        if(token!==generation||closed)return;
+      }
+      spinner.hidden=true;
       await render(detected,result);
     }catch(error){
       if(token!==generation||closed)return;
