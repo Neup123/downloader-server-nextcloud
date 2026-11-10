@@ -8,7 +8,6 @@ import httpx
 from app.db import Job, initialize_database, make_engine, make_session_factory
 from app.delivery import deliver_files, encrypt_job_delivery
 from app.schemas import DeliverySettingsIn
-from nextcloud_exapp.user import delivery_notification
 
 
 def setup(settings, policy, files=("source/film.webm",)):
@@ -102,11 +101,6 @@ def test_skip_collision_keeps_destination_unchanged_and_emits_signal(settings):
         assert result[0]["skipped"] is True
         assert result[0]["verified"] is False
         assert result[0]["skip_reason"] == "exists"
-        subject, message = delivery_notification({
-            "status": "completed", "output_files": result,
-        })
-        assert subject == "Download skipped"
-        assert "left unchanged" in message
     finally:
         engine.dispose()
 

@@ -119,3 +119,9 @@ test('detected dialog categories are server-routed; a Files context still carrie
   assert.equal(folder.content_type,'direct');
   assert.equal(folder.folder,'Projects/2026');
 });
+
+test('skip outcome produces native toast and never claims delivered Files verification',()=>{
+  assert.match(source,/file\.skipped===true/);
+  assert.match(source,/Download skipped: a file already exists in Nextcloud Files/);
+  assert.match(source,/The existing file was kept/);
+});

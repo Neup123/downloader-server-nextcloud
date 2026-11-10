@@ -8,7 +8,7 @@ from unittest import TestCase
 from fastapi import HTTPException
 from nextcloud_exapp.user import (
     ROUTE_SUBFOLDERS, UserContext, default_destination_routes, job_submission,
-    read_user_preferences, write_user_preferences,
+    read_user_preferences, write_user_preferences, delivery_notification,
 )
 
 
@@ -106,6 +106,19 @@ class DestinationRouteTests(TestCase):
         run(write_user_preferences(alice, {"destination_routes": {"audio": None}}))
         self.assertEqual(run(read_user_preferences(alice))["destination_routes"]["audio"],
                          "Downloads/Audio")
+
+
+    def test_skip_generates_durable_native_notification_even_with_finished_opt_out(self):
+        subject, message = delivery_notification({
+            "status": "completed",
+            "output_files": [{"filename": "film.mp4", "skipped": True, "verified": False}],
+        })
+        self.assertEqual(subject, "Download skipped")
+        self.assertIn("left unchanged", message)
+        from pathlib import Path
+        tracking = (Path(__file__).resolve().parents[1] /
+                    "nextcloud_exapp/tracking.py").read_text()
+        self.assertIn('if choice != "0" or skipped:', tracking)
 
     def test_bad_modes_types_and_paths_rejected_without_downgrade(self):
         for bad in ("overwrite", "", "SKIP", None):
