@@ -58,6 +58,7 @@ def test_disabled_notification_is_suppressed_but_job_is_marked_and_kept_in_histo
         with TemporaryDirectory() as temp:
             tracker = JobTracker(Path(temp) / "notice.sqlite")
             tracker.add("completed", "alice")
+            tracker.add("skipped", "alice")
             tracker.add("failed", "bob")
             sent = []
             class Notifier:
@@ -67,11 +68,13 @@ def test_disabled_notification_is_suppressed_but_job_is_marked_and_kept_in_histo
                 opts = {"notify_finished": "0"} if user == "alice" else {"notify_failed": "1"}
                 return SimpleNamespace(preferences_ex=Pref(opts), notifications=Notifier())
             async def fetch(job_id):
-                return {"id": job_id, "owner_id": "alice" if job_id == "completed" else "bob",
-                        "status": "completed" if job_id == "completed" else "failed",
-                        "output_files": [{"verified": True, "filename": "x"}], "error": "Download failed"}
+                return {"id": job_id, "owner_id": "bob" if job_id == "failed" else "alice",
+                        "status": job_id,
+                        "output_files": ([{"verified": False, "skipped": True, "skip_reason": "exists"}]
+                                         if job_id == "skipped" else [{"verified": True, "filename": "x"}]),
+                        "error": "Download failed"}
             with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", fake_nextcloud):
                 await tracker.tick(fetch)
-            assert len(sent) == 1
+            assert sent == ['Download skipped', 'Download could not be saved']
             assert tracker.pending() == []
     asyncio.run(run())

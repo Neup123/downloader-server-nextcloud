@@ -8,7 +8,7 @@ import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, downloadStatusDetail, SKIPPED_DETAIL, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
 type Job = {
   id: string; url: string; status: string; owner_id?: string; engine?: string;
@@ -20,7 +20,7 @@ type Job = {
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 17v3h16v-3"/></svg>';
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL = new Set(['completed', 'skipped', 'failed', 'cancelled']);
 const oc = () => (window as unknown as {OC?: Oc}).OC;
 const root = () => {
   if (!oc()?.generateUrl) throw new Error('Nextcloud routing unavailable');
@@ -431,6 +431,7 @@ function headerProgress(ownerId: string) {
     name.dir='auto';
     const subtitle=node('span',downloadBubbleStatus(job),'dl-job-state');
     subtitle.dir='auto';
+    subtitle.title=downloadStatusDetail(job);
     info.append(name,subtitle);
     const pct=node('span',TERMINAL.has(job.status)?'':safePercent+'%','dl-job-pct');
     if(TERMINAL.has(job.status)){
@@ -439,7 +440,7 @@ function headerProgress(ownerId: string) {
     const action=node('button',TERMINAL.has(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
     action.type='button';
     if(TERMINAL.has(job.status)){
-      const operation=job.status==='completed'?'redeliver':'retry';
+      const operation=['completed','skipped'].includes(job.status)?'redeliver':'retry';
       action.title=operation==='redeliver'?'Deliver again':'Retry download';
       action.setAttribute('aria-label',action.title);
       action.addEventListener('click',()=>{
@@ -512,9 +513,9 @@ function headerProgress(ownerId: string) {
         if(((initialized && old && old!==job.status) || justQueued.has(job.id))
           && TERMINAL.has(job.status)){
           const skipped=job.output_files?.some(file=>file.skipped===true);
-          notify(job.status==='completed'
-            ?(skipped
-              ?'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.'
+          notify(job.status==='completed' || job.status==='skipped'
+            ?(skipped || job.status==='skipped'
+              ?SKIPPED_DETAIL
               :'Download complete. Open it in Nextcloud Files.')
             :job.status==='failed'?'Download failed. Open Downloads for details.'
              :'Download cancelled.');
@@ -522,7 +523,7 @@ function headerProgress(ownerId: string) {
         }
         lastStatuses.set(job.id,job.status);
         if(old || TERMINAL.has(job.status))justQueued.delete(job.id);
-        if(job.status==='completed')void publishDeliveredFiles(job);
+        if(job.status==='completed' || job.status==='skipped')void publishDeliveredFiles(job);
       }
       initialized=true;
     }catch {

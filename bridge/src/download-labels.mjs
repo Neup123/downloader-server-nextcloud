@@ -3,7 +3,7 @@
  * Files bridge. They never fetch, download, or handle API/WebDAV credentials.
  * @typedef {{id:string,url:string,status:string,engine?:string,owner_id?:string,
  * error?:string|null,progress?:{percent?:number,speed_bytes_per_second?:number,downloaded_bytes?:number},
- * output_files?:Array<{filename:string,path?:string,verified?:boolean,file_id?:string|number,size_bytes?:number}>}} Job
+ * output_files?:Array<{filename:string,path?:string,verified?:boolean,file_id?:string|number,size_bytes?:number,skipped?:boolean,skip_reason?:string}>}} Job
  */
 
 /** @param {Job} job */
@@ -38,6 +38,13 @@ export function downloadSymbol(job) {
   return '↓';
 }
 
+export const SKIPPED_DETAIL = 'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.';
+
+/** @param {Job} job */
+export function downloadStatusDetail(job) {
+  return job.status === 'skipped' ? SKIPPED_DETAIL : downloadStatus(job);
+}
+
 /** @param {Job} job */
 export function downloadStatus(job) {
   const percentage = Number(job.progress?.percent);
@@ -46,6 +53,7 @@ export function downloadStatus(job) {
     return job.output_files?.length && job.output_files.every(f => f.verified)
       ? 'Delivered ✓ Verified' : 'Completed — checking delivery';
   }
+  if (job.status === 'skipped') return 'Skipped';
   if (job.status === 'failed') return 'Failed — ' + (job.error || 'Check the log and try again');
   if (job.status === 'cancelled') return 'Cancelled';
   if (job.status === 'paused') return 'Paused';
@@ -73,7 +81,7 @@ export function downloadBubbleStatus(job) {
  * @returns {string|null}
  */
 export function deliveredFilesQuery(job) {
-  if (job.status !== 'completed' || !job.owner_id) return null;
+  if (!['completed', 'skipped'].includes(job.status) || !job.owner_id) return null;
   for (const file of job.output_files || []) {
     if (!file.verified || !file.path) continue;
     try {

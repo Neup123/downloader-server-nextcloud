@@ -1,5 +1,5 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, downloadStatusDetail, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
 import { filesJobRequest } from './files-dialog-payload.mjs';
 import { classifyPreview } from './link-first-dialog.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
@@ -12,7 +12,7 @@ type Job = {
 };
 type Dashboard = {register: (id: string, render: (el: HTMLElement) => void) => void};
 const host = window as unknown as {OC?: Oc; OCA?: {Dashboard?: Dashboard}};
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL = new Set(['completed', 'skipped', 'failed', 'cancelled']);
 const elem = <K extends keyof HTMLElementTagNameMap>(name: K, text = ''): HTMLElementTagNameMap[K] => {
   const n = document.createElement(name);
   n.textContent = text;
@@ -256,7 +256,7 @@ function renderDashboard(element: HTMLElement) {
     title.title = downloadTitle(job);
     title.addEventListener('click', () => showDetails(job));
     const state = elem('span', downloadStatus(job)); state.className = 'job-card-state';
-    state.title = downloadStatus(job);
+    state.title = downloadStatusDetail(job);
     info.append(title, state);
     if (!TERMINAL.has(job.status)) {
       const progress = elem('progress'); progress.className = 'mini-progress';
@@ -266,7 +266,7 @@ function renderDashboard(element: HTMLElement) {
       info.append(progress);
     }
     const actions = elem('div'); actions.className = 'job-actions';
-    const operation = job.status === 'completed' ? 'redeliver'
+    const operation = ['completed', 'skipped'].includes(job.status) ? 'redeliver'
       : TERMINAL.has(job.status) ? 'retry' : 'cancel';
     const rerun = elem('button', operation === 'redeliver' ? '↻' : operation === 'retry' ? '⟳' : '×');
     rerun.type = 'button';
