@@ -601,7 +601,10 @@ async def deliver_files(
                     # only retry if the current target exists.
                     if response.status_code == 409:
                         exists = await client.request("PROPFIND", target, headers={"Depth": "0"})
-                        if exists.status_code != 207:
+                        if exists.status_code != 207 or (
+                            existing_behavior == "skip" and
+                            not _successful_webdav_props(exists.content, target)
+                        ):
                             raise _delivery_failure(response.status_code, "WebDAV parent folder unavailable")
                     if existing_behavior == "skip":
                         skipped = {

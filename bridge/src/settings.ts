@@ -213,7 +213,8 @@ function start() {
           data.destination_routes={...data.destination_routes,[kind]:path};
           changed('destination_routes',{[kind]:path});
         };
-        void openFolder(customRoutes.has(kind)?field.value:data.destination_folder||'');
+        // The base Downloads folder may not exist on a brand-new account.
+        void openFolder('');
       });
       const reset=element('button','Use default');
       reset.type='button';

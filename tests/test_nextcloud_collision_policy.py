@@ -129,3 +129,31 @@ def test_multi_file_collision_skips_existing_folder_without_writing(settings):
         assert all(method != "PUT" for method, _ in seen)
     finally:
         engine.dispose()
+
+
+def test_conflict_without_verified_existing_target_is_not_silently_skipped(settings):
+    from app.delivery import DeliveryError
+    import pytest
+    engine, sessions, paths = setup(settings, "skip")
+    async def handler(request):
+        target = str(request.url)
+        if request.method == "PROPFIND" and target.endswith("/Movies/"):
+            return multistatus(request, collection=True)
+        if request.method == "PROPFIND":
+            # A 207 for a different resource does not prove this target exists.
+            return httpx.Response(207, content=(
+                "<d:multistatus xmlns:d='DAV:'><d:response>"
+                "<d:href>/other-file.webm</d:href><d:propstat>"
+                "<d:prop><d:getcontentlength>8</d:getcontentlength></d:prop>"
+                "<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+                "</d:multistatus>"
+            ).encode())
+        if request.method == "PUT":
+            return httpx.Response(409)
+        return httpx.Response(405)
+    try:
+        with pytest.raises(DeliveryError, match="WebDAV parent folder unavailable"):
+            asyncio.run(deliver_files(paths,"job-collision",sessions,settings,
+                                      transport=httpx.MockTransport(handler)))
+    finally:
+        engine.dispose()
