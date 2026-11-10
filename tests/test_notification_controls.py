@@ -75,6 +75,6 @@ def test_disabled_notification_is_suppressed_but_job_is_marked_and_kept_in_histo
                         "error": "Download failed"}
             with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", fake_nextcloud):
                 await tracker.tick(fetch)
-            assert sent == ['Download skipped', 'Download could not be saved']
+            assert sent == ['Download skipped', 'Download failed']
             assert tracker.pending() == []
     asyncio.run(run())
