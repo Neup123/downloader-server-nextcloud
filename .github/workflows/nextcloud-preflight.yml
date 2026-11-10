@@ -25,11 +25,16 @@ jobs:
 
       - name: Compile script and tests
         run: python -m compileall -q scripts tests
-      - name: Install pinned AppAPI runtime for real per-user unit tests
-        run: python -m pip install -r nextcloud_exapp/requirements.lock
+      - name: Install Core test dependencies and pinned AppAPI runtime
+        run: |
+          python -m pip install -r requirements.txt pytest
+          python -m pip install -r nextcloud_exapp/requirements.lock
 
       - name: Run Nextcloud-specific offline preflight tests
         run: |
           python -m unittest discover -s tests -p 'test_appapi_*.py' -v
           python -m unittest discover -s tests -p 'test_nextcloud_*.py' -v
           python -m unittest discover -s tests -p 'test_target_*.py' -v
+
+      - name: Run full Python contract test suite
+        run: python -m pytest -q tests/
