@@ -36,3 +36,16 @@ test('password is submitted only through deliberate form and never in autosave p
   assert.match(js,/password\.value=''/);
   assert.match(js,/role','status'/);
 });
+
+test('typed content destination paths validate existence and keep invalid text visible',()=>{
+  const routes=js.slice(js.indexOf("const routes=card("),js.indexOf("const collisions=card("));
+  assert.match(routes,/const field=element\('input'\)/);
+  assert.doesNotMatch(routes,/field.readOnly=true/);
+  assert.match(routes,/field.addEventListener\('change'/);
+  assert.match(routes,/api<FolderList>\('\/folders\?'/);
+  assert.match(routes,/if\(page.path!==path\)/);
+  assert.match(routes,/role','alert'/);
+  assert.match(routes,/Folder not found in your Files/);
+  assert.match(routes,/Never revert the text/);
+  assert.match(routes,/changed\('destination_routes',\{\[kind\]:path\}\)/);
+});

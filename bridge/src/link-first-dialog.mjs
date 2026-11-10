@@ -451,9 +451,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }catch(error){notify('Please review your download options and try again.');return;}
     busy=true;refreshSubmit();
     try{
-      await api('/jobs','POST',body);
+      const created=await api('/jobs','POST',body);
       notify('Download added to your Nextcloud Files.');
-      queued();dialog.close();
+      queued(created);dialog.close();
     }catch(error){notify('Could not start the download. Please check your connection and try again.');}
     finally{busy=false;refreshSubmit();}
   });

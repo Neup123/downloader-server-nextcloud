@@ -129,7 +129,13 @@ class JobTracker:
                     key = "notify_finished" if job["status"] == "completed" else "notify_failed"
                     # Failed preference reads must not bypass an opt-out.
                     choice = await nc.preferences_ex.get_value(key, "1")
-                    if choice != "0":
+                    # A collision skip must never be silent even when normal
+                    # finished-download notifications are disabled.
+                    skipped = job["status"] == "completed" and any(
+                        isinstance(item, dict) and item.get("skipped") is True
+                        for item in job.get("output_files") or []
+                    )
+                    if choice != "0" or skipped:
                         await nc.notifications.create(
                             subject=subject,
                             message=message,

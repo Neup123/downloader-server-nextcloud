@@ -15,7 +15,7 @@ type Job = {
   progress?: {percent?: number; speed_bytes_per_second?: number}; error?: string | null;
   pause_capability?: {can_pause?:boolean;can_resume?:boolean;reason?:string|null};
   finished_at?:string;completed_at?:string;updated_at?:string;created_at?:string;
-  output_files?: {filename: string; path?: string; verified?: boolean; file_id?: string | number}[];
+  output_files?: {filename: string; path?: string; verified?: boolean; skipped?: boolean; file_id?: string | number}[];
 };
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
@@ -57,6 +57,12 @@ function notify(message: string) {
   document.body.append(toast);
   window.setTimeout(() => toast.remove(), 5000);
 }
+function contentTypeFromMime(mime: string): 'video'|'audio'|'images'|'direct' {
+  if(mime.startsWith('video/')) return 'video';
+  if(mime.startsWith('audio/')) return 'audio';
+  if(mime.startsWith('image/')) return 'images';
+  return 'direct';
+}
 function sourceIsHttp(value: string): boolean {
   try { return ['https:', 'http:'].includes(new URL(value).protocol); }
   catch { return false; }
@@ -88,7 +94,8 @@ function cleanFolder(path?: string): string {
 async function openDialog(folder: string | null, suggested = '') {
   // One Nextcloud-native dialog shared by Files, Viewer, Talk and the bubble.
   showLinkDialog({folder, suggested, api, notify,
-    queued: () => window.dispatchEvent(new Event('downloader:job-queued'))});
+    queued: (job?: {id?: string}) => window.dispatchEvent(
+      new CustomEvent('downloader:job-queued', {detail: {id: job?.id}}))});
 }
 
 function registerActions() {
@@ -122,7 +129,9 @@ function registerActions() {
         && sourceIsHttp(attributes.download_source_url) ? attributes.download_source_url : '';
       if (original) {
         try {
-          await api('/jobs', 'POST', {url: original});
+          await api('/jobs', 'POST', {
+            url: original, content_type: contentTypeFromMime(context.nodes[0].mime),
+          });
           notify('Download submitted to your Files.');
           return true;
         } catch (error) {
@@ -157,11 +166,13 @@ function attachLegacyViewerAction() {
   button.type = 'button';
   button.addEventListener('click', () => {
     const current = (window as unknown as {OCA?: {Viewer?: {
-      fileInfo?: {download_source_url?: string};
+      fileInfo?: {download_source_url?: string; mime?: string; mimetype?: string};
     }}}).OCA?.Viewer?.fileInfo;
     const source = current?.download_source_url;
     if (source && sourceIsHttp(source)) {
-      void api('/jobs', 'POST', {url: source}).then(
+      void api('/jobs', 'POST', {
+        url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
+      }).then(
         () => notify('Download submitted to your Files.'),
         error => notify(error instanceof Error ? error.message : 'Download failed'),
       );
@@ -324,6 +335,7 @@ function headerProgress(ownerId: string) {
   let refreshing = false;
   let initialized = false;
   const lastStatuses = new Map<string, string>();
+  const justQueued = new Set<string>();
   const publishedFiles = new Set<string>();
   const publishingFiles = new Set<string>();
 
@@ -495,14 +507,21 @@ function headerProgress(ownerId: string) {
       list.scrollTop=scroll;
       for(const job of jobs){
         const old=lastStatuses.get(job.id);
-        if(initialized && old && old!==job.status && TERMINAL.has(job.status)){
+        // A short download can finish before the first poll after submission.
+        // An explicit queued job ID still gets its one skip/completion toast.
+        if(((initialized && old && old!==job.status) || justQueued.has(job.id))
+          && TERMINAL.has(job.status)){
+          const skipped=job.output_files?.some(file=>file.skipped===true);
           notify(job.status==='completed'
-            ?'Download complete. Open it in Nextcloud Files.'
+            ?(skipped
+              ?'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.'
+              :'Download complete. Open it in Nextcloud Files.')
             :job.status==='failed'?'Download failed. Open Downloads for details.'
              :'Download cancelled.');
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
         lastStatuses.set(job.id,job.status);
+        if(old || TERMINAL.has(job.status))justQueued.delete(job.id);
         if(job.status==='completed')void publishDeliveredFiles(job);
       }
       initialized=true;
@@ -512,7 +531,11 @@ function headerProgress(ownerId: string) {
       refreshing=false;
     }
   }
-  window.addEventListener('downloader:job-queued', () => { void refresh(); });
+  window.addEventListener('downloader:job-queued', event => {
+    const id=(event as CustomEvent<{id?: string}>).detail?.id;
+    if(typeof id==='string' && id)justQueued.add(id);
+    void refresh();
+  });
   void refresh();
   const timer = window.setInterval(() => {
     if (!active || !container.isConnected) {active = false; window.clearInterval(timer); return;}

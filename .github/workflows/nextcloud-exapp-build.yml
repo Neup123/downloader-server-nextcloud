@@ -69,6 +69,9 @@ jobs:
           docker run --rm --volume "$PWD/tests:/app/tests:ro" \
             --entrypoint python downloader-nextcloud-exapp:test \
             -m unittest discover -s /app/tests -p test_link_first_gateway.py -v
+          docker run --rm --volume "$PWD/tests:/app/tests:ro" \
+            --entrypoint python downloader-nextcloud-exapp:test \
+            -m unittest discover -s /app/tests -p test_user_destination_routes.py -v
 
       - name: Prove the image contains the relative dashboard and bridge
         run: |

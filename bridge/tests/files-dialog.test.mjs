@@ -9,10 +9,10 @@ const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url
 
 test('folder and owner default are preserved without preset references',()=>{
   assert.deepEqual(filesJobRequest('https://example.org/video','Movies'),{
-    url:'https://example.org/video',engine:'auto',folder:'Movies',
+    url:'https://example.org/video',engine:'auto',content_type:'video',folder:'Movies',
   });
   assert.deepEqual(filesJobRequest('https://example.org/file',null),{
-    url:'https://example.org/file',engine:'auto',
+    url:'https://example.org/file',engine:'auto',content_type:'video',
   });
   assert.doesNotMatch(dialog,/preset_id|default_preset|presetEngine/);
   assert.match(source,/showLinkDialog\(\{folder, suggested, api, notify,/);
@@ -39,7 +39,7 @@ test('single-video quality, audio/music, subtitles and original container map co
   assert.match(selectedMediaFormat('720',false,'mp4'),/ext=mp4/);
   assert.match(selectedMediaFormat('best',true,'m4a'),/ext=m4a/);
   assert.deepEqual(filesJobRequest('https://example.org/video',null,'best',false,{kind:'video'}),{
-    url:'https://example.org/video',engine:'yt-dlp',
+    url:'https://example.org/video',engine:'yt-dlp',content_type:'video',
   });
   const subs=filesJobRequest('https://example.org/video','Films','720',false,{
     kind:'video', subtitles:true,subtitleLanguage:'en',
@@ -56,7 +56,7 @@ test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=
   assert.deepEqual(filesJobRequest('https://example.org/list','Folder','best',false,{
     kind:'playlist',selectedIndices:[1,3],
   }),{
-    url:'https://example.org/list',engine:'yt-dlp',folder:'Folder',
+    url:'https://example.org/list',engine:'yt-dlp',content_type:'video',folder:'Folder',
     overrides:{allow_playlist:true,playlist_items:'1,3'},
   });
   assert.throws(()=>playlistIndices([]),/Select at least/);
@@ -101,6 +101,40 @@ test('unsupported direct fallback and torrent metadata limitations are explicit'
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
   assert.match(dialog,/Sort by size/);
+});
+
+test('detected dialog categories are server-routed; a Files context still carries its folder',()=>{
+  const options=[
+    ['video',false,'video'],['audio',true,'audio'],['playlist',false,'video'],
+    ['playlist',true,'audio'],['channel',false,'video'],['gallery',false,'images'],
+    ['manga',false,'manga'],['direct',false,'direct'],
+  ];
+  for(const [kind,audio,expected] of options){
+    const opts={kind,selectedIndices:[1],cbz:false};
+    const request=filesJobRequest('https://example.org/item',null,'best',audio,opts);
+    assert.equal(request.content_type,expected,kind);
+    assert.equal('folder' in request,false,'implicit destinations are resolved by signed gateway');
+  }
+  const folder=filesJobRequest('https://example.org/file.zip','Projects/2026','best',false,{kind:'direct'});
+  assert.equal(folder.content_type,'direct');
+  assert.equal(folder.folder,'Projects/2026');
+});
+
+test('skip outcome produces native toast and never claims delivered Files verification',()=>{
+  assert.match(source,/file\.skipped===true/);
+  assert.match(source,/Download skipped: a file already exists in Nextcloud Files/);
+  assert.match(source,/The existing file was kept/);
+});
+
+test('dialog passes created job ID to header and supports a skip toast even for fast jobs',()=>{
+  const bridgeSource=source;
+  assert.match(dialog,/const created=await api\('\/jobs','POST',body\)/);
+  assert.match(dialog,/queued\(created\);dialog.close\(\)/);
+  assert.match(bridgeSource,/new CustomEvent\('downloader:job-queued'/);
+  assert.match(bridgeSource,/const justQueued = new Set<string>\(\)/);
+  assert.match(bridgeSource,/justQueued.has\(job.id\)/);
+  assert.match(bridgeSource,/Download skipped: a file already exists/);
+  assert.match(bridgeSource,/justQueued.delete\(job.id\)/);
 });
 
 test('split-format videos are video; real audio-only is audio; missing codecs are unknown',()=>{
