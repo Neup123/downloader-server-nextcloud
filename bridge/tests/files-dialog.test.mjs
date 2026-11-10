@@ -279,7 +279,7 @@ test('dialog has no visible title and hides status text unless a problem exists'
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
   assert.match(dialog,/spinner\.hidden=false/);
   assert.match(dialog,/message\('This link is not supported\./);
-  assert.match(dialog,/Remote \\.torrent URLs cannot be inspected or submitted/);
+  assert.match(dialog,/Remote \.torrent URLs cannot be inspected or submitted/);
   assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
   assert.match(dialog,/message\(value\?'Paste an HTTP\(S\) link or a magnet URI\.':''\)/);
   assert.match(dialog,/previewNextOffset/);
