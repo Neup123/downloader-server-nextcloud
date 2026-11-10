@@ -96,9 +96,35 @@ test('selection works within filtered entries without touching the other checked
 test('unsupported direct fallback and torrent metadata limitations are explicit',()=>{
   assert.match(dialog,/No supported media type was detected in this link/);
   assert.match(dialog,/Try as a direct file/);
-  assert.match(dialog,/Core API does not expose torrent metadata or file selections/);
-  assert.match(dialog,/does not expose CBZ packaging/);
+  assert.match(dialog,/Torrent downloads are not available yet/);
+  assert.match(dialog,/Packing these pages into one comic book file is not available yet/);
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
   assert.match(dialog,/Sort by size/);
+});
+
+test('split-format videos are video; real audio-only is audio; missing codecs are unknown',()=>{
+  const split={kind:'video',formats:[
+    ...Array.from({length:37},(_,i)=>({format_id:'v'+i,vcodec:'avc1.640028',acodec:'none'})),
+    ...Array.from({length:10},(_,i)=>({format_id:'a'+i,vcodec:'none',acodec:'opus'})),
+    ...Array.from({length:6},(_,i)=>({format_id:'unknown'+i})),
+  ]};
+  assert.equal(classifyPreview('https://www.youtube.com/watch?v=aqz-KE-bpKQ',split),'video');
+  assert.equal(classifyPreview('https://example.org/song',{kind:'video',
+    formats:[{vcodec:'none',acodec:'opus'},{acodec:'mp4a'},{format_id:'unknown'}]}),'audio');
+  assert.equal(classifyPreview('https://example.org/unknown',{kind:'video',
+    formats:[{format_id:'unknown'},{vcodec:'none',acodec:'none'}]}),'direct');
+});
+
+test('empty generic video preview and file-shaped link use direct-file state',()=>{
+  assert.equal(classifyPreview('https://example.org/watch',{kind:'video',formats:[]}), 'direct');
+  assert.equal(classifyPreview('https://proof.ovh.net/files/10Mb.dat',{kind:'video',
+    formats:[{vcodec:'avc1',acodec:'none'}]}), 'direct');
+  assert.equal(looksLikeDirectFile('https://proof.ovh.net/files/10Mb.dat'),true);
+});
+
+test('dialog hides technical errors and does not expose internal engines',()=>{
+  assert.doesNotMatch(dialog,/Detected by Core extractor|Size unavailable from extractor|Core API does not expose|yt-dlp metadata inspection failed/);
+  assert.doesNotMatch(dialog,/message\(error instanceof Error\?error.message/);
+  assert.doesNotMatch(dialog,/render\('unsupported',null,reason\)/);
 });
