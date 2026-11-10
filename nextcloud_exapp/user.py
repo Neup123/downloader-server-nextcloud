@@ -11,7 +11,6 @@ import asyncio
 import os
 import json
 import re
-from uuid import uuid4
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
@@ -198,7 +197,6 @@ async def admin_files_connection_status(admin: UserContext) -> dict[str, Any]:
 async def read_user_preferences(context: UserContext) -> dict[str, Any]:
     preferences = context.nc.preferences_ex
     folder = validate_folder(await preferences.get_value("destination_folder", DEFAULT_FOLDER))
-    preset = await preferences.get_value("default_preset", "")
     engines_json = await preferences.get_value("engine_settings", "{}")
     try:
         settings = json.loads(engines_json or "{}")
@@ -208,7 +206,6 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         settings = {}
     return {
         "destination_folder": folder,
-        "default_preset": preset or "",
         "engine_settings": {name: options for name, options in settings.items()
                             if name in ENGINES and isinstance(options, dict)},
         "app_password_configured": bool(await preferences.get_value("dav_app_password", "")),
@@ -219,31 +216,21 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         "dropdown_content": await preferences.get_value("dropdown_content", "active"),
         "default_video_quality": await preferences.get_value("default_video_quality", "best"),
         "default_audio_quality": await preferences.get_value("default_audio_quality", "best"),
-        "preset_hidden": await read_preset_id_list(preferences, "preset_hidden"),
-        "preset_order": await read_preset_id_list(preferences, "preset_order"),
     }
 
 
 async def write_user_preferences(context: UserContext, patch: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(patch, dict):
         raise HTTPException(status_code=422, detail="Invalid personal settings")
-    allowed = {"destination_folder", "default_preset", "engine_settings", "app_password",
+    allowed = {"destination_folder", "engine_settings", "app_password",
                "notify_finished", "notify_failed", "header_indicator_visibility",
-               "dropdown_content", "preset_hidden", "preset_order",
-               "default_video_quality", "default_audio_quality"}
+               "dropdown_content", "default_video_quality", "default_audio_quality"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
     pref = context.nc.preferences_ex
     if "destination_folder" in patch:
         folder = validate_folder(patch["destination_folder"])
         await pref.set_value("destination_folder", folder)
-    if "default_preset" in patch:
-        value = patch["default_preset"]
-        # Namespaced administrator-shared UUIDs ("shared:" + 36 chars) are
-        # selectable, but other unbounded IDs remain invalid.
-        if not isinstance(value, str) or len(value) > 64:
-            raise HTTPException(status_code=422, detail="Invalid preset")
-        await pref.set_value("default_preset", value)
     if "engine_settings" in patch:
         settings = patch["engine_settings"]
         if (
@@ -269,10 +256,6 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
             if not isinstance(patch[name], str) or patch[name] not in choices:
                 raise HTTPException(status_code=422, detail="Invalid downloads display preference")
             await pref.set_value(name, patch[name])
-    for name in ("preset_hidden", "preset_order"):
-        if name in patch:
-            ids = validate_preset_id_list(patch[name])
-            await pref.set_value(name, json.dumps(ids, separators=(",", ":")))
     if "app_password" in patch:
         password = patch["app_password"]
         if not isinstance(password, str) or len(password) > 1024:
@@ -286,251 +269,21 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
 
 
 
-def validate_preset_id_list(value: Any) -> list[str]:
-    """Bound, deduplicate and validate the private ordering and hide list."""
-    if (not isinstance(value, list) or len(value) > 300
-            or any(not isinstance(item, str) or len(item) > 100 or not item
-                   or any(ord(c) < 32 for c in item) for item in value)):
-        raise HTTPException(status_code=422, detail="Invalid preset selection")
-    return list(dict.fromkeys(value))
+async def read_legacy_personal_presets(context: UserContext) -> list[dict[str, Any]]:
+    """Read old profile records without re-enabling preset selection or mutation.
 
-
-async def read_preset_id_list(preferences: Any, key: str) -> list[str]:
+    Existing data is never modified or migrated during settings and job reads.
+    This helper supports safe read-only inspection of existing profiles.
+    """
     try:
-        value = json.loads(await preferences.get_value(key, "[]") or "[]")
-        return validate_preset_id_list(value)
-    except (ValueError, TypeError, HTTPException):
-        return []
-
-
-async def is_administrator(context: UserContext) -> bool:
-    """Fail closed if Nextcloud administrator membership cannot be checked."""
-    try:
-        info = await context.nc.users.get_user(context.user_id)
-        return isinstance(info.groups, (list, tuple, set, frozenset)) and "admin" in info.groups
-    except Exception:
-        return False
-
-
-ADMIN_PRESETS_KEY = "admin_presets"
-ADMIN_ORDER_KEY = "admin_preset_order"
-ADMIN_HIDDEN_KEY = "admin_preset_hidden"
-
-
-async def read_admin_preset_config(nc: AsyncNextcloudApp, key: str) -> list[Any]:
-    try:
-        value = json.loads(await nc.appconfig_ex.get_value(key, "[]") or "[]")
-        return value if isinstance(value, list) else []
+        raw = await context.nc.preferences_ex.get_value("user_presets", "[]")
+        records = json.loads(raw or "[]")
     except (TypeError, ValueError):
         return []
-
-
-def validate_admin_preset(body: Any) -> dict[str, Any]:
-    """Limit all custom options to safe predefined form selections."""
-    if not isinstance(body, dict) or set(body) - {"name", "description", "engine", "format"}:
-        raise HTTPException(status_code=422, detail="Invalid shared preset")
-    name, description = body.get("name"), body.get("description", "")
-    engine, fmt = body.get("engine"), body.get("format", "")
-    allowed_formats = {
-        "", "bv*+ba/b", "bv*[height<=1080]+ba/b[height<=1080]",
-        "bv*[height<=720]+ba/b[height<=720]",
-        "bv*[height<=480]+ba/b[height<=480]", "bestaudio/best",
-        "bestaudio[ext=m4a]/bestaudio/best",
-        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
-    }
-    if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
-            or not isinstance(description, str) or len(description) > 500
-            or engine not in {"yt-dlp", "aria2c", "generic", "gallery-dl"}
-            or not isinstance(fmt, str) or fmt not in allowed_formats
-            or (engine != "yt-dlp" and fmt)):
-        raise HTTPException(status_code=422, detail="Invalid shared preset fields")
-    return {"name": name.strip(), "description": description.strip(),
-            "engine": engine, "settings": {"format": fmt} if fmt else {}}
-
-
-async def read_admin_presets(nc: AsyncNextcloudApp) -> list[dict[str, Any]]:
-    rows = await read_admin_preset_config(nc, ADMIN_PRESETS_KEY)
-    return [row for row in rows if isinstance(row, dict)
-            and isinstance(row.get("id"), str) and row["id"].startswith("admin:")
-            and isinstance(row.get("name"), str)
-            and row.get("engine") in {"yt-dlp", "aria2c", "generic", "gallery-dl"}
-            and isinstance(row.get("settings"), dict)][:100]
-
-
-async def save_admin_presets(nc: AsyncNextcloudApp, rows: list[dict[str, Any]]) -> None:
-    if len(rows) > 100:
-        raise HTTPException(status_code=422, detail="Shared preset limit reached")
-    await nc.appconfig_ex.set_value(ADMIN_PRESETS_KEY, json.dumps(rows, separators=(",", ":")))
-
-
-def order_presets(rows: list[dict[str, Any]], order: list[str], hidden: list[str]) -> list[dict[str, Any]]:
-    """Preserve the built-in order for catalogue entries not yet reordered."""
-    positions = {identifier: index for index, identifier in enumerate(order)}
-    visible = [row for row in rows if row["id"] not in hidden]
-    return [row for _, row in sorted(enumerate(visible),
-        key=lambda pair: (positions.get(pair[1]["id"], len(order) + pair[0]), pair[0]))]
-
-
-# Stable, read-only options are shipped by this Nextcloud ExApp, not seeded
-# in the administrator's Core database or another user's private preferences.
-BUILTIN_PRESETS = (
-    {"id": "builtin:best", "name": "Best available video", "engine": "yt-dlp",
-     "description": "Highest video and audio quality.", "settings": {"format": "bv*+ba/b"}, "is_builtin": True},
-    {"id": "builtin:balanced", "name": "Balanced MP4 video", "engine": "yt-dlp",
-     "description": "Prefer MP4 for everyday sharing.", "settings": {"format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b"}, "is_builtin": True},
-    {"id": "builtin:1080", "name": "Full HD · up to 1080p", "engine": "yt-dlp",
-     "description": "High-definition video up to 1080p.", "settings": {"format": "bv*[height<=1080]+ba/b[height<=1080]"}, "is_builtin": True},
-    {"id": "builtin:720", "name": "HD · up to 720p", "engine": "yt-dlp",
-     "description": "High-definition video in a smaller file.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
-    {"id": "builtin:480", "name": "SD · up to 480p", "engine": "yt-dlp",
-     "description": "Standard-definition video.", "settings": {"format": "bv*[height<=480]+ba/b[height<=480]"}, "is_builtin": True},
-    {"id": "builtin:360", "name": "Mobile · up to 360p", "engine": "yt-dlp",
-     "description": "Small video for limited bandwidth.", "settings": {"format": "bv*[height<=360]+ba/b[height<=360]"}, "is_builtin": True},
-    {"id": "builtin:audio", "name": "Audio only · best", "engine": "yt-dlp",
-     "description": "Best available audio stream.", "settings": {"format": "bestaudio/best"}, "is_builtin": True},
-    {"id": "builtin:m4a", "name": "Audio only · M4A", "engine": "yt-dlp",
-     "description": "Prefer a compatible M4A audio stream.", "settings": {"format": "bestaudio[ext=m4a]/bestaudio/best"}, "is_builtin": True},
-    {"id": "builtin:opus", "name": "Audio only · Opus", "engine": "yt-dlp",
-     "description": "Prefer an Opus audio stream.", "settings": {"format": "bestaudio[acodec=opus]/bestaudio/best"}, "is_builtin": True},
-    {"id": "builtin:small", "name": "Smallest video", "engine": "yt-dlp",
-     "description": "Minimum-size video for quick sharing.", "settings": {"format": "worst[height<=480]/worst"}, "is_builtin": True},
-    {"id": "builtin:webm", "name": "WebM video", "engine": "yt-dlp",
-     "description": "Prefer WebM video and audio streams.", "settings": {"format": "bv*[ext=webm]+ba[ext=webm]/b[ext=webm]/b"}, "is_builtin": True},
-    {"id": "builtin:mp4", "name": "MP4 video", "engine": "yt-dlp",
-     "description": "Prefer an MP4-compatible video.", "settings": {"format": "b[ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/b"}, "is_builtin": True},
-    {"id": "builtin:social", "name": "Social-media clip", "engine": "yt-dlp",
-     "description": "Compact social video at 720p.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
-    {"id": "builtin:lecture", "name": "Lecture recording", "engine": "yt-dlp",
-     "description": "Clear lecture video up to 720p.", "settings": {"format": "bv*[height<=720]+ba/b[height<=720]"}, "is_builtin": True},
-    {"id": "builtin:music", "name": "Music audio", "engine": "yt-dlp",
-     "description": "High-quality music audio stream.", "settings": {"format": "bestaudio/best"}, "is_builtin": True},
-    {"id": "builtin:direct", "name": "Direct file", "engine": "generic",
-     "description": "Download a direct file URL.", "settings": {}, "is_builtin": True},
-    {"id": "builtin:large", "name": "Large direct file", "engine": "aria2c",
-     "description": "Direct download using aria2c.", "settings": {}, "is_builtin": True},
-    {"id": "builtin:gallery", "name": "Image gallery", "engine": "gallery-dl",
-     "description": "Download a supported image gallery.", "settings": {}, "is_builtin": True},
-    {"id": "builtin:collection", "name": "Image collection", "engine": "gallery-dl",
-     "description": "Collect supported source images.", "settings": {}, "is_builtin": True},
-)
-
-
-def built_in_presets() -> list[dict[str, Any]]:
-    """Return copies so no consumer mutates the shared definitions."""
-    return [{**item, "settings": dict(item["settings"]), "is_shared": False}
-            for item in BUILTIN_PRESETS]
-
-
-SHARED_PRESET_PREFIX = "shared:"
-
-
-def normalize_shared_presets(records: Any) -> list[dict[str, Any]]:
-    """Allow only the Core administrator's explicitly approved public collection.
-
-    The ExApp fetches this collection server-side with its own Core token;
-    a browser never sends a raw Core preset ID and personal IDs cannot collide.
-    """
-    if not isinstance(records, list) or len(records) > 1000:
-        raise HTTPException(status_code=502, detail="Invalid shared preset list")
-    from uuid import UUID
-
-    result = []
-    for row in records:
-        if not isinstance(row, dict) or row.get("is_shared") is not True:
-            raise HTTPException(status_code=502, detail="Invalid shared preset record")
-        source_id = row.get("id")
-        engine = row.get("engine")
-        settings = row.get("settings")
-        name = row.get("name")
-        description = row.get("description", "")
-        try:
-            if not isinstance(source_id, str) or str(UUID(source_id)) != source_id:
-                raise ValueError("Invalid source ID")
-        except ValueError as exc:
-            raise HTTPException(status_code=502, detail="Invalid shared preset ID") from exc
-        if (
-            engine not in ENGINES
-            or not isinstance(settings, dict) or len(json.dumps(settings)) > 16000
-            or not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
-            or not isinstance(description, str) or len(description) > 1000
-        ):
-            raise HTTPException(status_code=502, detail="Invalid shared preset fields")
-        # Treat the Core shared collection as a separately authenticated trust
-        # boundary. A malformed or unsafe record must not become a user option.
-        if any(settings.get(key) for key in ("cookies_file", "proxy", "extra_args")):
-            raise HTTPException(status_code=502, detail="Unsafe shared preset fields")
-        opts = settings.get("options")
-        if isinstance(opts, dict) and any(
-            marker in str(key).lower()
-            for key in opts
-            for marker in ("auth", "cookie", "token", "secret", "password", "header", "referer", "proxy")
-        ):
-            raise HTTPException(status_code=502, detail="Unsafe shared preset options")
-        result.append({
-            "id": SHARED_PRESET_PREFIX + source_id,
-            "name": name.strip(), "engine": engine,
-            "settings": settings, "description": description,
-            "is_shared": True,
-        })
-    return result
-
-
-async def read_user_presets(context: UserContext) -> list[dict[str, Any]]:
-    """Each user's presets live in Nextcloud preferences, never core's global table."""
-    source = await context.nc.preferences_ex.get_value("user_presets", "[]")
-    try:
-        items = json.loads(source or "[]")
-    except (ValueError, TypeError):
-        items = []
-    if not isinstance(items, list):
+    if not isinstance(records, list):
         return []
-    return [
-        item for item in items if isinstance(item, dict)
-        and isinstance(item.get("id"), str)
-        and isinstance(item.get("name"), str)
-        and item.get("engine") in ENGINES
-        and isinstance(item.get("settings"), dict)
-    ][:100]
+    return [record for record in records if isinstance(record, dict)][:100]
 
-
-async def save_user_preset(context: UserContext, body: dict[str, Any], identifier: str | None = None) -> dict[str, Any]:
-    if not isinstance(body, dict) or set(body) - {"name", "engine", "settings", "description"}:
-        raise HTTPException(status_code=422, detail="Invalid preset")
-    name = body.get("name")
-    engine = body.get("engine")
-    settings = body.get("settings")
-    description = body.get("description", "")
-    if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 120
-            or engine not in ENGINES or not isinstance(settings, dict)
-            or len(json.dumps(settings)) > 16000 or not isinstance(description, str)
-            or len(description) > 1000):
-        raise HTTPException(status_code=422, detail="Invalid per-user preset")
-    items = await read_user_presets(context)
-    if identifier is not None and not any(item["id"] == identifier for item in items):
-        raise HTTPException(status_code=404, detail="Preset not found")
-    if identifier is None:
-        if len(items) >= 100:
-            raise HTTPException(status_code=422, detail="Maximum 100 personal presets")
-        identifier = str(uuid4())
-    item = {"id": identifier, "name": name.strip(), "engine": engine,
-            "settings": settings, "description": description}
-    items = [old for old in items if old["id"] != identifier] + [item]
-    if len(json.dumps(items)) > 100000:
-        raise HTTPException(status_code=422, detail="Personal preset library is too large")
-    await context.nc.preferences_ex.set_value("user_presets", json.dumps(items, separators=(",", ":")))
-    return item
-
-
-async def delete_user_preset(context: UserContext, identifier: str) -> dict[str, bool]:
-    items = await read_user_presets(context)
-    if not any(item["id"] == identifier for item in items):
-        raise HTTPException(status_code=404, detail="Preset not found")
-    await context.nc.preferences_ex.set_value(
-        "user_presets", json.dumps([item for item in items if item["id"] != identifier], separators=(",", ":"))
-    )
-    if await context.nc.preferences_ex.get_value("default_preset", "") == identifier:
-        await context.nc.preferences_ex.set_value("default_preset", "")
-    return {"deleted": True}
 
 
 def nextcloud_webdav_base(nc: AsyncNextcloudApp) -> str:
@@ -562,12 +315,11 @@ def nextcloud_webdav_base(nc: AsyncNextcloudApp) -> str:
 
 async def job_submission(
     context: UserContext, data: dict[str, Any],
-    shared_presets: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
-    allowed = {"url", "engine", "preset_id", "overrides", "folder", "audio_only", "quality"}
+    allowed = {"url", "engine", "overrides", "folder", "audio_only", "quality"}
     if set(data) - allowed:
         raise HTTPException(status_code=422, detail="Unsupported job field")
     source = data.get("url")
@@ -581,36 +333,6 @@ async def job_submission(
     engine = data.get("engine", "auto")
     if engine not in ENGINES and engine != "auto":
         raise HTTPException(status_code=422, detail="Unsupported engine")
-    preset_id = data.get("preset_id") or prefs["default_preset"]
-    selected = None
-    if preset_id:
-        if isinstance(preset_id, str) and preset_id.startswith(SHARED_PRESET_PREFIX):
-            selected = next(
-                (preset for preset in (shared_presets or []) if preset["id"] == preset_id),
-                None,
-            )
-        elif isinstance(preset_id, str) and preset_id.startswith("admin:"):
-            selected = next(
-                (preset for preset in await read_admin_presets(context.nc)
-                 if preset["id"] == preset_id), None,
-            )
-        elif isinstance(preset_id, str) and preset_id.startswith("builtin:"):
-            selected = next(
-                (preset for preset in built_in_presets() if preset["id"] == preset_id), None,
-            )
-        else:
-            selected = next(
-                (preset for preset in await read_user_presets(context) if preset["id"] == preset_id),
-                None,
-            )
-        if selected is None:
-            # Revoked or guessed shared IDs fail just like another user's
-            # private IDs, without disclosing the existence of either.
-            raise HTTPException(status_code=404, detail="Your preset was not found")
-        if engine != "auto" and engine != selected["engine"]:
-            raise HTTPException(status_code=422, detail="Preset engine does not match selected engine")
-        if engine == "auto":
-            engine = selected["engine"]
     options = data.get("overrides", {})
     if not isinstance(options, dict) or len(json.dumps(options)) > 16000:
         raise HTTPException(status_code=422, detail="Invalid engine overrides")
@@ -632,7 +354,7 @@ async def job_submission(
         if not audio_only and (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
             raise HTTPException(status_code=422, detail="Video quality must submit a video format")
     chosen = prefs["engine_settings"].get(engine, {})
-    overrides = {**(selected["settings"] if selected else {}), **chosen, **options}
+    overrides = {**chosen, **options}
     # Replace user-visible cookie filenames with the own user's opaque core key.
     for option in ("cookies_file",):
         if overrides.get(option):
@@ -666,7 +388,6 @@ async def job_submission(
     return {
         "url": source,
         "engine": engine,
-        "preset_id": None,  # Never reference another user's core/global preset.
         "overrides": overrides,
         "owner_id": context.user_id,
         "delivery": {

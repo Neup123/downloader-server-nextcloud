@@ -98,7 +98,7 @@ On Nextcloud 35 with Talk enabled, the UI bridge registers Talk's supported
 It is shown only to Downloader-entitled signed-in users; Talk itself hides
 third-party actions in classified conversations. On a message with exactly
 one HTTP(S) link, selecting the action opens the usual download confirmation
-dialog with the source prefilled, engine/preset selection and the user's
+dialog with the source prefilled, quality/Audio only controls and the user's
 configured Files destination. The user must press **Download** to submit.
 No Talk messages are sent to a bot, scraped from the DOM or downloaded
 without confirmation. Messages with zero or multiple distinct links do not
@@ -114,32 +114,19 @@ using their implicit default destination; the signed ExApp creates that folder
 only when its default is Downloads. Explicit paths must already exist.
 
 
-## Header display and preset catalogue
+## Header display and personal preferences
 
-Personal settings → **Downloader** includes autosaved **Header downloads** preferences.
-The downloads arrow appears only while a download is active by default; choose
-**Always show** to keep it visible when idle without a progress frame.
-The header dropdown lists only active downloads by default; choose **Active
-first, then finished** to retain history in the bubble. The Library always
-keeps its independent history view.
+Personal settings → **Downloader** provides a default Files destination,
+video/audio quality defaults, notification preferences, Files connection,
+and header display preferences. Existing legacy user preset records are
+left untouched in Nextcloud user storage, but cannot be selected, created,
+edited, or applied. The download dialog contains Quality and Audio only;
+the signed submission derives engine/format directly from those choices.
 
-The ExApp ships a curated catalogue of video, audio, direct-file and image-gallery
-presets. In personal settings, move entries up/down to set **your own** ordering
-and uncheck an entry to hide it from the Files download dialog; hidden items
-remain available to restore. This is a private preference, not a deletion.
-The administrator's global order is the starting order until someone sets
-a personal one. Presets are selected by stable IDs, never by visible labels.
-
-Only a verified **Nextcloud administrator** may use the **Shared catalogue**
-panel to set the global order, exclude an entry globally, or open the centred
-**+ Add preset** dialog. The dialog requires a name and uses constrained
-engine/quality selections; it does not accept arbitrary engine commands.
-Admin-managed entries can be edited by the admin. Personal preset mutation API
-routes are denied to regular users, including direct HTTP callers.
-Older personal presets are retained as read-only entries for migration safety.
-Global settings are stored in Nextcloud application configuration; each user's
-order/hide list remains in their own Nextcloud preferences.
-
+The downloads arrow appears only while a download is active by default;
+choose **Always show** to keep it visible when idle without a progress
+frame. Its dropdown can show only active jobs or active jobs followed by
+finished history. Library history stays independent.
 
 ## Downloads header and compact layouts
 

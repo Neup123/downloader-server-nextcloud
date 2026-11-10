@@ -6,7 +6,7 @@ import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@ne
 import { getClient, getDefaultPropfind, getRootPath, resultToNode } from '@nextcloud/files/dav';
 import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
-import { filesJobRequest, presetEngineForSubmission } from './files-dialog-payload.mjs';
+import { filesJobRequest } from './files-dialog-payload.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
@@ -17,11 +17,9 @@ type Job = {
   finished_at?:string;completed_at?:string;updated_at?:string;created_at?:string;
   output_files?: {filename: string; path?: string; verified?: boolean; file_id?: string | number}[];
 };
-type Preset = {id: string; name: string; engine: string};
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 17v3h16v-3"/></svg>';
-const ENGINES = ['auto', 'yt-dlp', 'aria2c', 'gallery-dl', 'generic', 'you-get', 'svtplay-dl', 'get-sauce'];
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const oc = () => (window as unknown as {OC?: Oc}).OC;
 const root = () => {
@@ -90,11 +88,8 @@ function cleanFolder(path?: string): string {
 async function openDialog(folder: string | null, suggested = '') {
   // The Files folder action already supplies its destination. For Viewer/Talk,
   // omit it so the signed ExApp applies the user's own Files default.
-  const [presets, userSettings] = await Promise.all([
-    api<Preset[]>('/presets').catch(() => []),
-    api<{default_preset?:string;default_video_quality?:string;default_audio_quality?:string}>('/settings').catch(
-      () => ({default_video_quality:'best',default_audio_quality:'best'})),
-  ]);
+  const userSettings = await api<{default_video_quality?:string;default_audio_quality?:string}>('/settings')
+    .catch(() => ({default_video_quality:'best', default_audio_quality:'best'}));
   const dialog = node('dialog', '', 'dl-dialog');
   const form = node('form');
   form.method = 'dialog';
@@ -111,14 +106,6 @@ async function openDialog(folder: string | null, suggested = '') {
   url.value = suggested;
   url.setAttribute('aria-label', 'Source URL');
 
-  const engines = select(ENGINES.map(name => ({
-    value: name, label: name === 'auto' ? 'Automatic' : name,
-  })));
-  engines.value = 'auto';
-  const preset = select([
-    {value: '', label: 'Use my default preset'},
-    ...presets.map(item => ({value: item.id, label: item.name})),
-  ]);
   // Main-form controls: the checkbox is OFF every time a dialog opens;
   // each mode remembers its own per-user saved quality preference.
   const audioOnly = node('input');
@@ -154,26 +141,13 @@ async function openDialog(folder: string | null, suggested = '') {
   }
   audioOnly.addEventListener('change', updateQualityChoices);
   updateQualityChoices();
-  const format = select([
-    {value: 'auto', label: 'Best available format'},
-    {value: 'mp4', label: 'Prefer MP4 (M4A for audio)'},
-    {value: 'webm', label: 'Prefer WebM'},
-  ]);
-  const options = node('details', '', 'dl-options');
-  const summary = node('summary', 'Options');
-  options.append(summary,
-    node('p', 'Automatic chooses the right downloader. Change this only if a download fails.', 'dl-muted'),
-    label('Engine', engines), label('Preset (optional)', preset),
-    label('Preferred format', format),
-    node('p', 'These options apply to this download only. The engine chooses a compatible format when needed.', 'dl-muted'));
-
   const buttons = node('div', '', 'dl-buttons');
   const cancel = node('button', 'Cancel');
   cancel.type = 'button';
   const submit = node('button', 'Download', 'dl-primary');
   submit.type = 'submit';
   buttons.append(cancel, submit);
-  form.append(title, label('Source URL', url), mediaRow, options, buttons);
+  form.append(title, label('Source URL', url), mediaRow, buttons);
   dialog.append(form);
   document.body.append(dialog);
 
@@ -192,9 +166,8 @@ async function openDialog(folder: string | null, suggested = '') {
     }
     submit.disabled = true;
     try {
-      const presetEngine = presetEngineForSubmission(presets, preset.value, userSettings.default_preset);
-      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value,
-        quality.value, format.value, audioOnly.checked, presetEngine));
+      await api('/jobs', 'POST', filesJobRequest(
+        url.value.trim(), folder, quality.value, audioOnly.checked));
       notify('Download added to your Nextcloud Files.');
       window.dispatchEvent(new Event('downloader:job-queued'));
       close();
@@ -329,7 +302,7 @@ function registerTalkAction(): boolean {
         return;
       }
       // Never auto-download; show the same user-owned destination and
-      // engine/preset confirmation dialog as the native Files actions.
+      // quality/audio confirmation dialog as the native Files actions.
       void openDialog(null, source);
     },
   });

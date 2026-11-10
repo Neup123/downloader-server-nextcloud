@@ -139,7 +139,6 @@ class UserUnitTests(TestCase):
         ctx = UserContext("alice", FakeNc("alice"))
         prefs = asyncio.run(write_user_preferences(ctx, {
             "destination_folder": "Movies/Clips",
-            "default_preset": "preset-1",
             "app_password": "secret-file-password",
             "engine_settings": {"yt-dlp": {"format": "best"}},
         }))
@@ -289,31 +288,25 @@ class UserUnitTests(TestCase):
         self.assertEqual(subject, "Download complete")
 
 
-    def test_personal_presets_are_scoped_and_never_sent_as_core_global_ids(self):
-        from nextcloud_exapp.user import save_user_preset, read_user_presets, delete_user_preset
+    def test_old_personal_preset_data_is_readable_but_not_applied(self):
+        from nextcloud_exapp.user import read_legacy_personal_presets
         alice = UserContext("alice", FakeNc("alice"))
-        bob = UserContext("bob", FakeNc("bob"))
-        saved = asyncio.run(save_user_preset(alice, {
-            "name": "My format", "engine": "yt-dlp", "settings": {"format": "best"}
-        }))
-        self.assertEqual(len(asyncio.run(read_user_presets(alice))), 1)
-        self.assertEqual(asyncio.run(read_user_presets(bob)), [])
-        alice.nc.preferences_ex.saved["dav_app_password"] = "alice-password"
-        job = asyncio.run(job_submission(alice, {
-            "url": "https://example.test/media", "engine": "auto", "preset_id": saved["id"]
-        }))
-        self.assertIsNone(job["preset_id"])
-        self.assertEqual(job["engine"], "yt-dlp")
-        self.assertEqual(job["overrides"]["format"], "best")
-        bob.nc.preferences_ex.saved["dav_app_password"] = "bob-password"
+        alice.nc.preferences_ex.saved.update({
+            "user_presets": '[{"id":"legacy-one","name":"Old option","engine":"generic","settings":{}}]',
+            "default_preset": "legacy-one",
+            "dav_app_password": "owner-only-secret",
+        })
+        rows = asyncio.run(read_legacy_personal_presets(alice))
+        self.assertEqual(rows[0]["id"], "legacy-one")
+        self.assertNotIn("default_preset", asyncio.run(read_user_preferences(alice)))
+        job = asyncio.run(job_submission(alice, {"url": "https://example.test/media"}))
+        self.assertEqual(job["engine"], "auto")
+        self.assertNotIn("preset_id", job)
         with self.assertRaises(HTTPException) as failure:
-            asyncio.run(job_submission(bob, {
-                "url": "https://example.test/media", "preset_id": saved["id"]
+            asyncio.run(job_submission(alice, {
+                "url": "https://example.test/media", "preset_id": "legacy-one",
             }))
-        self.assertEqual(failure.exception.status_code, 404)
-        result = asyncio.run(delete_user_preset(alice, saved["id"]))
-        self.assertTrue(result["deleted"])
-        self.assertEqual(asyncio.run(read_user_presets(alice)), [])
+        self.assertEqual(failure.exception.status_code, 422)
 
 
 class TrackingTests(TestCase):
@@ -379,7 +372,7 @@ class ProvenanceContractTests(TestCase):
         source = (Path(__file__).resolve().parents[1] / "nextcloud_exapp/main.py").read_text()
         self.assertIn('params={"owner_id": context.user_id, "file_id": file_id}', source)
         self.assertIn('request_data = {"url": provenance["source_url"]}', source)
-        self.assertIn('shared_presets=await selected_shared_presets(context, request_data)', source)
+        self.assertIn('submitted = await job_submission(context, request_data)', source)
         self.assertIn('await job_submission(', source)
         # Redownload still resolves exclusively from the signed owner's provenance.
         self.assertIn('own_job_provenance(', source)
