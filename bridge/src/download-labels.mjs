@@ -48,6 +48,7 @@ export function downloadStatus(job) {
   }
   if (job.status === 'failed') return 'Failed — ' + (job.error || 'Check the log and try again');
   if (job.status === 'cancelled') return 'Cancelled';
+  if (job.status === 'paused') return 'Paused';
   if (job.status === 'downloading') return 'Downloading' +
     (percent === null ? '' : ' ' + percent.toFixed(0) + '%') +
     (Number(job.progress?.speed_bytes_per_second) > 0
@@ -55,6 +56,14 @@ export function downloadStatus(job) {
   if (job.status === 'delivering') return 'Delivering to your destination';
   if (job.status === 'queued') return 'Queued';
   return (job.status || 'Pending').replaceAll('-', ' ');
+}
+
+/** Bubble has a dedicated percentage beside the pause button. */
+export function downloadBubbleStatus(job) {
+  if (job.status !== 'downloading') return downloadStatus(job);
+  const speed = Number(job.progress?.speed_bytes_per_second);
+  return 'Downloading' + (Number.isFinite(speed) && speed > 0
+    ? ' · ' + downloadAmount(speed) + '/s' : '');
 }
 
 /**

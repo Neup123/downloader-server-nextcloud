@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {downloadTitle,downloadStatus,downloadSymbol,downloadAmount,deliveredFilesQuery} from '../src/download-labels.mjs';
+import {downloadTitle,downloadStatus,downloadBubbleStatus,downloadSymbol,downloadAmount,deliveredFilesQuery} from '../src/download-labels.mjs';
 
 test('safe titles and statuses use human file labels rather than job IDs or URL tokens', () => {
   const raw = {id:'123',status:'downloading',url:'https://example.org/media/video.mp4?token=secret'};
@@ -29,6 +29,7 @@ test('Widget statuses match the Core Download and Library job card', () => {
   assert.equal(downloadStatus({...source,status:'downloading',progress:{
     percent:62.2,speed_bytes_per_second:3145728,
   }}),'Downloading 62% · 3.0 MB/s');
+  assert.equal(downloadStatus({...source,status:'paused'}),'Paused');
   assert.equal(downloadStatus({...source,status:'delivering'}),'Delivering to your destination');
   assert.equal(downloadStatus({...source,status:'failed',error:'Connection lost'}),'Failed — Connection lost');
   assert.equal(downloadStatus({...source,status:'cancelled'}),'Cancelled');
@@ -47,4 +48,13 @@ test('Content-type icons mirror Core card, without rewriting source filenames', 
   assert.equal(downloadTitle({url:'https://example.org/file.zip',output_files:[
     {filename:'raw-original.zip',verified:false},
   ]}),'raw-original.zip');
+});
+
+
+test('Bubble subtitle shows downloading state and speed but not duplicate percent',()=>{
+  const job={id:'job',url:'https://example.org/file',status:'downloading',
+    progress:{percent:32,speed_bytes_per_second:17825792}};
+  assert.equal(downloadStatus(job),'Downloading 32% · 17 MB/s');
+  assert.equal(downloadBubbleStatus(job),'Downloading · 17 MB/s');
+  assert.equal(downloadBubbleStatus({...job,status:'queued'}),'Queued');
 });

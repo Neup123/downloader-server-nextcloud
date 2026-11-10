@@ -42,21 +42,23 @@ async function api<T>(url: string, method = 'GET', data?: object): Promise<T> {
 const CARD_STYLE = `
 .downloader-dashboard-content{display:flex;flex-direction:column;flex:1 1 0;min-height:0;min-width:0;max-height:100%;max-width:100%;box-sizing:border-box;overflow:hidden;color:var(--color-main-text,#222)}
 .downloader-dashboard-content .job-list{display:grid;gap:0;flex:1 1 0;min-height:0;max-height:380px;overflow-y:auto;overflow-x:hidden;margin-top:8px}
-.downloader-dashboard-content .job-row{display:flex;gap:10px;align-items:center;min-width:0;padding:8px 2px;border-bottom:1px solid var(--color-border,#ddd)}
-.downloader-dashboard-content .job-card-icon{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px;background:var(--color-background-dark,#eee);font-size:18px}
-.downloader-dashboard-content .job-card-icon img{display:block;max-width:100%;max-height:100%;object-fit:cover;border-radius:8px;position:absolute;inset:0;width:32px;height:32px}
+.downloader-dashboard-content .job-row{display:flex;gap:6px;align-items:center;min-width:0;padding:2px 0;border-bottom:1px solid var(--color-border,#ddd)}
+.downloader-dashboard-content .job-card-icon{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;border-radius:6px;background:var(--color-background-dark,#eee);font-size:15px}
+.downloader-dashboard-content .job-card-icon img{display:block;max-width:100%;max-height:100%;object-fit:cover;border-radius:8px;position:absolute;inset:0;width:24px;height:24px}
 .downloader-dashboard-content .job-card-icon{position:relative;overflow:hidden}
-.downloader-dashboard-content .job-card-info{flex:1;min-width:0;display:grid;gap:2px}
-.downloader-dashboard-content .job-card-title{display:block;max-width:100%;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.downloader-dashboard-content .job-card-state{display:block;max-width:100%;font-size:12px;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.downloader-dashboard-content .job-card-info{flex:1;min-width:0;display:grid;gap:1px}
+.downloader-dashboard-content .job-card-title{display:block;max-width:100%;font-size:12px;line-height:1.1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.downloader-dashboard-content .job-card-state{display:block;max-width:100%;font-size:11px;line-height:1.1;color:var(--color-text-maxcontrast,#666);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .downloader-dashboard-content .job-actions{display:flex;align-items:center;gap:2px;flex:0 0 auto}
-.downloader-dashboard-content .job-actions button,.downloader-dashboard-content .job-actions summary{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;list-style:none}
+.downloader-dashboard-content .job-actions button,.downloader-dashboard-content .job-actions summary{width:24px;height:24px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;list-style:none}
 .downloader-dashboard-content .job-actions :is(button,summary):hover{background:var(--color-background-hover,#ddd)}
-.downloader-dashboard-content .job-menu{position:relative}
+.downloader-dashboard-content .job-menu{position:relative;flex:0 0 20px}
+.downloader-dashboard-content .job-menu summary{width:20px;height:24px;font-size:21px;font-weight:800;line-height:1;background:transparent!important;border:0!important;border-radius:0;padding:0}
+.downloader-dashboard-content .job-menu summary:hover{background:transparent!important;color:var(--color-primary,#377bd1)}
 .downloader-dashboard-content .job-menu summary::-webkit-details-marker{display:none}
 .downloader-dashboard-content .job-menu-items{position:absolute;z-index:100;right:0;top:100%;width:max-content;min-width:160px;padding:5px;display:grid;gap:2px;border:1px solid var(--color-border,#aaa);border-radius:9px;background:var(--color-main-background,#fff);box-shadow:0 6px 24px #0003}
 .downloader-dashboard-content .job-menu-items button{width:100%;min-height:34px;display:block;text-align:start;padding:6px 10px;font-size:12px}
-.downloader-dashboard-content .mini-progress{width:100%;height:3px}
+.downloader-dashboard-content .mini-progress{width:100%;height:2px}
 .downloader-dashboard-content :is(button,a,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
 .downloader-widget-dialog[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(540px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;padding:22px;border:1px solid var(--color-border,#aaa);border-radius:12px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
 .downloader-widget-dialog::backdrop{background:#0008}
@@ -225,8 +227,8 @@ function renderDashboard(element: HTMLElement) {
       const preview = elem('img');
       preview.alt = '';
       preview.loading = 'lazy';
-      preview.width = 32;
-      preview.height = 32;
+      preview.width = 24;
+      preview.height = 24;
       preview.src = host.OC!.generateUrl('/core/preview') + '?fileId='
         + encodeURIComponent(String(verifiedFile.file_id)) + '&x=96&y=96&a=true';
       preview.addEventListener('error', () => preview.remove(), {once: true});

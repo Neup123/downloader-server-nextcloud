@@ -24,13 +24,13 @@ test('Nextcloud receives real authenticated DAV node-created events on completio
   assert.match(bridge, /publishDeliveredFiles\(job\)/);
   assert.doesNotMatch(bridge, /location\.reload\(/);
 });
-test('progress bubble is live and accessible, and both widgets refresh on submit', () => {
-  assert.match(bridge, /dl-header-meter/);
-  assert.match(bridge, /Current download progress/);
+test('header progress frame is live and accessible, and both widgets refresh on submit', () => {
+  assert.match(bridge, /dl-frame-progress/);
+  assert.match(bridge, /dl-count/);
   assert.match(bridge, /2500/);
   assert.match(bridge, /downloader:job-queued/);
   assert.match(dashboard, /downloader:jobs-updated/);
-  assert.match(bridge, /notify\(job\.status === 'completed'/);
+  assert.match(bridge, /notify\(job\.status\s*===\s*'completed'/);
 });
 
 

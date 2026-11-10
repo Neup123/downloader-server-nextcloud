@@ -18,3 +18,12 @@ def test_standard_form_never_requires_core_key_or_raw_json():
     assert "Browse my Files folders" in JS
     assert "DOWNLOADER_API_TOKEN" not in JS
     assert "X-API-Key" not in JS
+
+
+def test_header_dropdown_preferences_use_signed_user_preference_storage():
+    source=(ROOT/"nextcloud_exapp/user.py").read_text()
+    for key, fallback in (("header_indicator_visibility", "active"), ("dropdown_content", "active")):
+        assert f'preferences.get_value("{key}", "{fallback}")' in source
+        assert f'pref.set_value(name, patch[name])' in source
+    assert '"header_indicator_visibility", {"active", "always"}' in source
+    assert '"dropdown_content", {"active", "all"}' in source

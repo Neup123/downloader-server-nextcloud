@@ -630,7 +630,7 @@ async def user_get_job(job_id: str, context: UserContext = Depends(require_user)
 @APP.post("/user/api/jobs/{job_id}/{action}", status_code=202)
 async def user_job_action(job_id: str, action: str, request: Request,
                           context: UserContext = Depends(require_user)):
-    if action not in {"cancel", "retry", "redeliver"}:
+    if action not in {"cancel", "retry", "redeliver", "pause", "resume"}:
         raise HTTPException(status_code=404, detail="Unknown action")
     identifier = scoped_core_path(job_id)
     own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
