@@ -200,6 +200,8 @@ class EngineSettingsIn(BaseModel):
 
 class DeliverySettingsIn(BaseModel):
     mode: Literal["local", "webdav"] = "local"
+    # Per-user Nextcloud delivery only; standalone settings keep rename default.
+    existing_file_behavior: Literal["rename", "skip"] = "rename"
     webdav_url: str | None = Field(default=None, max_length=2048)
     username: str | None = Field(default=None, max_length=255)
     app_password: str | None = Field(default=None, max_length=1024)

@@ -15,7 +15,7 @@ type Job = {
   progress?: {percent?: number; speed_bytes_per_second?: number}; error?: string | null;
   pause_capability?: {can_pause?:boolean;can_resume?:boolean;reason?:string|null};
   finished_at?:string;completed_at?:string;updated_at?:string;created_at?:string;
-  output_files?: {filename: string; path?: string; verified?: boolean; file_id?: string | number}[];
+  output_files?: {filename: string; path?: string; verified?: boolean; skipped?: boolean; file_id?: string | number}[];
 };
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
@@ -496,8 +496,11 @@ function headerProgress(ownerId: string) {
       for(const job of jobs){
         const old=lastStatuses.get(job.id);
         if(initialized && old && old!==job.status && TERMINAL.has(job.status)){
+          const skipped=job.output_files?.some(file=>file.skipped===true);
           notify(job.status==='completed'
-            ?'Download complete. Open it in Nextcloud Files.'
+            ?(skipped
+              ?'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.'
+              :'Download complete. Open it in Nextcloud Files.')
             :job.status==='failed'?'Download failed. Open Downloads for details.'
              :'Download cancelled.');
           window.dispatchEvent(new Event('downloader:jobs-updated'));

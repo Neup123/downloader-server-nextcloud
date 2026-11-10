@@ -198,6 +198,7 @@ def encrypt_job_delivery(payload, owner_id: str, settings: Settings) -> str:
         "username": payload.username,
         "password": payload.app_password,
         "folder": payload.folder,
+        "existing_file_behavior": payload.existing_file_behavior,
     }
     return _fernet(settings).encrypt(json.dumps(data).encode("utf-8")).decode("ascii")
 
@@ -405,6 +406,8 @@ async def deliver_files(
                 raise DeliveryError("Per-user WebDAV credentials unavailable; reconnect Files and retry") from exc
             if data.get("username") != job.owner_id:
                 raise DeliveryError("Per-user destination owner mismatch; reconnect Files")
+            if data.get("existing_file_behavior", "rename") not in {"rename", "skip"}:
+                raise DeliveryError("Invalid per-user existing-file behaviour")
             setting = None
         else:
             setting = session.get(DeliverySetting, 1)
@@ -498,6 +501,7 @@ async def deliver_files(
     # Existing standalone deliveries deliberately preserve their established
     # job folders. Nextcloud per-user deliveries use the chosen folder itself.
     prefix_parts = folder_parts if per_user else folder_parts + [job_id]
+    existing_behavior = data.get("existing_file_behavior", "rename") if per_user else "rename"
     output = []
     client_options = {
         "timeout": httpx.Timeout(60.0, connect=15.0),
@@ -527,7 +531,32 @@ async def deliver_files(
             else:
                 await _ensure_webdav_collection(client, current, "WebDAV directory creation failed")
         if per_user and len(files) > 1:
-            current = await _webdav_unique_folder(client, current, _delivery_title(files, job))
+            title = _delivery_title(files, job)
+            if existing_behavior == "skip":
+                # A multi-output download has one human-titled collection.
+                # MKCOL is atomic, preventing a TOCTOU overwrite.
+                candidate = current + "/" + quote(title, safe="")
+                attempt = await client.request("MKCOL", candidate)
+                if attempt.status_code == 405:
+                    check = await client.request(
+                        "PROPFIND", candidate.rstrip("/") + "/",
+                        headers={"Depth": "0", "Content-Type": "application/xml"},
+                        content='<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
+                    )
+                    if check.status_code != 207 or not _webdav_is_collection(check.content, candidate):
+                        raise DeliveryError("Conflicting download folder is not a verified collection")
+                    skipped = {
+                        "filename": title, "path": candidate, "delivery": "webdav",
+                        "verified": False, "skipped": True, "skip_reason": "exists",
+                    }
+                    output.append(skipped)
+                    await record(skipped)
+                    return output
+                if attempt.status_code != 201:
+                    raise _delivery_failure(attempt.status_code, "Could not create download folder")
+                current = candidate
+            else:
+                current = await _webdav_unique_folder(client, current, title)
         created_folders = set()
         for source in files:
             await check_cancelled()
@@ -552,9 +581,10 @@ async def deliver_files(
                             break
                         yield chunk
 
-            # PUT with If-None-Match prevents replacing another user's
-            # existing file. Retry only collisions, suffixing like Nextcloud.
-            for suffix in range(101):
+            # If-None-Match is the atomic collision decision. Never use an
+            # unguarded overwrite, and never suffix when policy is Skip.
+            skipped_file = False
+            for suffix in range(101 if existing_behavior == "rename" else 1):
                 await check_cancelled()
                 target_name = _suffixed_filename(relative.name, suffix) if per_user else relative.name
                 target = parent_url + "/" + quote(target_name, safe="")
@@ -573,6 +603,15 @@ async def deliver_files(
                         exists = await client.request("PROPFIND", target, headers={"Depth": "0"})
                         if exists.status_code != 207:
                             raise _delivery_failure(response.status_code, "WebDAV parent folder unavailable")
+                    if existing_behavior == "skip":
+                        skipped = {
+                            "filename": relative.name, "path": target, "delivery": "webdav",
+                            "verified": False, "skipped": True, "skip_reason": "exists",
+                        }
+                        output.append(skipped)
+                        await record(skipped)
+                        skipped_file = True
+                        break
                     continue
                 if response.status_code not in {200, 201, 204}:
                     raise _delivery_failure(response.status_code, f"WebDAV PUT failed for {source.name}")
@@ -583,6 +622,8 @@ async def deliver_files(
                 break
             else:
                 raise DeliveryError("Too many files with the same name in the destination")
+            if skipped_file:
+                continue
             await check_cancelled()
             verify = await client.request(
                 "PROPFIND",
