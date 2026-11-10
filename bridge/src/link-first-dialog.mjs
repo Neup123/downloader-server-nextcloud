@@ -445,9 +445,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }catch(error){notify(error instanceof Error?error.message:'Invalid selection');return;}
     busy=true;refreshSubmit();
     try{
-      await api('/jobs','POST',body);
+      const created=await api('/jobs','POST',body);
       notify('Download added to your Nextcloud Files.');
-      queued();dialog.close();
+      queued(created);dialog.close();
     }catch(error){notify(error instanceof Error?error.message:'Download submission failed');}
     finally{busy=false;refreshSubmit();}
   });
