@@ -90,7 +90,11 @@ function cleanFolder(path?: string): string {
 async function openDialog(folder: string | null, suggested = '') {
   // The Files folder action already supplies its destination. For Viewer/Talk,
   // omit it so the signed ExApp applies the user's own Files default.
-  const presets = await api<Preset[]>('/presets').catch(() => []);
+  const [presets, userSettings] = await Promise.all([
+    api<Preset[]>('/presets').catch(() => []),
+    api<{default_video_quality?:string;default_audio_quality?:string}>('/settings').catch(
+      () => ({default_video_quality:'best',default_audio_quality:'best'})),
+  ]);
   const dialog = node('dialog', '', 'dl-dialog');
   const form = node('form');
   form.method = 'dialog';
@@ -115,13 +119,41 @@ async function openDialog(folder: string | null, suggested = '') {
     {value: '', label: 'Use my default preset'},
     ...presets.map(item => ({value: item.id, label: item.name})),
   ]);
-  const quality = select([
-    {value: 'default', label: 'Use preset or automatic quality'},
-    {value: 'best', label: 'Best quality'},
-    {value: '1080', label: 'Up to 1080p'},
-    {value: '720', label: 'Up to 720p'},
-    {value: 'audio', label: 'Audio only'},
-  ]);
+  // Main-form controls: the checkbox is OFF every time a dialog opens;
+  // each mode remembers its own per-user saved quality preference.
+  const audioOnly = node('input');
+  audioOnly.type = 'checkbox';
+  audioOnly.checked = false;
+  const audioToggle = node('label', '', 'dl-audio-toggle');
+  audioToggle.append(audioOnly, node('span', 'Audio only'));
+  const quality = select([]);
+  const mediaRow = node('div', '', 'dl-media-row');
+  mediaRow.append(audioToggle, label('Quality', quality));
+  function updateQualityChoices() {
+    const choices = audioOnly.checked
+      ? [
+        {value:'best', label:'Best available audio'},
+        {value:'192', label:'Up to 192 kbps'},
+        {value:'128', label:'Up to 128 kbps'},
+        {value:'small', label:'Smallest audio'},
+      ]
+      : [
+        {value:'best', label:'Best available video'},
+        {value:'1080', label:'Up to 1080p'},
+        {value:'720', label:'Up to 720p'},
+        {value:'480', label:'Up to 480p'},
+      ];
+    quality.replaceChildren(...choices.map(item => {
+      const option = node('option', item.label);
+      option.value = item.value;
+      return option;
+    }));
+    const preferred = audioOnly.checked
+      ? userSettings.default_audio_quality : userSettings.default_video_quality;
+    quality.value = choices.some(item => item.value === preferred) ? preferred! : 'best';
+  }
+  audioOnly.addEventListener('change', updateQualityChoices);
+  updateQualityChoices();
   const format = select([
     {value: 'auto', label: 'Best available format'},
     {value: 'mp4', label: 'Prefer MP4 (M4A for audio)'},
@@ -132,7 +164,7 @@ async function openDialog(folder: string | null, suggested = '') {
   options.append(summary,
     node('p', 'Automatic chooses the right downloader. Change this only if a download fails.', 'dl-muted'),
     label('Engine', engines), label('Preset (optional)', preset),
-    label('Quality (video or audio)', quality), label('Preferred format', format),
+    label('Preferred format', format),
     node('p', 'These options apply to this download only. The engine chooses a compatible format when needed.', 'dl-muted'));
 
   const buttons = node('div', '', 'dl-buttons');
@@ -141,7 +173,7 @@ async function openDialog(folder: string | null, suggested = '') {
   const submit = node('button', 'Download', 'dl-primary');
   submit.type = 'submit';
   buttons.append(cancel, submit);
-  form.append(title, label('Source URL', url), options, buttons);
+  form.append(title, label('Source URL', url), mediaRow, options, buttons);
   dialog.append(form);
   document.body.append(dialog);
 
@@ -160,7 +192,7 @@ async function openDialog(folder: string | null, suggested = '') {
     }
     submit.disabled = true;
     try {
-      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value));
+      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value, audioOnly.checked));
       notify('Download added to your Nextcloud Files.');
       window.dispatchEvent(new Event('downloader:job-queued'));
       close();
@@ -692,6 +724,11 @@ function styles() {
     'box-shadow:0 16px 48px #0004;z-index:11000}',
     '.dl-dialog::backdrop{background:#0008}',
     '.dl-dialog form{display:grid;gap:16px}.dl-dialog h2{margin:0;font-size:19px}',
+    '.dl-media-row{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}',
+    '.dl-media-row .dl-audio-toggle{display:flex;align-items:center;gap:6px;white-space:nowrap;',
+    'cursor:pointer;font-size:13px;font-weight:600;flex:0 0 auto}',
+    '.dl-media-row .dl-audio-toggle input{width:18px;height:18px;margin:0}',
+    '.dl-media-row .dl-label{flex:1 1 0;margin:0;min-width:0}',
     '.dl-options{border-top:1px solid var(--color-border,#ddd);padding-top:12px}',
     '.dl-options summary{cursor:pointer;font-weight:600;list-style-position:inside}',
     '.dl-options[open]{display:grid;gap:10px}.dl-options[open] summary{margin-bottom:6px}',

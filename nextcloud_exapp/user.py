@@ -217,6 +217,8 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         "notify_failed": await preferences.get_value("notify_failed", "1") != "0",
         "header_indicator_visibility": await preferences.get_value("header_indicator_visibility", "active"),
         "dropdown_content": await preferences.get_value("dropdown_content", "active"),
+        "default_video_quality": await preferences.get_value("default_video_quality", "best"),
+        "default_audio_quality": await preferences.get_value("default_audio_quality", "best"),
         "preset_hidden": await read_preset_id_list(preferences, "preset_hidden"),
         "preset_order": await read_preset_id_list(preferences, "preset_order"),
     }
@@ -227,7 +229,8 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         raise HTTPException(status_code=422, detail="Invalid personal settings")
     allowed = {"destination_folder", "default_preset", "engine_settings", "app_password",
                "notify_finished", "notify_failed", "header_indicator_visibility",
-               "dropdown_content", "preset_hidden", "preset_order"}
+               "dropdown_content", "preset_hidden", "preset_order",
+               "default_video_quality", "default_audio_quality"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
     pref = context.nc.preferences_ex
@@ -259,6 +262,8 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
     for name, choices in (
         ("header_indicator_visibility", {"active", "always"}),
         ("dropdown_content", {"active", "all"}),
+        ("default_video_quality", {"best", "1080", "720", "480"}),
+        ("default_audio_quality", {"best", "192", "128", "small"}),
     ):
         if name in patch:
             if not isinstance(patch[name], str) or patch[name] not in choices:
@@ -562,7 +567,7 @@ async def job_submission(
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
-    allowed = {"url", "engine", "preset_id", "overrides", "folder"}
+    allowed = {"url", "engine", "preset_id", "overrides", "folder", "audio_only", "quality"}
     if set(data) - allowed:
         raise HTTPException(status_code=422, detail="Unsupported job field")
     source = data.get("url")
@@ -609,6 +614,23 @@ async def job_submission(
     options = data.get("overrides", {})
     if not isinstance(options, dict) or len(json.dumps(options)) > 16000:
         raise HTTPException(status_code=422, detail="Invalid engine overrides")
+    # The dialog's explicit mode/quality must be represented by the actual
+    # yt-dlp format sent to Core, not cosmetic client-only controls. The
+    # signed ExApp accepts mode metadata and validates it before stripping
+    # those UI-only fields from the Core request.
+    if "audio_only" in data or "quality" in data:
+        audio_only = data.get("audio_only")
+        quality = data.get("quality")
+        choices = {"best", "192", "128", "small"} if audio_only else {"best", "1080", "720", "480"}
+        if not isinstance(audio_only, bool) or not isinstance(quality, str) or quality not in choices:
+            raise HTTPException(status_code=422, detail="Invalid audio/video quality selection")
+        fmt = options.get("format")
+        if engine != "yt-dlp" or not isinstance(fmt, str) or not fmt:
+            raise HTTPException(status_code=422, detail="Quality selection requires yt-dlp format overrides")
+        if audio_only and not (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
+            raise HTTPException(status_code=422, detail="Audio-only choice must submit an audio-only format")
+        if not audio_only and (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
+            raise HTTPException(status_code=422, detail="Video quality must submit a video format")
     chosen = prefs["engine_settings"].get(engine, {})
     overrides = {**(selected["settings"] if selected else {}), **chosen, **options}
     # Replace user-visible cookie filenames with the own user's opaque core key.
