@@ -56,7 +56,7 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
   if (kind === 'manga' && options.cbz !== false) {
     throw new Error('The extractor does not provide a CBZ packaging capability.');
   }
-  if(kind==='torrent' && !/^magnet:\\?/i.test(url)) {
+  if(kind==='torrent' && !/^magnet:\?/i.test(url)) {
     throw new Error('Torrent download requires a magnet link.');
   }
   const media = !['auto','direct','torrent'].includes(kind);

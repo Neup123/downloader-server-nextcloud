@@ -76,6 +76,13 @@ function safeThumbnail(value) {
       ? value : null;
   } catch {return null;}
 }
+export function appendPreviewPage(current, response, offset) {
+  const existing=new Set(current.map(row=>row.index));
+  const fresh=previewRows(response).filter(row=>!existing.has(row.index));
+  const nextOffset=response?.has_more===true && Number.isInteger(response.next_offset) &&
+    response.next_offset>offset && response.next_offset<=MAX_OFFSET ? response.next_offset : null;
+  return {rows:[...current,...fresh],fresh,nextOffset};
+}
 export function previewMeta(row) {
   const meta=[];
   if(row.upload_date){
@@ -312,15 +319,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     try {
       const result=await api('/media-preview','POST',{url:urlAtStart,max_entries:PAGE,offset:next});
       if(token!==generation || urlAtStart!==currentUrl || closed)return;
-      const batch=previewRows(result);
       if(result.offset!==next)throw new Error('Preview page did not match requested offset');
-      const previous=new Set(choices.map(item=>item.index));
-      const fresh=batch.filter(item=>!previous.has(item.index));
-      choices.push(...fresh);
-      if(type==='playlist' && playlistAutoSelect)for(const row of fresh)selected.add(row.index);
+      const page=appendPreviewPage(choices,result,next);
+      choices=page.rows;
+      if(type==='playlist' && playlistAutoSelect)for(const row of page.fresh)selected.add(row.index);
       preview=result;
-      previewNextOffset=result.has_more===true && Number.isInteger(result.next_offset) &&
-        result.next_offset>next && result.next_offset<=MAX_OFFSET ? result.next_offset : null;
+      previewNextOffset=page.nextOffset;
       drawRows(list,type);
       message('');
     }catch(error){
@@ -555,9 +559,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(mediaControls(prefs,false,true),advancedVideo(preview?.subtitle_languages||[],false));
     }
     if(['playlist','channel','gallery','manga'].includes(kind)){
-      choices=previewRows(preview);
-      previewNextOffset=preview?.has_more===true && Number.isInteger(preview?.next_offset) &&
-        preview.next_offset>0 && preview.next_offset<=MAX_OFFSET ? preview.next_offset : null;
+      const page=appendPreviewPage([],preview,0);
+      choices=page.rows;
+      previewNextOffset=page.nextOffset;
       if(kind==='playlist'){
         for(const row of choices)selected.add(row.index);
       }else{
