@@ -16,8 +16,8 @@ test('personal forms render within Nextcloud profile settings and enforce entitl
   assert.match(form,/Util::addScript\(Application::APP_ID, 'settings'\)/);
 });
 test('personal settings cards avoid exposing service API keys or preset controls',()=>{
-  for(const part of ['Where your downloads go','Files connection','Notifications',
-    'Browse my Files folders','Default download quality','Notify me when a download finishes',
+  for(const part of ['Destination routing by content type','Default Files folder',
+    'Files connection','Notifications','Default download quality','Notify me when a download finishes',
     'Notify me if a download fails','Saved ✓ Changes apply to new downloads.',
     'Advanced — technical engine settings','Connect my Files']){
     assert.ok(js.includes(part),part);
@@ -48,4 +48,56 @@ test('typed content destination paths validate existence and keep invalid text v
   assert.match(routes,/Folder not found in your Files/);
   assert.match(routes,/Never revert the text/);
   assert.match(routes,/changed\('destination_routes',\{\[kind\]:path\}\)/);
+});
+
+test('default Files folder is the first row of one compact routing group',()=>{
+  const routing=js.slice(js.indexOf("const routes=card("),js.indexOf("const collisions=card("));
+  assert.match(routing,/Files not routed by type use the default folder/);
+  assert.equal((js.match(/const routes=card\(/g)||[]).length,1);
+  assert.doesNotMatch(js,/card\('Where your downloads go'/);
+  assert.doesNotMatch(js,/Browse my Files folders/);
+  assert.match(routing,/routes\.classList\.add\('downloader-routing-card'\)/);
+  assert.match(routing,/routes\.append\(list\)/);
+  assert.ok(routing.indexOf("routeRow('downloader-route-default'")
+    <routing.indexOf('for(const [kind,subfolder] of Object.entries(routeSubfolders))'));
+  assert.match(routing,/routeRow\('downloader-route-default','Default Files folder',folder/);
+  assert.match(routing,/video:'Video',audio:'Audio',images:'Images',manga:'Manga'/);
+  assert.match(routing,/direct:'Direct files',torrent:'Torrents'/);
+  assert.match(js,/downloader-settings-card\.downloader-routing-card\{grid-column:1\/-1;justify-self:start;width:max-content/);
+  assert.match(js,/downloader-routing-list\{display:grid;grid-template-columns:max-content max-content max-content/);
+});
+
+test('every folder row uses adjacent icon buttons with full accessible tooltips',()=>{
+  const routing=js.slice(js.indexOf("const routes=card("),js.indexOf("const collisions=card("));
+  assert.match(js,/const FOLDER_SEARCH_ICON='<svg /);
+  assert.match(js,/const RESET_ICON='<svg /);
+  assert.match(js,/button\.title=name;button\.setAttribute\('aria-label',name\)/);
+  assert.match(routing,/const browse=folderAction\('Choose folder'\)/);
+  assert.match(routing,/const clear=folderAction\('Use default'\)/);
+  assert.match(routing,/actions\.append\(browse,clear\);group\.append\(title,field,actions\)/);
+  assert.match(js,/button\.downloader-folder-action\{width:32px;min-width:32px;height:32px;min-height:32px/);
+  assert.doesNotMatch(routing,/element\('button','Choose folder'\)/);
+  assert.doesNotMatch(routing,/element\('button','Use default'\)/);
+});
+
+test('folder fields size to their paths, not to the card or grid column',()=>{
+  assert.match(js,/input\.downloader-route-field\{width:auto;min-width:0;max-width:min\(56ch,100%\)/);
+  assert.match(js,/field\.size=Math\.max\(1,Math\.min\(56,field\.value\.length\+1\)\)/);
+  assert.match(js,/field\.addEventListener\('input',\(\)=>\{\s*edited\+\+;\s*sizeFolderField\(field\)/);
+  assert.match(js,/downloader-route-controls\{display:flex;align-items:center;gap:4px\}/);
+  assert.match(js,/@media\(max-width:640px\)/);
+});
+
+test('folder reset, per-type overrides and inherited routes retain their saving contract',()=>{
+  const routing=js.slice(js.indexOf("const routes=card("),js.indexOf("const collisions=card("));
+  assert.match(routing,/setDefaultFolder\('Downloads'\)/);
+  assert.match(routing,/changed\('destination_folder',path\)/);
+  assert.match(routing,/if\(customRoutes\.has\(kind\)\)continue/);
+  assert.match(routing,/const customRoutes=new Set\(Object\.keys\(data\.destination_route_overrides\|\|\{\}\)\)/);
+  assert.match(routing,/customRoutes\.add\(kind\)/);
+  assert.match(routing,/changed\('destination_routes',\{\[kind\]:path\}\)/);
+  assert.match(routing,/customRoutes\.delete\(kind\)/);
+  assert.match(routing,/changed\('destination_routes',\{\[kind\]:null\}\)/);
+  assert.match(routing,/onFolderChosen=setDefaultFolder/);
+  // The server's explicit starting-folder priority is tested by Python route-contract tests.
 });

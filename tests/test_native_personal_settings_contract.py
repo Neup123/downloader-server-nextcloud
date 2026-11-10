@@ -16,7 +16,11 @@ def test_standard_form_never_requires_core_key_or_raw_json():
     assert "Default download quality" in JS
     assert "preset" not in JS.lower()
     assert "Advanced — technical engine settings" in JS
-    assert "Browse my Files folders" in JS
+    assert "Browse my Files folders" not in JS
+    assert "Destination routing by content type" in JS
+    assert "routeRow('downloader-route-default'" in JS
+    assert "folderAction('Choose folder')" in JS
+    assert "folderAction('Use default')" in JS
     assert "DOWNLOADER_API_TOKEN" not in JS
     assert "X-API-Key" not in JS
 
