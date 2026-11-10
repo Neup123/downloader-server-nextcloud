@@ -18,6 +18,11 @@ class Preferences:
     async def set_value(self, name, value, sensitive=False):
         self.values[name] = value
 
+class AppConfig:
+    async def get_value(self, key, default="[]"):
+        return default
+
+
 class Files:
     async def by_path(self, path):
         return SimpleNamespace(is_dir=True)
@@ -27,7 +32,7 @@ class Files:
 def context(user_id):
     from nextcloud_exapp.user import UserContext
     return UserContext(user_id, SimpleNamespace(
-        preferences_ex=Preferences(), files=Files(),
+        preferences_ex=Preferences(), files=Files(), appconfig_ex=AppConfig(),
         app_cfg=SimpleNamespace(dav_endpoint="https://cloud.example.org/remote.php/dav"),
     ))
 
@@ -35,12 +40,13 @@ def context(user_id):
 
 def test_builtins_are_read_only_stable_and_safe():
     rows = built_in_presets()
-    assert [row["name"] for row in rows] == [
-        "Best quality", "Audio only", "Up to 720p", "Small file"
-    ]
+    assert len(rows) == 19
+    assert rows[0]["id"] == "builtin:best"
+    assert {row["engine"] for row in rows} == {"yt-dlp", "aria2c", "generic", "gallery-dl"}
     assert all(row["id"].startswith("builtin:") and row["is_builtin"]
-               and row["engine"] == "yt-dlp" and row["is_shared"] is False
+               and row["is_shared"] is False and isinstance(row["settings"], dict)
                for row in rows)
+    assert len({row["id"] for row in rows}) == len(rows)
     rows[0]["settings"]["format"] = "modified"
     assert built_in_presets()[0]["settings"]["format"] == "bv*+ba/b"
 
@@ -48,16 +54,16 @@ def test_builtins_are_read_only_stable_and_safe():
 def test_fresh_user_gets_builtins_and_can_submit_without_core_admin_presets():
     alice = context("alice")
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(return_value=[])):
-        rows = asyncio.run(user_presets(alice))
-    assert len(rows) == 4
+        rows = asyncio.run(user_presets(context=alice))
+    assert len(rows) == len(built_in_presets())
     assert [row["id"] for row in rows] == [row["id"] for row in built_in_presets()]
     for preset in rows:
         payload = asyncio.run(job_submission(alice, {
             "url": "https://example.com/media", "preset_id": preset["id"],
         }))
         assert payload["preset_id"] is None
-        assert payload["engine"] == "yt-dlp"
-        assert payload["overrides"]["format"] == preset["settings"]["format"]
+        assert payload["engine"] == preset["engine"]
+        assert payload["overrides"] == preset["settings"]
 
 
 def test_builtins_cannot_be_forged_or_modified_as_personal_presets():
