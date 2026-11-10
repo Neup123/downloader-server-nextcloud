@@ -1,6 +1,9 @@
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
+  destination_routes:Record<string,string>;
+  destination_route_overrides:Record<string,string>;
+  existing_file_behavior:'rename'|'skip';
   notify_finished:boolean;notify_failed:boolean;
   default_video_quality:string;default_audio_quality:string;
   engine_settings:Record<string,Record<string,unknown>>;
@@ -99,7 +102,10 @@ function start() {
   }
   retry.addEventListener('click',()=>{retry.hidden=true;void save();});
   function changed(key:string,value:unknown){
-    dirty[key]=value;
+    if(key==='destination_routes' && typeof value==='object' && value!==null){
+      const before=dirty[key] as Record<string,unknown>|undefined;
+      dirty[key]={...(before||{}),...(value as Record<string,unknown>)};
+    }else dirty[key]=value;
     if(personal)(personal as unknown as Record<string,unknown>)[key]=value;
     status.firstChild!.textContent='Changes will save automatically…';
     retry.hidden=true;
@@ -124,6 +130,11 @@ function start() {
     const browse=element('button','Browse my Files folders');browse.type='button';
     destination.append(browse);
     const picker=element('div');picker.className='downloader-picker';picker.hidden=true;destination.append(picker);
+    let onFolderChosen=(path:string)=>{
+      folder.value=path||'(Files root)';
+      data.destination_folder=path;
+      changed('destination_folder',path);
+    };
     async function openFolder(path:string,offset=0){
       picker.hidden=false;picker.replaceChildren(element('p','Loading folders…'));
       try {
@@ -137,8 +148,7 @@ function start() {
           void openFolder(page.path.split('/').slice(0,-1).join('/'));
         });
         choose.addEventListener('click',()=>{
-          folder.value=page.path||'(Files root)';
-          changed('destination_folder',page.path);
+          onFolderChosen(page.path);
           picker.hidden=true;
         });
         buttons.append(parent,choose);picker.append(buttons);
@@ -159,8 +169,76 @@ function start() {
         picker.replaceChildren(element('p',error instanceof Error?error.message:'Unable to browse Files.'));
       }
     }
-    browse.addEventListener('click',()=>{if(!picker.hidden)picker.hidden=true;
-      else void openFolder(data.destination_folder||'');});
+    browse.addEventListener('click',()=>{
+      if(!picker.hidden){picker.hidden=true;return;}
+      destination.append(picker);
+      onFolderChosen=(path)=>{
+        folder.value=path||'(Files root)';
+        data.destination_folder=path;
+        changed('destination_folder',path);
+        // Default route paths follow the configured base until overridden.
+        for(const [kind,sub] of Object.entries(routeSubfolders)){
+          if(!customRoutes.has(kind))routeFields[kind].value=[path,sub].filter(Boolean).join('/');
+        }
+      };
+      void openFolder(data.destination_folder||'');
+    });
+
+    const routes=card('Destination routing by content type',
+      'Each type goes to its own folder inside your default Downloads folder unless you choose a different existing Files folder. Starting from a specific folder always overrides these routes.');
+    const routeSubfolders:Record<string,string>={
+      video:'Video',audio:'Audio',images:'Images',manga:'Manga',
+      direct:'Direct files',torrent:'Torrents',
+    };
+    const routeLabels:Record<string,string>={
+      video:'Video',audio:'Audio',images:'Images / galleries',
+      manga:'Manga / comics',direct:'Direct files',torrent:'Torrents',
+    };
+    const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
+    const routeFields:Record<string,HTMLInputElement>={};
+    for(const [kind,subfolder] of Object.entries(routeSubfolders)){
+      const group=element('div');group.className='downloader-route-item';
+      const field=element('input');field.readOnly=true;
+      field.value=data.destination_routes?.[kind]||[data.destination_folder,subfolder].filter(Boolean).join('/');
+      routeFields[kind]=field;
+      group.append(label(routeLabels[kind]+' folder',field));
+      const actions=element('div');actions.className='downloader-picker-buttons';
+      const selectFolder=element('button','Choose folder');
+      selectFolder.type='button';
+      selectFolder.addEventListener('click',()=>{
+        routes.append(picker);picker.hidden=true;
+        onFolderChosen=(path)=>{
+          field.value=path||'(Files root)';
+          customRoutes.add(kind);
+          data.destination_routes={...data.destination_routes,[kind]:path};
+          changed('destination_routes',{[kind]:path});
+        };
+        void openFolder(customRoutes.has(kind)?field.value:data.destination_folder||'');
+      });
+      const reset=element('button','Use default');
+      reset.type='button';
+      reset.addEventListener('click',()=>{
+        customRoutes.delete(kind);
+        const next=[data.destination_folder,subfolder].filter(Boolean).join('/');
+        field.value=next;
+        data.destination_routes={...data.destination_routes,[kind]:next};
+        changed('destination_routes',{[kind]:null});
+      });
+      actions.append(selectFolder,reset);group.append(actions);routes.append(group);
+    }
+
+    const collisions=card('When a destination file already exists',
+      'Never overwrite an existing file. Choose whether to rename the incoming file or skip it and notify you.');
+    const collisionChoice=element('select');
+    for(const [value,text] of [
+      ['rename','Rename the incoming file'],['skip','Skip the download'],
+    ]){
+      const option=element('option',text);option.value=value;collisionChoice.append(option);
+    }
+    collisionChoice.value=data.existing_file_behavior==='skip'?'skip':'rename';
+    collisionChoice.addEventListener('change',()=>changed('existing_file_behavior',collisionChoice.value));
+    collisions.append(label('Existing-file behaviour',collisionChoice));
+
     const header=card('Header downloads',
       'Choose when the downloads arrow appears and which downloads its bubble shows.');
     const visibility=element('select');visibility.className='downloader-header-select';
