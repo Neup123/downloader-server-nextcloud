@@ -32,6 +32,11 @@ class Preferences:
         self.values[name] = value
 
 
+class AppConfig:
+    async def get_value(self, key, default="[]"):
+        return default
+
+
 class Files:
     def __init__(self):
         self.existing = {"/", "/Existing", "/Downloads"}
@@ -43,7 +48,7 @@ class Files:
 
 def context(uid):
     nc = SimpleNamespace(
-        preferences_ex=Preferences(), files=Files(),
+        preferences_ex=Preferences(), files=Files(), appconfig_ex=AppConfig(),
         app_cfg=SimpleNamespace(dav_endpoint="https://cloud.example.org/remote.php/dav"),
     )
     return UserContext(uid, nc)
@@ -100,13 +105,15 @@ def test_personal_list_stays_owner_scoped_and_shared_is_read_only():
         "settings": {"format": "best"},
     }))
     with patch("nextcloud_exapp.main.core_json", new=AsyncMock(return_value=[public_record()])):
-        alice_list = asyncio.run(user_presets(alice))
-        bob_list = asyncio.run(user_presets(bob))
+        alice_list = asyncio.run(user_presets(context=alice))
+        bob_list = asyncio.run(user_presets(context=bob))
     assert len(alice_list) == 2 + len(built_in_presets())
     assert len(bob_list) == 1 + len(built_in_presets())
     assert alice_list[0]["id"] == "builtin:best"
-    assert alice_list[-2]["id"] == private["id"]
-    assert alice_list[-2]["is_shared"] is False
+    assert alice_list[-2]["id"] == G_ID
+    assert alice_list[-1]["id"] == private["id"]
+    assert alice_list[-1]["is_shared"] is False
+    assert alice_list[-1]["is_legacy_personal"] is True
     assert bob_list[-1]["id"] == G_ID and bob_list[-1]["is_shared"] is True
     assert private["id"] not in str(bob_list)
     assert asyncio.run(read_user_presets(bob)) == []
