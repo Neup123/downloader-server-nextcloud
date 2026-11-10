@@ -2,6 +2,7 @@
 type Personal = {
   destination_folder:string;default_preset:string;app_password_configured:boolean;
   notify_finished:boolean;notify_failed:boolean;
+  default_video_quality:string;default_audio_quality:string;
   engine_settings:Record<string,Record<string,unknown>>;
   header_indicator_visibility:'active'|'always';dropdown_content:'active'|'all';
   preset_hidden:string[];preset_order:string[];
@@ -384,6 +385,27 @@ function start() {
       add.addEventListener('click',()=>editModal());
       drawGlobal();presetsCard.append(adminHeading,note,add,globalList);
     }
+
+    const qualityDefaults=card('Default download quality',
+      'New Download into my Files dialogs start with these preferences. You can change quality for each download.');
+    function qualityPreference(
+      field:'default_video_quality'|'default_audio_quality',heading:string,
+      choices:Array<[string,string]>,fallback:string
+    ){
+      const input=element('select');
+      for(const [value,display] of choices){
+        const option=element('option',display);option.value=value;input.append(option);
+      }
+      input.value=data[field]||fallback;
+      input.addEventListener('change',()=>changed(field,input.value));
+      qualityDefaults.append(label(heading,input));
+    }
+    qualityPreference('default_video_quality','Default video quality',[
+      ['best','Best available'],['1080','Up to 1080p'],['720','Up to 720p'],['480','Up to 480p'],
+    ],'best');
+    qualityPreference('default_audio_quality','Default audio quality',[
+      ['best','Best available'],['192','Up to 192 kbps'],['128','Up to 128 kbps'],['small','Smallest available'],
+    ],'best');
 
     const files=card('Files connection',
       'Downloader uses a dedicated, securely stored Nextcloud Files password. Your Core service connection is handled by the installation.');
