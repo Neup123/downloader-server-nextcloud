@@ -23,7 +23,7 @@ class ResolverPolicyTests(unittest.TestCase):
         self.assertIn(".github/workflows/manual-p2-site-webdav.yml", CORE_TEST_ONLY)
         self.assertNotIn(".github/workflows/pinned-engine-updates-copy.yml", CORE_TEST_ONLY)
         self.assertEqual(UPSTREAM, frozenset({
-            "web/package.json", "web/package-lock.json", "web/vite.config.ts",
+            "web/package-lock.json",
         }))
 
     def test_new_conflict_classes_have_audited_resolution_sides(self):
@@ -37,9 +37,9 @@ class ResolverPolicyTests(unittest.TestCase):
         ]), {
             ".github/workflows/release-v0.3.1.yml": "theirs",
             ".github/workflows/pinned-engine-updates.yml": "theirs",
-            "web/package.json": "theirs",
+            "web/package.json": "ours",
             "web/package-lock.json": "theirs",
-            "web/vite.config.ts": "theirs",
+            "web/vite.config.ts": "ours",
             "README.md": "ours",
             "web/src/App.tsx": "ours",
         })

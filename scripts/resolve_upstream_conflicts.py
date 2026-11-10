@@ -20,6 +20,14 @@ DOWNSTREAM = frozenset({
     "web/src/App.tsx",
     "scripts/cleanup_merged_branches.py",
     "tests/test_cleanup_equivalent_branches.py",
+    # The Nextcloud ExApp build runs `npm run build -- --mode nextcloud`:
+    # vite.config.ts carries the mode-aware relative base and the user/admin
+    # entrypoints, and package.json's build script must stay the last command
+    # in its chain so the appended mode argument reaches vite. Both files are
+    # downstream-owned; only package.json's version field is hand-synced to
+    # the imported Core VERSION at each sync.
+    "web/package.json",
+    "web/vite.config.ts",
 })
 # Use core CI workflow versions *temporarily* while running the merged core
 # test suite, then restore the Nextcloud CI directory before committing.
@@ -33,12 +41,10 @@ CORE_TEST_ONLY = frozenset({
 })
 
 
-# Core owns these shared web build inputs. Their content must match the
+# Core owns the web dependency lockfile. Its content must match the
 # verified upstream revision exactly, unlike the Nextcloud-specific App.tsx.
 UPSTREAM = frozenset({
-    "web/package.json",
     "web/package-lock.json",
-    "web/vite.config.ts",
 })
 
 
