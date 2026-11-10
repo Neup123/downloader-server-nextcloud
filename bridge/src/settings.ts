@@ -48,7 +48,21 @@ const CSS=`
 #downloader-settings-app button{cursor:pointer;border:1px solid var(--color-border,#aaa);border-radius:8px;background:var(--color-main-background,#fff);color:inherit;padding:8px 12px;min-height:38px}
 #downloader-settings-app button.primary{background:var(--color-primary,#377bd1);color:var(--color-primary-text,#fff)}
 #downloader-settings-app button:disabled{opacity:.6;cursor:default}
-#downloader-settings-app .downloader-route-error{color:var(--color-error,#c0392b);font-size:12px;margin:4px 0}
+#downloader-settings-app .downloader-settings-card.downloader-routing-card{grid-column:1/-1;justify-self:start;width:max-content;max-width:100%;box-sizing:border-box}
+#downloader-settings-app .downloader-routing-list{display:grid;grid-template-columns:max-content max-content max-content;gap:7px 10px;align-items:center;width:max-content;max-width:100%}
+#downloader-settings-app .downloader-route-item{display:contents}
+#downloader-settings-app .downloader-route-label{margin:0;font-weight:600;font-size:13px}
+#downloader-settings-app input.downloader-route-field{width:auto;min-width:0;max-width:min(56ch,100%);padding:6px 8px}
+#downloader-settings-app .downloader-route-controls{display:flex;align-items:center;gap:4px}
+#downloader-settings-app button.downloader-folder-action{width:32px;min-width:32px;height:32px;min-height:32px;padding:5px;display:inline-flex;align-items:center;justify-content:center}
+#downloader-settings-app .downloader-folder-action svg{width:18px;height:18px}
+#downloader-settings-app .downloader-route-error{grid-column:2/-1;color:var(--color-error,#c0392b);font-size:12px;margin:0}
+@media(max-width:640px){
+  #downloader-settings-app .downloader-routing-list{grid-template-columns:minmax(0,1fr) max-content;width:100%}
+  #downloader-settings-app .downloader-route-label{grid-column:1/-1;margin-top:6px}
+  #downloader-settings-app input.downloader-route-field{max-width:100%}
+  #downloader-settings-app .downloader-route-error{grid-column:1/-1}
+}
 #downloader-settings-app .downloader-picker{padding:10px;border:1px solid var(--color-border,#bbb);border-radius:9px;margin:12px 0;max-height:320px;overflow-y:auto}
 #downloader-settings-app .downloader-picker li{list-style:none;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--color-border,#ccc)}
 #downloader-settings-app .downloader-picker li button{height:26px;min-height:26px;padding:2px 7px;line-height:1.2}
@@ -59,6 +73,20 @@ const CSS=`
 #downloader-settings-app select.downloader-header-select{width:max-content;max-width:100%;align-self:start}
 #downloader-settings-app :is(button,input,select,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
 `;
+// Icons are fixed SVG markup (never interpolated from user-provided folder names).
+const FOLDER_SEARCH_ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/><circle cx="17" cy="17" r="3"/><path d="m19.3 19.3 2.2 2.2"/></svg>';
+const RESET_ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-2"/></svg>';
+function folderAction(name:'Choose folder'|'Use default'){
+  const button=element('button');button.type='button';
+  button.className='downloader-folder-action';
+  button.title=name;button.setAttribute('aria-label',name);
+  button.innerHTML=name==='Choose folder'?FOLDER_SEARCH_ICON:RESET_ICON;
+  return button;
+}
+function sizeFolderField(field:HTMLInputElement){
+  // Input's intrinsic size tracks its content, capped for very long paths.
+  field.size=Math.max(1,Math.min(56,field.value.length+1));
+}
 function start() {
   const root=document.getElementById('downloader-settings-app');
   if(!root)return;
@@ -123,19 +151,57 @@ function start() {
   function setup(data:Personal){
     personal=data;
     cards.replaceChildren();
-    const destination=card('Where your downloads go',
-      'Files are delivered to a folder in your own Nextcloud account. Downloads is the default.');
+    const routes=card('Destination routing by content type',
+      'Files not routed by type use the default folder. Starting in a specific folder takes precedence.');
+    routes.classList.add('downloader-routing-card');
+    const list=element('div');list.className='downloader-routing-list';
+    routes.append(list);
+    const picker=element('div');picker.className='downloader-picker';picker.hidden=true;
+    routes.append(picker);
+
+    const routeSubfolders:Record<string,string>={
+      video:'Video',audio:'Audio',images:'Images',manga:'Manga',
+      direct:'Direct files',torrent:'Torrents',
+    };
+    const routeLabels:Record<string,string>={
+      video:'Video',audio:'Audio',images:'Images / galleries',
+      manga:'Manga / comics',direct:'Direct files',torrent:'Torrents',
+    };
+    const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
+    const routeFields:Record<string,HTMLInputElement>={};
+    function routeRow(id:string,name:string,field:HTMLInputElement,
+      choose:()=>void,reset:()=>void){
+      const group=element('div');group.className='downloader-route-item';
+      const title=element('label',name);title.className='downloader-route-label';
+      title.htmlFor=id;field.id=id;field.classList.add('downloader-route-field');
+      sizeFolderField(field);
+      const actions=element('div');actions.className='downloader-route-controls';
+      const browse=folderAction('Choose folder');
+      const clear=folderAction('Use default');
+      browse.addEventListener('click',choose);
+      clear.addEventListener('click',reset);
+      actions.append(browse,clear);group.append(title,field,actions);list.append(group);
+      return group;
+    }
     const folder=element('input');folder.readOnly=true;
     folder.value=data.destination_folder||'(Files root)';
-    destination.append(label('Default Files folder',folder));
-    const browse=element('button','Browse my Files folders');browse.type='button';
-    destination.append(browse);
-    const picker=element('div');picker.className='downloader-picker';picker.hidden=true;destination.append(picker);
-    let onFolderChosen=(path:string)=>{
+    function setDefaultFolder(path:string){
       folder.value=path||'(Files root)';
+      sizeFolderField(folder);
       data.destination_folder=path;
       changed('destination_folder',path);
-    };
+      // Implicit routes follow the new base; explicitly configured routes never do.
+      for(const [kind,sub] of Object.entries(routeSubfolders)){
+        if(customRoutes.has(kind))continue;
+        const next=[path,sub].filter(Boolean).join('/');
+        if(routeFields[kind]){
+          routeFields[kind].value=next;
+          sizeFolderField(routeFields[kind]);
+        }
+        data.destination_routes={...data.destination_routes,[kind]:next};
+      }
+    }
+    let onFolderChosen=(path:string)=>setDefaultFolder(path);
     async function openFolder(path:string,offset=0){
       picker.hidden=false;picker.replaceChildren(element('p','Loading folders…'));
       try {
@@ -153,14 +219,14 @@ function start() {
           picker.hidden=true;
         });
         buttons.append(parent,choose);picker.append(buttons);
-        const list=element('ul');
+        const folderList=element('ul');
         for(const entry of page.folders){
           const li=element('li');li.append(element('span','📁 '+entry.name));
           const open=element('button','Open');open.type='button';
           open.addEventListener('click',()=>{void openFolder(entry.path);});
-          li.append(open);list.append(li);
+          li.append(open);folderList.append(li);
         }
-        picker.append(list);
+        picker.append(folderList);
         if(page.has_more){
           const more=element('button','More folders');
           more.addEventListener('click',()=>{void openFolder(page.path,page.offset+100);});
@@ -170,51 +236,31 @@ function start() {
         picker.replaceChildren(element('p',error instanceof Error?error.message:'Unable to browse Files.'));
       }
     }
-    browse.addEventListener('click',()=>{
+    // The default base folder is the first row of this same routing list.
+    routeRow('downloader-route-default','Default Files folder',folder,()=>{
       if(!picker.hidden){picker.hidden=true;return;}
-      destination.append(picker);
-      onFolderChosen=(path)=>{
-        folder.value=path||'(Files root)';
-        data.destination_folder=path;
-        changed('destination_folder',path);
-        // Default route paths follow the configured base until overridden.
-        for(const [kind,sub] of Object.entries(routeSubfolders)){
-          if(!customRoutes.has(kind))routeFields[kind].value=[path,sub].filter(Boolean).join('/');
-        }
-      };
+      onFolderChosen=setDefaultFolder;
       void openFolder(data.destination_folder||'');
+    },()=>{
+      picker.hidden=true;
+      setDefaultFolder('Downloads');
     });
-
-    const routes=card('Destination routing by content type',
-      'Each type goes to its own folder inside your default Downloads folder unless you choose a different existing Files folder. Starting from a specific folder always overrides these routes.');
-    const routeSubfolders:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images',manga:'Manga',
-      direct:'Direct files',torrent:'Torrents',
-    };
-    const routeLabels:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images / galleries',
-      manga:'Manga / comics',direct:'Direct files',torrent:'Torrents',
-    };
-    const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
-    const routeFields:Record<string,HTMLInputElement>={};
     for(const [kind,subfolder] of Object.entries(routeSubfolders)){
-      const group=element('div');group.className='downloader-route-item';
       const field=element('input');
       field.value=data.destination_routes?.[kind]||[data.destination_folder,subfolder].filter(Boolean).join('/');
       routeFields[kind]=field;
-      group.append(label(routeLabels[kind]+' folder',field));
+      let edited=0;
       const inlineError=element('p');
       inlineError.className='downloader-route-error';
       inlineError.setAttribute('role','alert');
       inlineError.hidden=true;
-      group.append(inlineError);
-      let edited=0;
       const showError=(message:string)=>{
         inlineError.textContent=message;
         inlineError.hidden=!message;
       };
       field.addEventListener('input',()=>{
         edited++;
+        sizeFolderField(field);
         showError('');
       });
       field.addEventListener('change',()=>{
@@ -241,34 +287,31 @@ function start() {
           }
         })();
       });
-      const actions=element('div');actions.className='downloader-picker-buttons';
-      const selectFolder=element('button','Choose folder');
-      selectFolder.type='button';
-      selectFolder.addEventListener('click',()=>{
-        routes.append(picker);picker.hidden=true;
+      const group=routeRow('downloader-route-'+kind,routeLabels[kind]+' folder',field,()=>{
+        picker.hidden=true;
         onFolderChosen=(path)=>{
           edited++;
           showError('');
           field.value=path;
+          sizeFolderField(field);
           customRoutes.add(kind);
           data.destination_routes={...data.destination_routes,[kind]:path};
           changed('destination_routes',{[kind]:path});
         };
         // The base Downloads folder may not exist on a brand-new account.
         void openFolder('');
-      });
-      const reset=element('button','Use default');
-      reset.type='button';
-      reset.addEventListener('click',()=>{
+      },()=>{
+        picker.hidden=true;
         edited++;
         showError('');
         customRoutes.delete(kind);
         const next=[data.destination_folder,subfolder].filter(Boolean).join('/');
         field.value=next;
+        sizeFolderField(field);
         data.destination_routes={...data.destination_routes,[kind]:next};
         changed('destination_routes',{[kind]:null});
       });
-      actions.append(selectFolder,reset);group.append(actions);routes.append(group);
+      group.append(inlineError);
     }
 
     const collisions=card('When a destination file already exists',
