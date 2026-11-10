@@ -31,16 +31,28 @@ export function selectedMediaFormat(quality = 'default', container = 'auto', aud
     + audioExt + ']/best' + heightFilter + '[ext=' + videoExt + ']/' + normal;
 }
 
+export function presetEngineForSubmission(presets, selectedPresetId = '', defaultPresetId = '') {
+  const activeId = selectedPresetId || defaultPresetId;
+  if (!activeId) return null;
+  // An unavailable preset must also be resolved by the server; never guess yt-dlp.
+  return presets.find(item => item.id === activeId)?.engine || 'auto';
+}
+
 export function filesJobRequest(url, folder, engine = 'auto', presetId = '',
-                                quality = 'default', container = 'auto', audioOnly = false) {
-  const format = selectedMediaFormat(quality, container, audioOnly);
+                                quality = 'default', container = 'auto', audioOnly = false,
+                                presetEngine = null) {
+  // Null means no preset. An explicit or implicit non-yt-dlp preset must
+  // retain the server's own engine/format rather than receiving yt-dlp options.
+  const format = presetEngine !== null && presetEngine !== 'yt-dlp'
+    ? null : selectedMediaFormat(quality, container, audioOnly);
   const requestedEngine = engine || 'auto';
-  if (format !== null && requestedEngine !== 'auto' && requestedEngine !== 'yt-dlp') {
+  if (format !== null && presetEngine === null && requestedEngine !== 'auto' && requestedEngine !== 'yt-dlp') {
     throw new Error('Video and audio quality choices require the yt-dlp engine.');
   }
   const payload = {
     url,
-    engine: format !== null && requestedEngine === 'auto' ? 'yt-dlp' : requestedEngine,
+    engine: presetEngine !== null ? 'auto'
+      : format !== null && requestedEngine === 'auto' ? 'yt-dlp' : requestedEngine,
   };
   if (presetId) payload.preset_id = presetId;
   if (folder !== null) payload.folder = folder;

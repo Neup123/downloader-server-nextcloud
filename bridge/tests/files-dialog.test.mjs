@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {filesJobRequest, selectedMediaFormat} from '../src/files-dialog-payload.mjs';
+import {filesJobRequest, selectedMediaFormat, presetEngineForSubmission} from '../src/files-dialog-payload.mjs';
 
 const source = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
 const section = source.slice(source.indexOf('async function openDialog('), source.indexOf('\nfunction registerActions()'));
@@ -40,7 +40,8 @@ test('dialog is modal, themed and accessible, with optional controls collapsed',
 test('no download UI uses blocking browser alert, and submits via signed ExApp', () => {
   assert.doesNotMatch(source, /window\.alert\(/);
   assert.match(source, /Notification\?\.showTemporary/);
-  assert.match(section, /filesJobRequest\(url\.value\.trim\(\), folder, engines\.value, preset\.value, quality\.value, format\.value, audioOnly\.checked\)/);
+  assert.match(section, /presetEngineForSubmission\(presets, preset\.value, userSettings\.default_preset\)/);
+  assert.match(section, /filesJobRequest\(url\.value\.trim\(\), folder, engines\.value, preset\.value,\s*quality\.value, format\.value, audioOnly\.checked, presetEngine\)/);
   assert.match(source, /registerFileAction/);
   assert.match(source, /addNewFileMenuEntry/);
 });
@@ -79,4 +80,62 @@ test('the only quality selector is in the main dialog beside Audio only',()=>{
   assert.match(settings,/Default video quality/);
   assert.match(settings,/Default audio quality/);
   assert.match(settings,/changed\(field,input\.value\)/);
+});
+
+test('non-yt-dlp presets submit without forced yt-dlp engine or format', () => {
+  const presets = [
+    {id: 'builtin:direct', engine: 'generic'},
+    {id: 'builtin:aria2', engine: 'aria2c'},
+    {id: 'builtin:gallery', engine: 'gallery-dl'},
+    {id: 'admin:direct', engine: 'generic'},
+    {id: 'legacy-personal', engine: 'aria2c'},
+  ];
+  for (const {id, engine} of presets) {
+    const resolved = presetEngineForSubmission(presets, id);
+    assert.equal(resolved, engine);
+    for (const selectedEngine of ['auto', engine]) {
+      assert.deepEqual(filesJobRequest('https://example.com/file', 'Downloads',
+        selectedEngine, id, 'best', 'auto', false, resolved), {
+        url: 'https://example.com/file', engine: 'auto', folder: 'Downloads', preset_id: id,
+      });
+    }
+  }
+});
+
+test('implicit non-yt-dlp default delegates engine resolution without quality overrides', () => {
+  const presets = [{id: 'builtin:direct', engine: 'generic'}];
+  const resolved = presetEngineForSubmission(presets, '', 'builtin:direct');
+  assert.equal(resolved, 'generic');
+  assert.deepEqual(filesJobRequest('https://example.com/file', null,
+    'auto', '', 'best', 'auto', false, resolved), {
+    url: 'https://example.com/file', engine: 'auto',
+  });
+  // Even if a default preset is not in the visible catalogue, let the server
+  // resolve it instead of incorrectly assuming yt-dlp.
+  assert.equal(presetEngineForSubmission([], '', 'legacy-hidden'), 'auto');
+  assert.deepEqual(filesJobRequest('https://example.com/file', null,
+    'auto', '', 'best', 'auto', false, 'auto'), {
+    url: 'https://example.com/file', engine: 'auto',
+  });
+});
+
+test('yt-dlp presets keep quality/audio-only mapping while server chooses engine', () => {
+  const presets = [{id: 'builtin:audio', engine: 'yt-dlp'}];
+  const resolved = presetEngineForSubmission(presets, 'builtin:audio');
+  assert.deepEqual(filesJobRequest('https://example.com/music', 'Music', 'auto',
+    'builtin:audio', '128', 'auto', true, resolved), {
+    url: 'https://example.com/music', engine: 'auto', folder: 'Music',
+    preset_id: 'builtin:audio', audio_only: true, quality: '128',
+    overrides: {format: 'bestaudio[abr<=128]'},
+  });
+  assert.deepEqual(filesJobRequest('https://example.com/video', null, 'auto',
+    '', '720', 'auto', false, presetEngineForSubmission(presets, '', 'builtin:audio')), {
+    url: 'https://example.com/video', engine: 'auto',
+    audio_only: false, quality: '720',
+    overrides: {format: 'bestvideo[height<=720]+bestaudio/best[height<=720]'},
+  });
+  // Dashboard quick-download remains an automatic, format-free request.
+  assert.deepEqual(filesJobRequest('https://example.com/file', null), {
+    url: 'https://example.com/file', engine: 'auto',
+  });
 });

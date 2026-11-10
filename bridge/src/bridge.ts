@@ -6,7 +6,7 @@ import { registerFileAction, addNewFileMenuEntry, registerSidebarTab } from '@ne
 import { getClient, getDefaultPropfind, getRootPath, resultToNode } from '@nextcloud/files/dav';
 import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
-import { filesJobRequest } from './files-dialog-payload.mjs';
+import { filesJobRequest, presetEngineForSubmission } from './files-dialog-payload.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
 
@@ -92,7 +92,7 @@ async function openDialog(folder: string | null, suggested = '') {
   // omit it so the signed ExApp applies the user's own Files default.
   const [presets, userSettings] = await Promise.all([
     api<Preset[]>('/presets').catch(() => []),
-    api<{default_video_quality?:string;default_audio_quality?:string}>('/settings').catch(
+    api<{default_preset?:string;default_video_quality?:string;default_audio_quality?:string}>('/settings').catch(
       () => ({default_video_quality:'best',default_audio_quality:'best'})),
   ]);
   const dialog = node('dialog', '', 'dl-dialog');
@@ -192,7 +192,9 @@ async function openDialog(folder: string | null, suggested = '') {
     }
     submit.disabled = true;
     try {
-      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value, quality.value, format.value, audioOnly.checked));
+      const presetEngine = presetEngineForSubmission(presets, preset.value, userSettings.default_preset);
+      await api('/jobs', 'POST', filesJobRequest(url.value.trim(), folder, engines.value, preset.value,
+        quality.value, format.value, audioOnly.checked, presetEngine));
       notify('Download added to your Nextcloud Files.');
       window.dispatchEvent(new Event('downloader:job-queued'));
       close();
