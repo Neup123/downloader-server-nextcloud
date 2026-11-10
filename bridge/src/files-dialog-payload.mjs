@@ -48,7 +48,13 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
   const container = options.container || 'original';
   const format = kind === 'direct' ? null : selectedMediaFormat(quality, audioOnly, container);
   const engine = kind === 'direct' ? 'generic' : media || format ? 'yt-dlp' : 'auto';
-  const payload = {url, engine};
+  const category = kind === 'audio' || audioOnly ? 'audio'
+    : kind === 'direct' ? 'direct'
+    : kind === 'gallery' ? 'images'
+    : kind === 'manga' ? 'manga'
+    : kind === 'torrent' ? 'torrent'
+    : 'video';
+  const payload = {url, engine, content_type: category};
   if (folder !== null) payload.folder = folder;
   const overrides = {};
   if (format !== null) {

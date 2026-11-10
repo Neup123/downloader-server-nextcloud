@@ -23,6 +23,42 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 from nextcloud_exapp.job_state_contract import TERMINAL_STATES
 
 DEFAULT_FOLDER = "Downloads"
+# Broad user-facing categories; these are NOT engine names or URL heuristics.
+ROUTE_SUBFOLDERS = {
+    "video": "Video",
+    "audio": "Audio",
+    "images": "Images",
+    "manga": "Manga",
+    "direct": "Direct files",
+    "torrent": "Torrents",
+}
+
+
+def default_destination_routes(folder: str) -> dict[str, str]:
+    """Implicit routes follow changes to the owner's default Files folder."""
+    return {
+        kind: validate_folder("/".join(part for part in (folder, suffix) if part))
+        for kind, suffix in ROUTE_SUBFOLDERS.items()
+    }
+
+
+def _saved_destination_route_overrides(value: Any) -> dict[str, str]:
+    try:
+        decoded = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+    valid = {}
+    for key, path in decoded.items():
+        if key not in ROUTE_SUBFOLDERS or not isinstance(path, str):
+            continue
+        try:
+            valid[key] = validate_folder(path)
+        except HTTPException:
+            continue
+    return valid
+
 ENGINES = frozenset({"yt-dlp", "aria2c", "gallery-dl", "generic", "you-get", "svtplay-dl", "get-sauce"})
 PRIVILEGED_CORE_ROUTES = frozenset({"settings", "delivery", "cookies", "engine-rules"})
 
@@ -204,8 +240,17 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
         settings = {}
     if not isinstance(settings, dict):
         settings = {}
+    route_overrides = _saved_destination_route_overrides(
+        await preferences.get_value("destination_routes", "{}")
+    )
     return {
         "destination_folder": folder,
+        "destination_routes": {**default_destination_routes(folder), **route_overrides},
+        "destination_route_overrides": route_overrides,
+        "existing_file_behavior": (
+            "skip" if await preferences.get_value("existing_file_behavior", "rename") == "skip"
+            else "rename"
+        ),
         "engine_settings": {name: options for name, options in settings.items()
                             if name in ENGINES and isinstance(options, dict)},
         "app_password_configured": bool(await preferences.get_value("dav_app_password", "")),
@@ -224,13 +269,35 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         raise HTTPException(status_code=422, detail="Invalid personal settings")
     allowed = {"destination_folder", "engine_settings", "app_password",
                "notify_finished", "notify_failed", "header_indicator_visibility",
-               "dropdown_content", "default_video_quality", "default_audio_quality"}
+               "dropdown_content", "default_video_quality", "default_audio_quality",
+               "destination_routes", "existing_file_behavior"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
     pref = context.nc.preferences_ex
+    if "existing_file_behavior" in patch and patch["existing_file_behavior"] not in ("rename", "skip"):
+        raise HTTPException(status_code=422, detail="Choose Rename or Skip; overwrite is never offered")
+    if "destination_routes" in patch:
+        route_patch = patch["destination_routes"]
+        if not isinstance(route_patch, dict) or set(route_patch) - ROUTE_SUBFOLDERS:
+            raise HTTPException(status_code=422, detail="Invalid content-type destination routes")
+        for route_path in route_patch.values():
+            if route_path is not None:
+                validate_folder(route_path)
     if "destination_folder" in patch:
         folder = validate_folder(patch["destination_folder"])
         await pref.set_value("destination_folder", folder)
+    if "destination_routes" in patch:
+        overrides = _saved_destination_route_overrides(
+            await pref.get_value("destination_routes", "{}")
+        )
+        for kind, path in patch["destination_routes"].items():
+            if path is None:
+                overrides.pop(kind, None)
+            else:
+                overrides[kind] = validate_folder(path)
+        await pref.set_value("destination_routes", json.dumps(overrides, separators=(",", ":")))
+    if "existing_file_behavior" in patch:
+        await pref.set_value("existing_file_behavior", patch["existing_file_behavior"])
     if "engine_settings" in patch:
         settings = patch["engine_settings"]
         if (
@@ -319,7 +386,7 @@ async def job_submission(
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
-    allowed = {"url", "engine", "overrides", "folder", "audio_only", "quality"}
+    allowed = {"url", "engine", "overrides", "folder", "audio_only", "quality", "content_type"}
     if set(data) - allowed:
         raise HTTPException(status_code=422, detail="Unsupported job field")
     source = data.get("url")
@@ -329,7 +396,16 @@ async def job_submission(
     password = await context.nc.preferences_ex.get_value("dav_app_password", "")
     if not password:
         raise HTTPException(status_code=409, detail="Connect your Nextcloud Files app password in personal settings first")
-    folder = validate_folder(data.get("folder", prefs["destination_folder"]))
+    content_type = data.get("content_type")
+    if content_type is not None and content_type not in ROUTE_SUBFOLDERS:
+        raise HTTPException(status_code=422, detail="Unsupported detected content type")
+    explicit_folder = "folder" in data
+    # Older untyped submissions continue to use the prior default destination.
+    # The #138 dialog always provides content_type from extractor classification.
+    target_folder = (data["folder"] if explicit_folder else
+                     prefs["destination_routes"][content_type] if content_type
+                     else prefs["destination_folder"])
+    folder = validate_folder(target_folder)
     engine = data.get("engine", "auto")
     if engine not in ENGINES and engine != "auto":
         raise HTTPException(status_code=422, detail="Unsupported engine")
@@ -384,14 +460,35 @@ async def job_submission(
         node = None
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Cannot open destination folder in Nextcloud Files") from exc
-    if node is None and "folder" not in data and folder == DEFAULT_FOLDER:
-        # First-use default: make the Downloads folder in the signed user's
-        # own Files. Explicit folder choices are never auto-created.
+    default_implicit_route = (not explicit_folder and content_type is not None
+                              and content_type not in prefs["destination_route_overrides"])
+    if node is None and not explicit_folder and (default_implicit_route or folder == DEFAULT_FOLDER):
+        # Only generate the user's own implicit destination. A custom route
+        # or an explicit folder must already exist and be writable.
+        if default_implicit_route:
+            base_folder = prefs["destination_folder"]
+            if base_folder:
+                try:
+                    parent = await context.nc.files.by_path("/" + base_folder)
+                except (FileNotFoundError, NextcloudException) as exc:
+                    if not isinstance(exc, FileNotFoundError) and exc.status_code != 404:
+                        raise HTTPException(status_code=409, detail="Cannot open base Downloads folder") from exc
+                    parent = None
+                if parent is None:
+                    if base_folder != DEFAULT_FOLDER:
+                        raise HTTPException(status_code=409, detail="Configured base Downloads folder is missing")
+                    try:
+                        await context.nc.files.makedirs("/" + base_folder, exist_ok=True)
+                        parent = await context.nc.files.by_path("/" + base_folder)
+                    except Exception as exc:
+                        raise HTTPException(status_code=409, detail="Could not create Downloads folder") from exc
+                if not parent or (hasattr(parent, "is_dir") and not parent.is_dir):
+                    raise HTTPException(status_code=409, detail="Configured base Downloads folder is not a directory")
         try:
             await context.nc.files.makedirs(folder_path, exist_ok=True)
             node = await context.nc.files.by_path(folder_path)
         except Exception as exc:
-            raise HTTPException(status_code=409, detail="Could not create your Downloads folder; check Files permissions") from exc
+            raise HTTPException(status_code=409, detail="Could not create your default download folder; check Files permissions") from exc
     if node is None or (hasattr(node, "is_dir") and not bool(node.is_dir)):
         raise HTTPException(status_code=409, detail="Destination folder is missing; choose an existing folder")
     # Derive the user Files origin from the AppAPI-supplied server URL, never the browser.
@@ -407,6 +504,7 @@ async def job_submission(
             "username": context.user_id,
             "app_password": password,
             "folder": folder,
+            "existing_file_behavior": prefs["existing_file_behavior"],
         },
     }
 
