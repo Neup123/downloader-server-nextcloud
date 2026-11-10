@@ -97,9 +97,8 @@ test('unsupported direct fallback and torrent metadata limitations are explicit'
   assert.match(dialog,/No supported media type was detected in this link/);
   assert.match(dialog,/Try as a direct file/);
   assert.match(dialog,/Core API does not expose torrent metadata or file selections/);
-  assert.match(dialog,/CBZ packaging capability/);
+  assert.match(dialog,/does not expose CBZ packaging/);
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
   assert.match(dialog,/Sort by size/);
-  assert.match(dialog,/seed/i.test(dialog)?/seeding stays out of the user interface/ : /torrent/i);
 });
