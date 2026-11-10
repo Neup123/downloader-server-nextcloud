@@ -51,6 +51,65 @@ test('single-video quality, audio/music, subtitles and original container map co
   assert.match(dialog,/\['original','Original format'\]/);
 });
 
+
+test('advanced subtitle checkbox and label share the Audio only row alignment',()=>{
+  assert.match(dialog,/const subToggle=e\('label','','dl-audio-toggle dl-subtitle-toggle'\)/);
+  assert.match(dialog,/subToggle\.append\(subtitles,e\('span','Download subtitles'\)\)/);
+  assert.match(dialog,/advanced\.append\(subToggle\)/);
+  assert.doesNotMatch(dialog,/labeled\('Download subtitles',subtitles\)/);
+  assert.match(source,/\.dl-options \.dl-audio-toggle\{display:flex;align-items:center;gap:6px\}/);
+  assert.match(source,/\.dl-options \.dl-subtitle-toggle input\{width:18px;height:18px;margin:0\}/);
+});
+
+test('direct-file details remain in the box while a verified file has no status message',()=>{
+  assert.match(dialog,/form\.append\(line,status,details,buttons\)/);
+  assert.match(dialog,/details\.append\(e\('h3','Direct file'\),e\('p','Name: '\+filename\)/);
+  assert.match(dialog,/e\('p','Type: '\+fileType\),e\('p','Size: '\+sizeLabel\(bytes\)\)/);
+  assert.match(dialog,/message\(result\?'':"We have not confirmed this file/);
+  assert.doesNotMatch(dialog,/File details are shown above|File details are shown below/);
+});
+
+
+test('dialog has no visible title and hides status text unless a problem exists',()=>{
+  assert.doesNotMatch(dialog,/Download into my Files|dl-dialog-heading|aria-labelledby/);
+  assert.match(dialog,/dialog\.setAttribute\('aria-label','Download link'\)/);
+  assert.match(dialog,/form\.append\(line,status,details,buttons\)/);
+  assert.match(dialog,/status\.hidden=true/);
+  assert.match(dialog,/const message=\(text\)=>\{status\.textContent=text;status\.hidden=!text;\}/);
+  assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
+  assert.match(dialog,/spinner\.hidden=false/);
+  assert.match(dialog,/message\('This link is not supported\./);
+  assert.match(dialog,/message\('Torrent downloads are not available yet\.'\)/);
+  assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
+  assert.match(dialog,/message\(value\?'Paste an HTTP\(S\) link or a magnet URI\.':''\)/);
+  assert.match(dialog,/Only the first 100 items are available to select/);
+});
+
+test('quality is inline and all dialog inputs use content width except link and item lists',()=>{
+  assert.match(dialog,/const qualityLabel=labeled\('Quality',qualityPicker\)/);
+  assert.match(dialog,/qualityLabel\.classList\.add\('dl-quality-label'\)/);
+  assert.match(source,/\.dl-link-dialog \.dl-media-row \.dl-quality-label\{display:inline-flex;align-items:center;/);
+  assert.match(source,/gap:8px;flex:0 0 auto;margin:0;width:max-content/);
+  assert.match(source,/\.dl-link-dialog select\.dl-input\{width:max-content;field-sizing:content;max-width:100%;/);
+  assert.match(source,/\.dl-link-dialog \.dl-label\{width:max-content;max-width:100%;justify-self:start\}/);
+  assert.match(source,/\.dl-link-dialog \.dl-options\{width:max-content;max-width:100%;justify-self:start\}/);
+  assert.match(source,/\.dl-link-dialog \.dl-options\[open\]\{justify-items:start\}/);
+  assert.match(source,/\.dl-link-dialog \.dl-options input:not\(\[type=checkbox\]\)\{width:max-content;/);
+  assert.match(source,/\.dl-link-dialog \.dl-picker-controls\{width:max-content;max-width:100%\}/);
+  assert.match(source,/\.dl-link-dialog \.dl-detected\{justify-items:start\}/);
+  assert.match(source,/\.dl-link-dialog \.dl-picker\{width:100%;max-width:100%;min-width:0;justify-self:stretch\}/);
+  assert.match(source,/\.dl-link-line input\{flex:1;min-width:0\}/);
+  assert.match(source,/\.dl-playlist-list\{display:grid/);
+  assert.match(source,/\.dl-gallery-grid\{display:grid/);
+  assert.match(dialog,/advanced\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
+  assert.match(dialog,/advanced\.append\(labeled\('Container',container\)\)/);
+});
+
+test('video and audio default to the same plain Best quality label',()=>{
+  assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
+  assert.doesNotMatch(dialog,/Best available video|Best available audio/);
+});
+
 test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=>{
   assert.equal(playlistIndices([3,1,2,2]),'1,2,3');
   assert.deepEqual(filesJobRequest('https://example.org/list','Folder','best',false,{
