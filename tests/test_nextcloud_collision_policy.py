@@ -84,8 +84,7 @@ def test_skip_collision_keeps_destination_unchanged_and_emits_signal(settings):
     async def handler(request):
         target = str(request.url)
         if request.method == "PROPFIND":
-            assert target.endswith("/Movies/")
-            return multistatus(request, collection=True)
+            return multistatus(request, collection=target.endswith("/Movies/"))
         if request.method == "PUT":
             puts.append(target)
             assert request.headers["if-none-match"] == "*"
@@ -96,7 +95,7 @@ def test_skip_collision_keeps_destination_unchanged_and_emits_signal(settings):
             paths, "job-collision", sessions, settings,
             transport=httpx.MockTransport(handler),
         ))
-        assert len(puts) == 1 and puts[0].endswith("/film.webm")
+        assert puts == [], "existing files must not receive another upload"
         assert len(result) == 1
         assert result[0]["skipped"] is True
         assert result[0]["verified"] is False
@@ -152,8 +151,89 @@ def test_conflict_without_verified_existing_target_is_not_silently_skipped(setti
             return httpx.Response(409)
         return httpx.Response(405)
     try:
-        with pytest.raises(DeliveryError, match="WebDAV parent folder unavailable"):
+        with pytest.raises(DeliveryError, match="Existing file could not be verified"):
             asyncio.run(deliver_files(paths,"job-collision",sessions,settings,
                                       transport=httpx.MockTransport(handler)))
+    finally:
+        engine.dispose()
+
+
+def test_skip_race_after_missing_preflight_still_uses_atomic_put(settings):
+    engine, sessions, paths = setup(settings, "skip")
+    writes = []
+    async def handler(request):
+        target = str(request.url)
+        if request.method == "PROPFIND" and target.endswith("/Movies/"):
+            return multistatus(request, collection=True)
+        if request.method == "PROPFIND":
+            return httpx.Response(404)
+        if request.method == "PUT":
+            writes.append(target)
+            assert request.headers["if-none-match"] == "*"
+            return httpx.Response(412)  # Concurrent writer won the race.
+        raise AssertionError(request.method)
+    try:
+        items = asyncio.run(deliver_files(paths, "job-collision", sessions, settings,
+                                          transport=httpx.MockTransport(handler)))
+        assert len(writes) == 1 and writes[0].endswith("/film.webm")
+        assert len(items) == 1 and items[0]["skipped"] is True
+        assert items[0]["verified"] is False
+    finally:
+        engine.dispose()
+
+
+def test_dialog_gateway_saved_skip_reaches_actual_delivery_and_notification(settings):
+    """The signed dialog does not send collision policy: it comes from saved preferences."""
+    from types import SimpleNamespace
+    from nextcloud_exapp.user import UserContext, job_submission, delivery_notification
+    from app.main import build_job
+    from app.schemas import JobCreate
+
+    class Prefs:
+        async def get_value(self, key, default=None):
+            return {"existing_file_behavior": "skip",
+                    "dav_app_password": "secret"}.get(key, default)
+
+    class Files:
+        async def by_path(self, path):
+            assert path == "/Movies"
+            return SimpleNamespace(is_dir=True)
+
+    nc = SimpleNamespace(
+        preferences_ex=Prefs(), files=Files(),
+        app_cfg=SimpleNamespace(dav_endpoint="https://cloud.example.test/remote.php/dav"),
+    )
+    request = asyncio.run(job_submission(UserContext("alice", nc), {
+        "url": "https://media.example.org/Summer-Trip",
+        "engine": "yt-dlp",
+        "content_type": "video",
+        "folder": "Movies",
+    }))
+    assert request["delivery"]["existing_file_behavior"] == "skip"
+    assert request["delivery"]["folder"] == "Movies"
+    engine = make_engine(settings.database_url)
+    initialize_database(engine)
+    sessions = make_session_factory(engine)
+    source = settings.data_dir / "jobs" / "job-collision" / "source" / "film.webm"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"media content")
+    try:
+        with sessions() as session:
+            job = build_job(JobCreate.model_validate(request), session, settings)
+            job.id = "job-collision"
+            session.add(job)
+            session.commit()
+        async def handler(request):
+            if request.method == "PROPFIND":
+                return multistatus(request, collection=str(request.url).endswith("/Movies/"))
+            raise AssertionError("Skip must not upload or rename an existing file")
+        items = asyncio.run(deliver_files([source], "job-collision", sessions, settings,
+                                          transport=httpx.MockTransport(handler)))
+        assert len(items) == 1
+        assert items[0]["skipped"] is True and items[0]["verified"] is False
+        assert items[0]["filename"] == "film.webm"
+        assert "Download skipped" in delivery_notification({
+            "status": "completed", "output_files": items,
+        })[0]
     finally:
         engine.dispose()
