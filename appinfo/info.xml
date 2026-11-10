@@ -59,7 +59,9 @@
             <route><url>^/user/api/.*$</url><verb>PUT</verb><access_level>USER</access_level></route>
             <route><url>^/user/api/.*$</url><verb>DELETE</verb><access_level>USER</access_level></route>
             <route><url>^/admin/api/.*$</url><verb>GET</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/admin/api/.*$</url><verb>POST</verb><access_level>ADMIN</access_level></route>
             <route><url>^/admin/api/.*$</url><verb>PUT</verb><access_level>ADMIN</access_level></route>
+            <route><url>^/admin/api/.*$</url><verb>DELETE</verb><access_level>ADMIN</access_level></route>
         </routes>
     </external-app>
 </info>

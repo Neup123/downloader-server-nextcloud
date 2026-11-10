@@ -24,6 +24,9 @@ from nextcloud_exapp.user import (
     UserContext, require_user, require_admin, admin_files_connection_status, read_user_preferences,
     write_user_preferences, read_user_presets, save_user_preset, delete_user_preset,
     normalize_shared_presets, SHARED_PRESET_PREFIX, built_in_presets, validate_folder,
+    is_administrator, validate_preset_id_list, read_preset_id_list,
+    read_admin_presets, save_admin_presets, validate_admin_preset,
+    read_admin_preset_config, ADMIN_ORDER_KEY, ADMIN_HIDDEN_KEY, order_presets,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
 )
@@ -248,6 +251,12 @@ async def user_me(context: UserContext = Depends(require_user)):
     return {"user_id": context.user_id, "entitled": True}
 
 
+@APP.get("/user/api/preset-permissions")
+async def user_preset_permissions(context: UserContext = Depends(require_user)):
+    """Separate capability route preserves the established /me contract."""
+    return {"can_manage_presets": await is_administrator(context)}
+
+
 @APP.get("/user/api/folders")
 async def user_folders(path: str = "", offset: int = 0,
                        context: UserContext = Depends(require_user)):
@@ -332,26 +341,107 @@ async def selected_shared_presets(context: UserContext, data: dict) -> list[dict
     return []
 
 
+
+async def complete_preset_catalog(context: UserContext) -> list[dict]:
+    """Shared administrator catalogue first, plus read-only legacy personal entries."""
+    global_order = validate_preset_id_list(
+        await read_admin_preset_config(context.nc, ADMIN_ORDER_KEY))
+    global_hidden = validate_preset_id_list(
+        await read_admin_preset_config(context.nc, ADMIN_HIDDEN_KEY))
+    personal = [{**item, "is_shared": False, "is_legacy_personal": True}
+                for item in await read_user_presets(context)]
+    rows = built_in_presets() + await read_admin_presets(context.nc) + await read_shared_presets() + personal
+    return order_presets(rows, global_order, global_hidden)
+
+
 @APP.get("/user/api/presets")
-async def user_presets(context: UserContext = Depends(require_user)):
-    personal = [{**item, "is_shared": False} for item in await read_user_presets(context)]
-    return built_in_presets() + personal + await read_shared_presets()
+async def user_presets(include_hidden: bool = False,
+                       context: UserContext = Depends(require_user)):
+    """One catalogue for Files actions, default selector, and individual widgets."""
+    rows = await complete_preset_catalog(context)
+    prefs = context.nc.preferences_ex
+    own_order = await read_preset_id_list(prefs, "preset_order")
+    own_hidden = await read_preset_id_list(prefs, "preset_hidden")
+    rows = order_presets(rows, own_order, [] if include_hidden else own_hidden)
+    return [{**row, "is_hidden": row["id"] in own_hidden} for row in rows]
 
 
-@APP.post("/user/api/presets", status_code=201)
-async def create_user_preset(request: Request, context: UserContext = Depends(require_user)):
-    return await save_user_preset(context, await request.json())
+# Old personal preset mutation paths are deliberately denied. A regular user
+# may change only their own order/hidden preferences, not preset definitions.
+@APP.post("/user/api/presets", status_code=403)
+async def create_user_preset(context: UserContext = Depends(require_user)):
+    raise HTTPException(status_code=403, detail="Only Nextcloud administrators manage presets")
 
 
-@APP.put("/user/api/presets/{preset_id}")
-async def update_user_preset(preset_id: str, request: Request,
-                             context: UserContext = Depends(require_user)):
-    return await save_user_preset(context, await request.json(), identifier=preset_id)
+@APP.put("/user/api/presets/{preset_id}", status_code=403)
+async def update_user_preset(preset_id: str, context: UserContext = Depends(require_user)):
+    raise HTTPException(status_code=403, detail="Only Nextcloud administrators manage presets")
 
 
-@APP.delete("/user/api/presets/{preset_id}")
+@APP.delete("/user/api/presets/{preset_id}", status_code=403)
 async def remove_user_preset(preset_id: str, context: UserContext = Depends(require_user)):
-    return await delete_user_preset(context, preset_id)
+    raise HTTPException(status_code=403, detail="Only Nextcloud administrators manage presets")
+
+
+@APP.get("/admin/api/preset-catalog")
+async def admin_preset_catalog(admin: UserContext = Depends(require_admin)):
+    """Admin-only global order and exclusion controls; no user-private data."""
+    return {
+        "presets": built_in_presets() + await read_admin_presets(admin.nc) + await read_shared_presets(),
+        "order": await read_admin_preset_config(admin.nc, ADMIN_ORDER_KEY),
+        "hidden": await read_admin_preset_config(admin.nc, ADMIN_HIDDEN_KEY),
+    }
+
+
+@APP.put("/admin/api/preset-catalog")
+async def update_admin_preset_catalog(request: Request,
+                                      admin: UserContext = Depends(require_admin)):
+    body = await request.json()
+    if not isinstance(body, dict) or set(body) != {"order", "hidden"}:
+        raise HTTPException(status_code=422, detail="Invalid preset catalogue layout")
+    order = validate_preset_id_list(body["order"])
+    hidden = validate_preset_id_list(body["hidden"])
+    available = {row["id"] for row in (built_in_presets()
+                 + await read_admin_presets(admin.nc) + await read_shared_presets())}
+    if (set(order) | set(hidden)) - available:
+        raise HTTPException(status_code=422, detail="Unknown shared preset")
+    await admin.nc.appconfig_ex.set_value(ADMIN_ORDER_KEY, json.dumps(order))
+    await admin.nc.appconfig_ex.set_value(ADMIN_HIDDEN_KEY, json.dumps(hidden))
+    return await admin_preset_catalog(admin)
+
+
+@APP.post("/admin/api/presets", status_code=201)
+async def create_admin_preset(request: Request,
+                              admin: UserContext = Depends(require_admin)):
+    from uuid import uuid4
+    item = validate_admin_preset(await request.json())
+    item.update({"id": "admin:" + str(uuid4()), "is_shared": True, "is_admin_managed": True})
+    rows = await read_admin_presets(admin.nc)
+    rows.append(item)
+    await save_admin_presets(admin.nc, rows)
+    return item
+
+
+@APP.put("/admin/api/presets/{preset_id}")
+async def update_admin_preset(preset_id: str, request: Request,
+                              admin: UserContext = Depends(require_admin)):
+    rows = await read_admin_presets(admin.nc)
+    if not any(item["id"] == preset_id for item in rows):
+        raise HTTPException(status_code=404, detail="Managed preset not found")
+    item = {**validate_admin_preset(await request.json()), "id": preset_id,
+            "is_shared": True, "is_admin_managed": True}
+    await save_admin_presets(admin.nc, [item if old["id"] == preset_id else old for old in rows])
+    return item
+
+
+@APP.delete("/admin/api/presets/{preset_id}")
+async def delete_admin_preset(preset_id: str,
+                              admin: UserContext = Depends(require_admin)):
+    rows = await read_admin_presets(admin.nc)
+    if not any(item["id"] == preset_id for item in rows):
+        raise HTTPException(status_code=404, detail="Managed preset not found")
+    await save_admin_presets(admin.nc, [item for item in rows if item["id"] != preset_id])
+    return {"deleted": True}
 
 
 @APP.get("/user/api/provenance")
