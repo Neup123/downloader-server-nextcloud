@@ -2,6 +2,7 @@ import {filesJobRequest} from './files-dialog-payload.mjs';
 
 const PAGE = 24;
 const MAX = 100;
+const MAX_OFFSET = 100000;
 const DIRECT = /\.(?:zip|7z|rar|pdf|epub|cbz|iso|exe|dmg|apk|tar|gz|csv|json|dat|bin|txt|mp3|flac|wav|m4a|mp4|mkv|webm|png|jpe?g|gif|webp)$/i;
 const TORRENT = /\.torrent$/i;
 const CHANNEL = /\/(?:channels?|series|shows|seasons|users?|@[^/]+\/(?:videos|streams))(?:\/|$)/i;
@@ -53,20 +54,43 @@ export function chooseFiltered(indices, matching, checked) {
 }
 export function previewRows(preview) {
   if (!preview || !Array.isArray(preview.entries)) return [];
-  const rows = preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX)
+  // Each Core page carries its absolute, one-based extractor indices. Its
+  // original source order is authoritative; timestamps must never re-sort it.
+  return preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX_OFFSET+MAX)
     .map(item => ({
       index: item.index,
       title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
       subtitle: typeof item.subtitle === 'string' ? item.subtitle.slice(0,200) : '',
-      thumbnail: typeof item.thumbnail === 'string' && /^https:\/\//.test(item.thumbnail)
-        ? item.thumbnail : '',
-      duration: Number.isFinite(item.duration) ? item.duration : null,
-      timestamp: Number.isFinite(item.timestamp) ? item.timestamp : null,
+      thumbnail: safeThumbnail(item.thumbnail),
+      duration: typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration >= 0 ? item.duration : null,
+      timestamp: typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp : null,
+      upload_date: typeof item.upload_date === 'string' && /^\\d{8}$/.test(item.upload_date) ? item.upload_date : null,
+      is_live: item.is_live === true || item.live_status === 'is_live',
     }));
-  if (rows.length && rows.every(item => item.timestamp !== null)) {
-    rows.sort((a,b) => b.timestamp-a.timestamp);
+}
+function safeThumbnail(value) {
+  if(typeof value!=='string' || value.length>4096)return null;
+  try {
+    const parsed=new URL(value);
+    return ['http:','https:'].includes(parsed.protocol) && parsed.hostname && !parsed.username && !parsed.password
+      ? value : null;
+  } catch {return null;}
+}
+export function previewMeta(row) {
+  const meta=[];
+  if(row.upload_date){
+    const date=row.upload_date;
+    meta.push(date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8));
+  }else if(row.timestamp!==null){
+    const date=new Date(row.timestamp*1000);
+    if(Number.isFinite(date.getTime()))meta.push(date.toISOString().slice(0,10));
   }
-  return rows;
+  if(row.duration!==null){
+    const seconds=Math.round(row.duration);
+    const minutes=Math.floor(seconds/60);
+    meta.push(minutes+':'+String(seconds%60).padStart(2,'0'));
+  }
+  return meta.join(' · ');
 }
 const e = (tag, text='', cls='') => {
   const item = document.createElement(tag);
@@ -124,10 +148,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   url.focus();
 
   let closed=false, generation=0, timer=0;
-  let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=MAX;
+  let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=Infinity;
+  let previewNextOffset=null, playlistAutoSelect=true, torrentSource='none', manifestFiles=[];
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
   let cbz=null, pageChoice=null, filter=null;
-  let observation=null, currentUrl='', busy=false, previewCount=PAGE;
+  let observation=null, currentUrl='', busy=false;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
@@ -216,10 +241,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }else media.append(e('span','Thumbnail unavailable','dl-entry-placeholder'));
       const title=e('span',row.title,'dl-entry-caption');
       if(row.subtitle) title.append(e('small',row.subtitle));
+      const metadata=previewMeta(row);
+      if(metadata)title.append(e('small',metadata));
+      if(row.is_live)media.append(e('span','Live','dl-entry-live-badge'));
       if(type==='playlist'){
         const info=e('span','','dl-entry-details');
         info.append(title);
-        if(row.duration!==null)info.append(e('small',Math.round(row.duration/60)+' min'));
         card.append(check,media,info);
       }else{
         media.append(title);
@@ -227,11 +254,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
       containerNode.append(card);
     }
-    // Core often reports the sampled count, not the full collection count.
-    // A full response may therefore have another page even without a total.
-    const fullBatch=choices.length===previewCount;
-    const knownMore=Number.isInteger(preview?.entry_count) && preview.entry_count>choices.length;
-    if(type!=='playlist' && choices.length<MAX && (knownMore||fullBatch) && choices.length<limit) {
+    if(previewNextOffset!==null && previewNextOffset<=MAX_OFFSET && choices.length<limit) {
       const sentinel=e('div','Loading additional entries…','dl-load-sentinel');
       containerNode.append(sentinel);
       if(typeof IntersectionObserver!=='undefined'){
@@ -247,21 +270,25 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
   }
   async function loadMore(list, type) {
-    const urlAtStart=currentUrl;
-    if(busy || !preview || choices.length>=MAX)return;
-    const next=Math.min(MAX,choices.length+PAGE);
-    busy=true;refreshSubmit();message('Loading more items…');
+    const urlAtStart=currentUrl, token=generation, next=previewNextOffset;
+    if(busy || !preview || next===null || next>MAX_OFFSET)return;
+    busy=true;refreshSubmit();
     try {
-      const result=await api('/media-preview','POST',{url:currentUrl,max_entries:next});
-      if(urlAtStart!==currentUrl||closed)return;
-      const previous=choices.length;
-      choices=previewRows(result);preview=result;previewCount=next;
-      if(choices.length===previous)limit=choices.length;
+      const result=await api('/media-preview','POST',{url:urlAtStart,max_entries:PAGE,offset:next});
+      if(token!==generation || urlAtStart!==currentUrl || closed)return;
+      const batch=previewRows(result);
+      if(result.offset!==next)throw new Error('Preview page did not match requested offset');
+      const previous=new Set(choices.map(item=>item.index));
+      const fresh=batch.filter(item=>!previous.has(item.index));
+      choices.push(...fresh);
+      if(type==='playlist' && playlistAutoSelect)for(const row of fresh)selected.add(row.index);
+      preview=result;
+      previewNextOffset=result.has_more===true && Number.isInteger(result.next_offset) &&
+        result.next_offset>next && result.next_offset<=MAX_OFFSET ? result.next_offset : null;
       drawRows(list,type);
-      message(choices.length===MAX ? 'Only the first 100 items are available to select.'
-        : 'Choose items to download.');
+      message('');
     }catch(error){
-      message('Could not load more items. Please try again.');
+      if(token===generation&&!closed)message('Could not load more items. Please try again.');
     }finally{busy=false;refreshSubmit();}
   }
   function itemPicker(type) {
@@ -272,6 +299,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     selectAll.checked=type==='playlist';
     if(type==='playlist'){
       selectAll.addEventListener('change',()=>{
+        playlistAutoSelect=selectAll.checked;
         selected=chooseFiltered(selected, choices, selectAll.checked);
         drawRows(rows,type);refreshSubmit();
       });
@@ -283,8 +311,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       filter=e('input');filter.type='search';filter.placeholder='Filter loaded titles';
       filter.addEventListener('input',()=>{drawRows(rows,type);});
       advanced.append(labeled('Filter loaded items',filter));
-      const count=pick([['25','25'],['50','50'],['100','100']], '100');
-      count.addEventListener('change',()=>{limit=Number(count.value);drawRows(rows,type);});
+      const count=pick([['all','All available'],['25','25'],['50','50'],['100','100']], 'all');
+      count.addEventListener('change',()=>{limit=count.value==='all'?Infinity:Number(count.value);drawRows(rows,type);});
       advanced.append(labeled('Maximum visible items',count));
       const action=e('label','','dl-audio-toggle');
       action.append(selectAll,e('span','Check / uncheck loaded items matching filter'));
@@ -332,6 +360,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
+    playlistAutoSelect=true;limit=Infinity;
     if(kind==='unsupported'){
       details.append(e('h3','Unsupported or unrecognized link'),
         e('p','We could not find a supported download at this link. Ordinary web pages cannot be downloaded here.','dl-muted'));
@@ -381,11 +410,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
     if(['playlist','channel','gallery','manga'].includes(kind)){
       choices=previewRows(preview);
+      previewNextOffset=preview?.has_more===true && Number.isInteger(preview?.next_offset) &&
+        preview.next_offset>0 && preview.next_offset<=MAX_OFFSET ? preview.next_offset : null;
       if(kind==='playlist'){
-        // The Core preview is bounded at 100; when more exist, be explicit.
         for(const row of choices)selected.add(row.index);
-        if(preview?.entry_count>choices.length)
-          details.append(e('p','Only the first '+choices.length+' entries can be selected from the current preview.','dl-muted'));
       }else{
         details.append(e('p','Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.','dl-muted'));
       }
@@ -398,7 +426,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const token=++generation;
     const value=input.trim();currentUrl=value;observation?.disconnect();
     details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
-    details.replaceChildren();preview=null;previewCount=PAGE;choices=[];selected=new Set();
+    details.replaceChildren();preview=null;previewNextOffset=null;choices=[];selected=new Set();
     const magnet=/^magnet:\?/i.test(value);
     let valid=false;
     try {valid=magnet || ['http:','https:'].includes(new URL(value).protocol);}catch{}
@@ -408,15 +436,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       spinner.hidden=true;await render('torrent',null);return;
     }
     try{
-      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE});
+      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
       if(token!==generation||closed)return;
       const detected=classifyPreview(value,result);
-      // A playlist begins with all returned items selected. Request the
-      // bounded complete preview (up to 100) before showing its item list.
-      if(detected==='playlist' && (result.entry_count>PAGE || result.entries?.length===PAGE)){
-        result=await api('/media-preview','POST',{url:value,max_entries:MAX});
-        if(token!==generation||closed)return;
-      }
+      // All first-page playlist entries are selected; further pages select as loaded.
       spinner.hidden=true;
       await render(detected,result);
     }catch(error){
