@@ -588,6 +588,26 @@ async def deliver_files(
                 await check_cancelled()
                 target_name = _suffixed_filename(relative.name, suffix) if per_user else relative.name
                 target = parent_url + "/" + quote(target_name, safe="")
+                if per_user and existing_behavior == "skip":
+                    # Avoid even uploading the bytes when this name is already
+                    # present. The conditional PUT below remains mandatory for
+                    # concurrent creation after this read (TOCTOU protection).
+                    existing = await client.request(
+                        "PROPFIND", target, headers={"Depth": "0"},
+                    )
+                    if existing.status_code == 207:
+                        if not _successful_webdav_props(existing.content, target):
+                            raise DeliveryError("Existing file could not be verified in Nextcloud Files")
+                        skipped = {
+                            "filename": relative.name, "path": target, "delivery": "webdav",
+                            "verified": False, "skipped": True, "skip_reason": "exists",
+                        }
+                        output.append(skipped)
+                        await record(skipped)
+                        skipped_file = True
+                        break
+                    if existing.status_code != 404:
+                        raise _delivery_failure(existing.status_code, "Could not check existing file")
                 response = await client.put(
                     target,
                     content=file_chunks(source),
