@@ -65,7 +65,8 @@ export function previewRows(preview) {
       duration: typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration >= 0 ? item.duration : null,
       timestamp: typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp : null,
       upload_date: typeof item.upload_date === 'string' && /^\d{8}$/.test(item.upload_date) ? item.upload_date : null,
-      is_live: item.is_live === true || item.live_status === 'is_live',
+      is_live: (item.is_live === true || item.live_status === 'is_live') ? true
+        : item.is_live === false ? false : null,
     }));
 }
 function safeThumbnail(value) {

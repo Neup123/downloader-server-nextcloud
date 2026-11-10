@@ -177,6 +177,7 @@ test('Core thumbnail, duration, dates and Live metadata survive without invented
   assert.equal(rows[0].thumbnail,null);
   assert.equal(rows[0].duration,null);
   assert.equal(rows[0].timestamp,null);
+  assert.equal(rows[0].is_live,null);
   assert.equal(previewMeta(rows[0]),'');
   assert.equal(rows[1].thumbnail,'https://cdn.example/real.jpg');
   assert.equal(previewMeta(rows[1]),'2024-10-27 · 1:21');
