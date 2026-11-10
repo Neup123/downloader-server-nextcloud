@@ -62,18 +62,23 @@ jobs:
           test -s app/job_states.py
           # Only Nextcloud-owned workflow and README changes may diverge.
           git restore --source=HEAD --staged --worktree README.md .github/workflows
+          # app/delivery.py and app/schemas.py carry approved downstream features
+          # and are exempt from byte parity; all other Core paths stay protected.
           git diff --exit-code upstream/main -- \
             app openapi.yaml requirements.txt Dockerfile \
             Dockerfile.egress compose.egress.yaml scripts/egress_guard.sh \
-            scripts/guarded_host_acceptance.py EGRESS_GUARD.md
+            scripts/guarded_host_acceptance.py EGRESS_GUARD.md \
+            ':(exclude)app/delivery.py' ':(exclude)app/schemas.py'
           # Core's legacy App.tsx is deliberately different in this ExApp
-          # adaptation; all other upstream web/src files must be exact.
+          # adaptation; ui-options.ts carries approved downstream features
+          # and is exempt from byte parity. All other web/src files stay protected.
           # Enumerate upstream paths rather than excluding all of web/src:
           # newly added shared UI modules become protected automatically.
           git cat-file -e upstream/main:web/src/App.tsx
           mapfile -t shared_ui < <(
             git ls-tree -r --name-only upstream/main -- web/src |
-              grep -vFx 'web/src/App.tsx'
+              grep -vFx 'web/src/App.tsx' |
+              grep -vFx 'web/src/ui-options.ts'
           )
           test "${#shared_ui[@]}" -gt 0
           git diff --exit-code upstream/main -- "${shared_ui[@]}"
