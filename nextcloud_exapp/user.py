@@ -552,9 +552,11 @@ def unscoped_cookie_filename(user_id: str, stored_filename: str) -> str | None:
 
 def delivery_notification(job: dict[str, Any]) -> tuple[str, str]:
     """The user sees a direct remedy, not an opaque error buried in logs."""
-    if job.get("status") == "completed":
-        skipped = [item for item in (job.get("output_files") or [])
-                   if isinstance(item, dict) and item.get("skipped") is True]
+    if job.get("status") in ("completed", "skipped"):
+        skipped = job.get("status") == "skipped" or any(
+            isinstance(item, dict) and item.get("skipped") is True
+            for item in (job.get("output_files") or [])
+        )
         if skipped:
             return ("Download skipped", "A file or folder already exists in your Nextcloud Files. "
                     "The existing item was left unchanged.")

@@ -90,3 +90,31 @@ def test_api_and_worker_route_all_external_statuses_through_contract():
     assert 'current.status = data.get("state"' not in worker
     assert "if status not in JobStatus._value2member_map_" in main
     assert "in TERMINAL_STATUSES" in main
+
+
+def test_skipped_completion_is_terminal_and_survives_database_reload(settings):
+    from app.db import make_engine, make_session_factory, initialize_database
+    from app.worker import JobWorker
+
+    engine = make_engine(settings.database_url)
+    initialize_database(engine)
+    sessions = make_session_factory(engine)
+    try:
+        with sessions() as session:
+            job = make_job("delivering")
+            job.id = "skip-reload"
+            job.output_files = [{"filename": "existing.mp4", "skipped": True, "skip_reason": "exists", "verified": False}]
+            transition_job(job, JobStatus.SKIPPED)
+            session.add(job)
+            session.commit()
+        with sessions() as session:
+            saved = session.get(Job, "skip-reload")
+            assert saved.status == "skipped"
+            assert saved.progress["state"] == "skipped"
+            assert saved.finished_at is not None
+            assert saved.output_files[0]["skip_reason"] == "exists"
+        JobWorker(sessions, settings)._recover_jobs()
+        with sessions() as session:
+            assert session.get(Job, "skip-reload").status == "skipped"
+    finally:
+        engine.dispose()

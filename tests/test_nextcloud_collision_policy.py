@@ -72,6 +72,8 @@ def test_rename_on_collision_preserves_old_file_and_uses_suffix(settings):
         assert result[0]["verified"] is True
         assert result[0]["filename"] == "film (1).webm"
         assert result[0].get("skipped") is not True
+        from app.worker import delivery_completion_status
+        assert delivery_completion_status(result).value == "completed"
         assert len(writes) == 1
         assert not next(iter(writes)).endswith("/film.webm")
     finally:
@@ -100,6 +102,8 @@ def test_skip_collision_keeps_destination_unchanged_and_emits_signal(settings):
         assert result[0]["skipped"] is True
         assert result[0]["verified"] is False
         assert result[0]["skip_reason"] == "exists"
+        from app.worker import delivery_completion_status
+        assert delivery_completion_status(result).value == "skipped"
     finally:
         engine.dispose()
 
