@@ -64,7 +64,7 @@ export function previewRows(preview) {
       thumbnail: safeThumbnail(item.thumbnail),
       duration: typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration >= 0 ? item.duration : null,
       timestamp: typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp : null,
-      upload_date: typeof item.upload_date === 'string' && /^\\d{8}$/.test(item.upload_date) ? item.upload_date : null,
+      upload_date: typeof item.upload_date === 'string' && /^\d{8}$/.test(item.upload_date) ? item.upload_date : null,
       is_live: item.is_live === true || item.live_status === 'is_live',
     }));
 }
@@ -92,6 +92,42 @@ export function previewMeta(row) {
   }
   return meta.join(' · ');
 }
+/** Core returns already validated relative paths and one-based aria2 file indices. */
+export function torrentRows(manifest) {
+  if(!manifest || !Array.isArray(manifest.files))return [];
+  const seen=new Set();
+  return manifest.files.filter(item=>{
+    if(!Number.isInteger(item?.index) || item.index<1 || seen.has(item.index) ||
+       !Number.isSafeInteger(item.size_bytes) || item.size_bytes<0 ||
+       typeof item.path!=='string' || !item.path || item.path.startsWith('/') ||
+       item.path.split('/').some(piece=>!piece || piece==='.' || piece==='..'))return false;
+    seen.add(item.index);return true;
+  }).map(item=>({
+    index:item.index,path:item.path,
+    name:typeof item.name==='string' && item.name ? item.name : item.path.split('/').at(-1),
+    size_bytes:item.size_bytes,
+  }));
+}
+export function torrentMatches(files, query='', order='name') {
+  const q=query.trim().toLowerCase();
+  return files.filter(item=>item.path.toLowerCase().includes(q))
+    .sort((a,b)=>order==='size' ? a.size_bytes-b.size_bytes || a.path.localeCompare(b.path)
+      : a.path.localeCompare(b.path));
+}
+export function torrentTree(files) {
+  const root={folders:new Map(),files:[]};
+  for(const file of files){
+    const parts=file.path.split('/');
+    let current=root;
+    for(const part of parts.slice(0,-1)){
+      if(!current.folders.has(part))current.folders.set(part,{folders:new Map(),files:[]});
+      current=current.folders.get(part);
+    }
+    current.files.push(file);
+  }
+  return root;
+}
+
 const e = (tag, text='', cls='') => {
   const item = document.createElement(tag);
   if (text) item.textContent = text;
@@ -157,12 +193,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;};
-  const available=()=>!busy && kind!=='unsupported' && kind!=='torrent' && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
     if(count)count.textContent=selected.size+' selected';
-    download.disabled=!available() || (['playlist','channel','gallery','manga'].includes(kind) && selected.size===0);
-    buttons.hidden=kind==='unsupported' || kind==='torrent';
+    download.disabled=!available() || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
+    buttons.hidden=kind==='unsupported' || (kind==='torrent' && torrentSource!=='magnet');
   }
   function mediaControls(settingsValue, soundOnly=false, checkbox=true) {
     const media=e('div','','dl-media-row');
@@ -342,25 +378,116 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   function torrentPicker() {
     const advanced=e('details','','dl-options');
     advanced.append(e('summary','Advanced — torrent files'));
+    // Core can inspect uploaded .torrent bytes, but its /jobs contract cannot
+    // enqueue raw uploaded bytes. Such a manifest is explicitly preview-only.
+    const upload=e('input');upload.type='file';upload.accept='.torrent,application/x-bittorrent';
+    upload.setAttribute('aria-label','Inspect an uploaded .torrent file');
+    upload.addEventListener('change',()=>{void inspectUploadedTorrent(upload.files?.[0]);});
+    advanced.append(labeled('Inspect a .torrent file',upload));
+    if(!manifestFiles.length){
+      advanced.append(e('p','No torrent file manifest has been loaded.','dl-muted'));
+      return advanced;
+    }
     const view=pick([['tree','Tree view'],['flat','Flat list']], 'tree');
     const sort=pick([['name','Sort by name'],['size','Sort by size']], 'name');
-    const filter=e('input');filter.type='search';filter.placeholder='Filter torrent files';
-    const all=e('input');all.type='checkbox';all.checked=true;
-    // These are intentionally disabled until the existing Core extractor
-    // exports a real torrent file manifest. Never pretend an empty manifest
-    // means the user selected all files.
-    view.disabled=true;sort.disabled=true;filter.disabled=true;all.disabled=true;
-    const files=e('div','We cannot show or select the files inside this torrent yet.','dl-muted');
-    advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',filter));
+    const query=e('input');query.type='search';query.placeholder='Filter torrent files';
+    const all=e('input');all.type='checkbox';
+    const files=e('div','','dl-torrent-files');
+    const count=e('span','','dl-muted dl-picker-count');
+    advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',query));
     const bulk=e('label','','dl-audio-toggle');
-    bulk.append(all,e('span','Check/uncheck matching torrent files'));advanced.append(bulk,files);
+    bulk.append(all,e('span','Check / uncheck files matching current filter'));
+    advanced.append(bulk,count,files);
+
+    const matching=()=>torrentMatches(manifestFiles,query.value,sort.value);
+    function fileLabel(item,showPath=false) {
+      const label=e('label','','dl-torrent-file');
+      const check=e('input');check.type='checkbox';check.checked=selected.has(item.index);
+      check.addEventListener('change',()=>{
+        if(check.checked)selected.add(item.index);
+        else selected.delete(item.index);
+        updateBulk();refreshSubmit();
+      });
+      label.append(check,e('span',showPath?item.path:item.name,'dl-torrent-name'),
+        e('small',sizeLabel(item.size_bytes),'dl-muted'));
+      return label;
+    }
+    function drawTree(node,parent){
+      const folders=[...node.folders.entries()].sort(([a],[b])=>a.localeCompare(b));
+      for(const [name,child] of folders){
+        const group=e('details','','dl-torrent-folder');group.open=true;
+        group.append(e('summary',name));
+        drawTree(child,group);
+        parent.append(group);
+      }
+      for(const file of node.files)parent.append(fileLabel(file));
+    }
+    function updateBulk(){
+      const matches=matching();
+      const checked=matches.filter(item=>selected.has(item.index)).length;
+      all.checked=matches.length>0 && checked===matches.length;
+      all.indeterminate=checked>0 && checked<matches.length;
+      all.disabled=matches.length===0;
+      count.textContent=selected.size+' of '+manifestFiles.length+' files selected';
+    }
+    function draw(){
+      files.replaceChildren();
+      const matches=matching();
+      if(!matches.length)files.append(e('p','No files match the current filter.','dl-muted'));
+      else if(view.value==='tree')drawTree(torrentTree(matches),files);
+      else for(const file of matches)files.append(fileLabel(file,true));
+      updateBulk();refreshSubmit();
+    }
+    view.addEventListener('change',draw);
+    sort.addEventListener('change',draw);
+    query.addEventListener('input',draw);
+    all.addEventListener('change',()=>{
+      selected=chooseFiltered(selected,matching(),all.checked);
+      draw();
+    });
+    draw();
     return advanced;
   }
+  function showTorrentManifest(manifest,source) {
+    manifestFiles=torrentRows(manifest);
+    torrentSource=manifestFiles.length ? source : 'none';
+    selected=new Set(manifestFiles.map(item=>item.index));
+    details.replaceChildren(e('h3','Torrent or magnet link'));
+    if(source==='upload'){
+      details.append(e('p','Uploaded .torrent files can be inspected, but this Core version cannot create a job from uploaded bytes. Use a magnet link to download.','dl-muted'));
+    }
+    if(!manifestFiles.length)details.append(e('p','No selectable files were reported for this torrent.','dl-muted'));
+    details.append(torrentPicker());
+    refreshSubmit();
+  }
+  async function inspectUploadedTorrent(file) {
+    if(!file)return;
+    const token=generation;
+    if(file.size<20 || file.size>2000000){
+      message('.torrent files must be between 20 bytes and 2 MB.');return;
+    }
+    busy=true;refreshSubmit();message('Reading .torrent file list…');
+    try{
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(token!==generation||closed)return;
+      let binary='';
+      for(let i=0;i<bytes.length;i+=32768){
+        binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
+      }
+      const manifest=await api('/torrent-manifest','POST',{torrent_base64:btoa(binary)});
+      if(token!==generation||closed)return;
+      showTorrentManifest(manifest,'upload');
+      message('');
+    }catch(error){
+      if(token===generation&&!closed)message('Could not inspect the uploaded .torrent file.');
+    }finally{busy=false;refreshSubmit();}
+  }
+
   async function render(next, result, warning='') {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
-    playlistAutoSelect=true;limit=Infinity;
+    playlistAutoSelect=true;limit=Infinity;torrentSource='none';manifestFiles=[];
     if(kind==='unsupported'){
       details.append(e('h3','Unsupported or unrecognized link'),
         e('p','We could not find a supported download at this link. Ordinary web pages cannot be downloaded here.','dl-muted'));
@@ -374,10 +501,29 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       return;
     }
     if(kind==='torrent'){
+      const token=generation;
+      if(!/^magnet:\?/i.test(currentUrl)){
+        details.append(e('h3','Torrent or magnet link'),
+          e('p','Remote HTTP .torrent URLs are not supported. Paste a magnet link or upload .torrent bytes to inspect the files.','dl-muted'),
+          torrentPicker());
+        message('Remote .torrent URLs cannot be inspected or submitted.');
+        return;
+      }
       details.append(e('h3','Torrent or magnet link'),
-        e('p','Torrent downloads are not available yet because the files inside cannot be checked and selected. No download will start.','dl-muted'),
-        torrentPicker());
-      message('Torrent downloads are not available yet.');
+        e('p','Reading the torrent file list from peers…','dl-muted'));
+      busy=true;refreshSubmit();
+      try{
+        const manifest=await api('/torrent-manifest','POST',{url:currentUrl});
+        if(token!==generation||closed)return;
+        showTorrentManifest(manifest,'magnet');
+        message('');
+      }catch(error){
+        if(token!==generation||closed)return;
+        details.replaceChildren(e('h3','Torrent or magnet link'),
+          e('p','Torrent file metadata could not be retrieved. Check the magnet link and its available peers.','dl-muted'),
+          torrentPicker());
+        message('Could not retrieve torrent metadata. Try again later or inspect an uploaded .torrent file.');
+      }finally{busy=false;refreshSubmit();}
       return;
     }
     if(kind==='direct'){
@@ -433,7 +579,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(!valid){spinner.hidden=true;message(value?'Paste an HTTP(S) link or a magnet URI.':'');return;}
     spinner.hidden=false;message('Detecting content type…');
     if(magnet || (()=>{try{return TORRENT.test(new URL(value).pathname)}catch{return false}})()){
-      spinner.hidden=true;await render('torrent',null);return;
+      await render('torrent',null);if(token===generation&&!closed)spinner.hidden=true;return;
     }
     try{
       let result=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
