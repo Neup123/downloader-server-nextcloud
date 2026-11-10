@@ -163,6 +163,46 @@ This is not a guarantee for direct Core administrator submissions. Core-owned
 server-level enforcement must be addressed separately before claiming the
 whole instance is incapable of seeding.
 
+## Per-user destination routing and collision policy (issue #139)
+
+Native Nextcloud **Personal settings → Downloader** now offers a destination
+for Video, Audio, Images/galleries, Manga/comics, Direct files and Torrents.
+A new account uses subfolders of its configured default Files folder
+(`Downloads/Video`, `Downloads/Audio`, `Downloads/Images`,
+`Downloads/Manga`, `Downloads/Direct files`, `Downloads/Torrents`).
+Routes without a custom override follow later changes to the base folder.
+Every route can instead point to an existing personal Files folder.
+
+The link-first dialog sends its detected content category as `content_type`
+on the signed job request. The ExApp validates this category, selects the
+owner's current route and snapshots the resolved folder on the Core job.
+An explicitly supplied Files folder takes precedence regardless of type.
+The user's implicit default subfolder is created on first use after the
+configured parent has been verified; explicit and custom folders are never
+silently created. Older untyped API submissions retain their original
+default-folder behavior.
+
+Existing-file behavior has **exactly two choices**, Rename (default) and
+Skip. Neither allows overwrites. Core WebDAV already renamed colliding file
+names with atomic conditional PUT; this PR adds per-user Skip at the same
+atomic decision. Multi-file collections detect a same-titled existing folder
+by atomic MKCOL and skip without creating a suffixed folder. A skipped output
+is marked `skipped: true, verified: false`; the native header shows a toast,
+and ExApp tracking issues a native notification even when ordinary successful
+download notifications are disabled. A skipped delivery never counts as a
+verified download.
+
+**Core ownership exception:** `app/delivery.py` and `app/schemas.py` are
+upstream-owned. The downstream-only per-user collision policy has no
+equivalent in Core's current delivery contract and cannot be implemented
+truthfully by merely checking filenames in the UI. The minimal diff is an
+intentional Nextcloud-specific delta, limited to per-user deliveries; it must
+be upstreamed before the byte-parity Core sync gate can accept it. The
+existing upstream-sync conflict is not modified here. A collision is
+confirmed at delivery time, after extractor bytes have been fetched; this
+policy skips publishing the conflicting content to Files, not necessarily
+the extractor fetch itself.
+
 ## Downloads header and compact layouts
 
 The header uses a fixed-width, transparent **down-arrow icon** matching the

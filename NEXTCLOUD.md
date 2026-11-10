@@ -75,6 +75,21 @@ specific behavior deliberately with Core and ExApp UI tests. A future removal
 of the legacy adapter is a separate, browser-tested migration; do not
 treat its present divergence as accidental drift or silently overwrite it.
 
+## Nextcloud content routes and per-user collision exceptions
+
+Issue #139 adds owner-scoped default destination subfolders and the
+per-user skip/rename collision preference. Routes and authenticated user
+settings live only in `nextcloud_exapp/user.py`, with controls in the
+native `bridge/src/settings.ts`. Atomic collision decisions require
+the existing Core WebDAV delivery point; this PR includes a bounded,
+**per-user-only** change in Core-owned `app/delivery.py` and
+`app/schemas.py`. Standalone Core jobs continue their previous behavior.
+This delta is documented here for explicit review and must be ported to
+the upstream Core repo before the strict source-parity sync guard can
+treat it as imported upstream. We do not modify or weaken that guard.
+Skip prevents WebDAV publication on collision, but the extractor may
+already have downloaded source bytes before final filenames are known.
+
 ## Verified upstream synchronization and test ownership
 
 The downstream repository imports verified core `main` through the shared Git

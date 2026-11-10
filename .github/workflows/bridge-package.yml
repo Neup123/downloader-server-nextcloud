@@ -72,6 +72,11 @@ jobs:
           php -l bridge/lib/JobStateContract.php
           php -l bridge/tests/job-state-contract.php
           php -l bridge/tests/entitlement-contract.php
+      - name: Verify real Core per-user WebDAV collision contract
+        run: |
+          python3 -m pip install -r requirements.txt pytest
+          python3 -m pytest -q tests/test_nextcloud_collision_policy.py tests/test_nextcloud_delivery_flat.py
+
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge
