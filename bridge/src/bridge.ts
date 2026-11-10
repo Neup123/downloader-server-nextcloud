@@ -94,7 +94,8 @@ function cleanFolder(path?: string): string {
 async function openDialog(folder: string | null, suggested = '') {
   // One Nextcloud-native dialog shared by Files, Viewer, Talk and the bubble.
   showLinkDialog({folder, suggested, api, notify,
-    queued: () => window.dispatchEvent(new Event('downloader:job-queued'))});
+    queued: (job?: {id?: string}) => window.dispatchEvent(
+      new CustomEvent('downloader:job-queued', {detail: {id: job?.id}}))});
 }
 
 function registerActions() {
@@ -334,6 +335,7 @@ function headerProgress(ownerId: string) {
   let refreshing = false;
   let initialized = false;
   const lastStatuses = new Map<string, string>();
+  const justQueued = new Set<string>();
   const publishedFiles = new Set<string>();
   const publishingFiles = new Set<string>();
 
@@ -505,7 +507,10 @@ function headerProgress(ownerId: string) {
       list.scrollTop=scroll;
       for(const job of jobs){
         const old=lastStatuses.get(job.id);
-        if(initialized && old && old!==job.status && TERMINAL.has(job.status)){
+        // A short download can finish before the first poll after submission.
+        // An explicit queued job ID still gets its one skip/completion toast.
+        if(((initialized && old && old!==job.status) || justQueued.has(job.id))
+          && TERMINAL.has(job.status)){
           const skipped=job.output_files?.some(file=>file.skipped===true);
           notify(job.status==='completed'
             ?(skipped
@@ -516,6 +521,7 @@ function headerProgress(ownerId: string) {
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
         lastStatuses.set(job.id,job.status);
+        if(old || TERMINAL.has(job.status))justQueued.delete(job.id);
         if(job.status==='completed')void publishDeliveredFiles(job);
       }
       initialized=true;
@@ -525,7 +531,11 @@ function headerProgress(ownerId: string) {
       refreshing=false;
     }
   }
-  window.addEventListener('downloader:job-queued', () => { void refresh(); });
+  window.addEventListener('downloader:job-queued', event => {
+    const id=(event as CustomEvent<{id?: string}>).detail?.id;
+    if(typeof id==='string' && id)justQueued.add(id);
+    void refresh();
+  });
   void refresh();
   const timer = window.setInterval(() => {
     if (!active || !container.isConnected) {active = false; window.clearInterval(timer); return;}
