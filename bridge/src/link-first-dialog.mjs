@@ -119,7 +119,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let closed=false, generation=0, timer=0;
   let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=MAX;
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
-  let cbz=null, pageChoice=null, filter=null, allFiltered=null;
+  let cbz=null, pageChoice=null, filter=null;
   let observation=null, currentUrl='', busy=false;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
@@ -176,9 +176,19 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       subtitles.addEventListener('change',()=>{subtitleLanguage.disabled=!subtitles.checked;});
       advanced.append(labeled('Subtitle language',subtitleLanguage));
     } else {subtitles=null;subtitleLanguage=null;}
-    container=pick(soundOnly
-      ? [['original','Original format'],['m4a','Prefer M4A'],['webm','Prefer WebM']]
-      : [['original','Original format'],['mp4','Prefer MP4'],['webm','Prefer WebM']], 'original');
+    container=pick([], 'original');
+    const setContainers=()=>{
+      const audio=soundOnly||Boolean(audioOnly?.checked);
+      const choices=audio
+        ? [['original','Original format'],['m4a','Prefer M4A'],['webm','Prefer WebM']]
+        : [['original','Original format'],['mp4','Prefer MP4'],['webm','Prefer WebM']];
+      container.replaceChildren(...choices.map(([value,text])=>{
+        const option=e('option',text);option.value=value;return option;
+      }));
+      container.value='original';
+    };
+    setContainers();
+    audioOnly?.addEventListener('change',setContainers);
     advanced.append(labeled('Container',container));
     return advanced;
   }
@@ -376,7 +386,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   async function detect(input) {
     const token=++generation;
     const value=input.trim();currentUrl=value;observation?.disconnect();
-    details.hidden=true;buttons.hidden=true;details.replaceChildren();preview=null;choices=[];selected=new Set();
+    details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
+    details.replaceChildren();preview=null;choices=[];selected=new Set();
     const magnet=/^magnet:\?/i.test(value);
     let valid=false;
     try {valid=magnet || ['http:','https:'].includes(new URL(value).protocol);}catch{}
@@ -406,6 +417,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   }
   function schedule(){
     clearTimeout(timer);++generation;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
+    kind='unsupported';download.disabled=true;
     timer=setTimeout(()=>{void detect(url.value);},220);
   }
   url.addEventListener('input',schedule);
@@ -413,7 +425,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   if(suggested.trim())void detect(suggested);
   form.addEventListener('submit',async event=>{
     event.preventDefault();
-    if(!available()||download.disabled)return;
+    // A hidden submit button can still be the form's default on Enter.
+    // Never submit stale detection results when the link has changed.
+    if(details.hidden||currentUrl!==url.value.trim()||!available()||download.disabled)return;
     const target=currentUrl;
     const audio=kind==='audio'||Boolean(audioOnly?.checked);
     let body;
