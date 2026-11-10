@@ -28,7 +28,17 @@ CORE_TEST_ONLY = frozenset({
     ".github/workflows/egress-guard-e2e.yml",
     ".github/workflows/manual-p2-site-webdav.yml",
     ".github/workflows/pinned-engine-updates.yml",
+    ".github/workflows/release-v0.3.1.yml",
     ".github/workflows/safe-merged-branch-cleanup.yml",
+})
+
+
+# Core owns these shared web build inputs. Their content must match the
+# verified upstream revision exactly, unlike the Nextcloud-specific App.tsx.
+UPSTREAM = frozenset({
+    "web/package.json",
+    "web/package-lock.json",
+    "web/vite.config.ts",
 })
 
 
@@ -36,7 +46,7 @@ def plan_conflicts(paths: list[str]) -> dict[str, str]:
     """Return an exact allowlisted resolution plan; reject before modifying any file."""
     if not paths:
         raise ValueError("No unresolved merge paths found")
-    unexpected = sorted(set(paths) - DOWNSTREAM - CORE_TEST_ONLY)
+    unexpected = sorted(set(paths) - DOWNSTREAM - CORE_TEST_ONLY - UPSTREAM)
     if unexpected:
         raise ValueError("Unexpected upstream merge conflict(s): " + ", ".join(unexpected))
     return {
