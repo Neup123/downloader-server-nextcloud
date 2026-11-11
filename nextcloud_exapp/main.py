@@ -513,10 +513,50 @@ async def clear_owner_history(request: Request, context: UserContext = Depends(r
     return {"hidden": len(completed) + len(failures), "files_retained": True}
 
 
+async def attach_owner_cookie(context: UserContext, payload: dict) -> None:
+    """Select matching owner cookie ahead of any service-wide credentials.
+
+    This does not expose a cookie value or another owner's filename. Explicit
+    per-download cookies take priority over the automatic host match.
+    """
+    engine = payload.get("engine")
+    if engine not in {"yt-dlp", "you-get", "gallery-dl", "auto"}:
+        return
+    overrides = payload.setdefault("overrides", {})
+    if overrides.get("cookies_file"):
+        return
+    source = payload.get("url")
+    if not isinstance(source, str):
+        return
+    try:
+        host = (urlsplit(source).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return
+    if not host:
+        return
+    files = await core_json("GET", "cookies")
+    choices = []
+    for entry in files if isinstance(files, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        filename = entry.get("filename")
+        if not isinstance(filename, str):
+            continue
+        visible = unscoped_cookie_filename(context.user_id, filename)
+        if visible is None or not visible.endswith(".txt"):
+            continue
+        domain = visible[:-4].lower()
+        if host == domain or host.endswith("." + domain):
+            choices.append((len(domain), filename))
+    if choices:
+        overrides["cookies_file"] = max(choices)[1]
+
+
 @APP.post("/user/api/jobs", status_code=202)
 async def user_submit(request: Request, context: UserContext = Depends(require_user)):
     data = await request.json()
     request_body = await job_submission(context, data)
+    await attach_owner_cookie(context, request_body)
     job = await core_json("POST", "jobs", payload=request_body)
     own_job(job, context.user_id)
     request.app.state.job_tracker.add(job["id"], context.user_id)
