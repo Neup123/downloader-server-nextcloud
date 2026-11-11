@@ -2,6 +2,7 @@ import {filesJobRequest} from './files-dialog-payload.mjs';
 
 const PAGE = 24;
 const MAX = 100;
+const MAX_OFFSET = 100000;
 const DIRECT = /\.(?:zip|7z|rar|pdf|epub|cbz|iso|exe|dmg|apk|tar|gz|csv|json|dat|bin|txt|mp3|flac|wav|m4a|mp4|mkv|webm|png|jpe?g|gif|webp)$/i;
 const TORRENT = /\.torrent$/i;
 const CHANNEL = /\/(?:channels?|series|shows|seasons|users?|@[^/]+\/(?:videos|streams))(?:\/|$)/i;
@@ -53,21 +54,88 @@ export function chooseFiltered(indices, matching, checked) {
 }
 export function previewRows(preview) {
   if (!preview || !Array.isArray(preview.entries)) return [];
-  const rows = preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX)
+  // Each Core page carries its absolute, one-based extractor indices. Its
+  // original source order is authoritative; timestamps must never re-sort it.
+  return preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX_OFFSET+MAX)
     .map(item => ({
       index: item.index,
       title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
       subtitle: typeof item.subtitle === 'string' ? item.subtitle.slice(0,200) : '',
-      thumbnail: typeof item.thumbnail === 'string' && /^https:\/\//.test(item.thumbnail)
-        ? item.thumbnail : '',
-      duration: Number.isFinite(item.duration) ? item.duration : null,
-      timestamp: Number.isFinite(item.timestamp) ? item.timestamp : null,
+      thumbnail: safeThumbnail(item.thumbnail),
+      duration: typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration >= 0 ? item.duration : null,
+      timestamp: typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp : null,
+      upload_date: typeof item.upload_date === 'string' && /^\d{8}$/.test(item.upload_date) ? item.upload_date : null,
+      is_live: (item.is_live === true || item.live_status === 'is_live') ? true
+        : item.is_live === false ? false : null,
     }));
-  if (rows.length && rows.every(item => item.timestamp !== null)) {
-    rows.sort((a,b) => b.timestamp-a.timestamp);
-  }
-  return rows;
 }
+function safeThumbnail(value) {
+  if(typeof value!=='string' || value.length>4096)return null;
+  try {
+    const parsed=new URL(value);
+    return ['http:','https:'].includes(parsed.protocol) && parsed.hostname && !parsed.username && !parsed.password
+      ? value : null;
+  } catch {return null;}
+}
+export function appendPreviewPage(current, response, offset) {
+  const existing=new Set(current.map(row=>row.index));
+  const fresh=previewRows(response).filter(row=>!existing.has(row.index));
+  const nextOffset=response?.has_more===true && Number.isInteger(response.next_offset) &&
+    response.next_offset>offset && response.next_offset<=MAX_OFFSET ? response.next_offset : null;
+  return {rows:[...current,...fresh],fresh,nextOffset};
+}
+export function previewMeta(row) {
+  const meta=[];
+  if(row.upload_date){
+    const date=row.upload_date;
+    meta.push(date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8));
+  }else if(row.timestamp!==null){
+    const date=new Date(row.timestamp*1000);
+    if(Number.isFinite(date.getTime()))meta.push(date.toISOString().slice(0,10));
+  }
+  if(row.duration!==null){
+    const seconds=Math.round(row.duration);
+    const minutes=Math.floor(seconds/60);
+    meta.push(minutes+':'+String(seconds%60).padStart(2,'0'));
+  }
+  return meta.join(' · ');
+}
+/** Core returns already validated relative paths and one-based aria2 file indices. */
+export function torrentRows(manifest) {
+  if(!manifest || !Array.isArray(manifest.files))return [];
+  const seen=new Set();
+  return manifest.files.filter(item=>{
+    if(!Number.isInteger(item?.index) || item.index<1 || seen.has(item.index) ||
+       !Number.isSafeInteger(item.size_bytes) || item.size_bytes<0 ||
+       typeof item.path!=='string' || !item.path || item.path.startsWith('/') ||
+       item.path.split('/').some(piece=>!piece || piece==='.' || piece==='..'))return false;
+    seen.add(item.index);return true;
+  }).map(item=>({
+    index:item.index,path:item.path,
+    name:typeof item.name==='string' && item.name ? item.name : item.path.split('/').at(-1),
+    size_bytes:item.size_bytes,
+  }));
+}
+export function torrentMatches(files, query='', order='name') {
+  const q=query.trim().toLowerCase();
+  return files.filter(item=>item.path.toLowerCase().includes(q))
+    .sort((a,b)=>order==='size' ? a.size_bytes-b.size_bytes || a.path.localeCompare(b.path)
+      : a.path.localeCompare(b.path));
+}
+export function torrentTree(files) {
+  const root={folders:new Map(),files:[]};
+  for(const file of files){
+    const parts=file.path.split('/');
+    let current=root;
+    for(const part of parts.slice(0,-1)){
+      if(!current.folders.has(part))current.folders.set(part,{folders:new Map(),files:[]});
+      current=current.folders.get(part);
+    }
+    current.files.push(file);
+  }
+  return root;
+}
+
 const e = (tag, text='', cls='') => {
   const item = document.createElement(tag);
   if (text) item.textContent = text;
@@ -90,6 +158,7 @@ function pick(choices, value) {
 function sizeLabel(value) {
   if (!Number.isSafeInteger(value) || value < 0) return 'Size not available';
   if (value < 1024) return value + ' B';
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB';
   return (value / (1024 * 1024)).toFixed(1) + ' MiB';
 }
 
@@ -123,20 +192,21 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   url.focus();
 
   let closed=false, generation=0, timer=0;
-  let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=MAX;
+  let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=Infinity;
+  let previewNextOffset=null, playlistAutoSelect=true, torrentSource='none', manifestFiles=[];
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
   let cbz=null, pageChoice=null, filter=null;
-  let observation=null, currentUrl='', busy=false, previewCount=PAGE;
+  let observation=null, currentUrl='', busy=false;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
-  const available=()=>!busy && kind!=='unsupported' && kind!=='torrent' && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
-    if(count)count.textContent=selected.size+' selected';
-    download.disabled=!available() || (['playlist','channel','gallery','manga'].includes(kind) && selected.size===0);
-    buttons.hidden=kind==='unsupported' || kind==='torrent';
+    if(count && kind!=='torrent')count.textContent=selected.size+' selected';
+    download.disabled=!available() || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
+    buttons.hidden=kind==='unsupported' || (kind==='torrent' && torrentSource!=='magnet');
   }
   function mediaControls(settingsValue, soundOnly=false, checkbox=true) {
     const media=e('div','','dl-media-row');
@@ -219,10 +289,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }else media.append(e('span','Thumbnail unavailable','dl-entry-placeholder'));
       const title=e('span',row.title,'dl-entry-caption');
       if(row.subtitle) title.append(e('small',row.subtitle));
+      const metadata=previewMeta(row);
+      if(metadata)title.append(e('small',metadata));
+      if(row.is_live)media.append(e('span','Live','dl-entry-live-badge'));
       if(type==='playlist'){
         const info=e('span','','dl-entry-details');
         info.append(title);
-        if(row.duration!==null)info.append(e('small',Math.round(row.duration/60)+' min'));
         card.append(check,media,info);
       }else{
         media.append(title);
@@ -230,11 +302,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
       containerNode.append(card);
     }
-    // Core often reports the sampled count, not the full collection count.
-    // A full response may therefore have another page even without a total.
-    const fullBatch=choices.length===previewCount;
-    const knownMore=Number.isInteger(preview?.entry_count) && preview.entry_count>choices.length;
-    if(type!=='playlist' && choices.length<MAX && (knownMore||fullBatch) && choices.length<limit) {
+    if(previewNextOffset!==null && previewNextOffset<=MAX_OFFSET && choices.length<limit) {
       const sentinel=e('div','Loading additional entries…','dl-load-sentinel');
       containerNode.append(sentinel);
       if(typeof IntersectionObserver!=='undefined'){
@@ -250,20 +318,22 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
   }
   async function loadMore(list, type) {
-    const urlAtStart=currentUrl;
-    if(busy || !preview || choices.length>=MAX)return;
-    const next=Math.min(MAX,choices.length+PAGE);
-    busy=true;refreshSubmit();message('');
+    const urlAtStart=currentUrl, token=generation, next=previewNextOffset;
+    if(busy || !preview || next===null || next>MAX_OFFSET)return;
+    busy=true;refreshSubmit();
     try {
-      const result=await api('/media-preview','POST',{url:currentUrl,max_entries:next});
-      if(urlAtStart!==currentUrl||closed)return;
-      const previous=choices.length;
-      choices=previewRows(result);preview=result;previewCount=next;
-      if(choices.length===previous)limit=choices.length;
+      const result=await api('/media-preview','POST',{url:urlAtStart,max_entries:PAGE,offset:next});
+      if(token!==generation || urlAtStart!==currentUrl || closed)return;
+      if(result.offset!==next)throw new Error('Preview page did not match requested offset');
+      const page=appendPreviewPage(choices,result,next);
+      choices=page.rows;
+      if(type==='playlist' && playlistAutoSelect)for(const row of page.fresh)selected.add(row.index);
+      preview=result;
+      previewNextOffset=page.nextOffset;
       drawRows(list,type);
-      message(choices.length===MAX ? 'Only the first 100 items are available to select.' : '');
+      message('');
     }catch(error){
-      message('Could not load more items. Please try again.');
+      if(token===generation&&!closed)message('Could not load more items. Please try again.');
     }finally{busy=false;refreshSubmit();}
   }
   function itemPicker(type) {
@@ -274,6 +344,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     selectAll.checked=type==='playlist';
     if(type==='playlist'){
       selectAll.addEventListener('change',()=>{
+        playlistAutoSelect=selectAll.checked;
         selected=chooseFiltered(selected, choices, selectAll.checked);
         drawRows(rows,type);refreshSubmit();
       });
@@ -285,8 +356,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       filter=e('input');filter.type='search';filter.placeholder='Filter loaded titles';
       filter.addEventListener('input',()=>{drawRows(rows,type);});
       advanced.append(labeled('Filter loaded items',filter));
-      const count=pick([['25','25'],['50','50'],['100','100']], '100');
-      count.addEventListener('change',()=>{limit=Number(count.value);drawRows(rows,type);});
+      const count=pick([['all','All available'],['25','25'],['50','50'],['100','100']], 'all');
+      count.addEventListener('change',()=>{limit=count.value==='all'?Infinity:Number(count.value);drawRows(rows,type);});
       advanced.append(labeled('Maximum visible items',count));
       const action=e('label','','dl-audio-toggle');
       action.append(selectAll,e('span','Check / uncheck loaded items matching filter'));
@@ -316,24 +387,116 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   function torrentPicker() {
     const advanced=e('details','','dl-options');
     advanced.append(e('summary','Advanced — torrent files'));
+    // Core can inspect uploaded .torrent bytes, but its /jobs contract cannot
+    // enqueue raw uploaded bytes. Such a manifest is explicitly preview-only.
+    const upload=e('input');upload.type='file';upload.accept='.torrent,application/x-bittorrent';
+    upload.setAttribute('aria-label','Inspect an uploaded .torrent file');
+    upload.addEventListener('change',()=>{void inspectUploadedTorrent(upload.files?.[0]);});
+    advanced.append(labeled('Inspect a .torrent file',upload));
+    if(!manifestFiles.length){
+      advanced.append(e('p','No torrent file manifest has been loaded.','dl-muted'));
+      return advanced;
+    }
     const view=pick([['tree','Tree view'],['flat','Flat list']], 'tree');
     const sort=pick([['name','Sort by name'],['size','Sort by size']], 'name');
-    const filter=e('input');filter.type='search';filter.placeholder='Filter torrent files';
-    const all=e('input');all.type='checkbox';all.checked=true;
-    // These are intentionally disabled until the existing Core extractor
-    // exports a real torrent file manifest. Never pretend an empty manifest
-    // means the user selected all files.
-    view.disabled=true;sort.disabled=true;filter.disabled=true;all.disabled=true;
-    const files=e('div','We cannot show or select the files inside this torrent yet.','dl-muted');
-    advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',filter));
+    const query=e('input');query.type='search';query.placeholder='Filter torrent files';
+    const all=e('input');all.type='checkbox';
+    const files=e('div','','dl-torrent-files');
+    const count=e('span','','dl-muted dl-picker-count');
+    advanced.append(labeled('View',view),labeled('Sort',sort),labeled('Filter files',query));
     const bulk=e('label','','dl-audio-toggle');
-    bulk.append(all,e('span','Check/uncheck matching torrent files'));advanced.append(bulk,files);
+    bulk.append(all,e('span','Check / uncheck files matching current filter'));
+    advanced.append(bulk,count,files);
+
+    const matching=()=>torrentMatches(manifestFiles,query.value,sort.value);
+    function fileLabel(item,showPath=false) {
+      const label=e('label','','dl-torrent-file');
+      const check=e('input');check.type='checkbox';check.checked=selected.has(item.index);
+      check.addEventListener('change',()=>{
+        if(check.checked)selected.add(item.index);
+        else selected.delete(item.index);
+        updateBulk();refreshSubmit();
+      });
+      label.append(check,e('span',showPath?item.path:item.name,'dl-torrent-name'),
+        e('small',sizeLabel(item.size_bytes),'dl-muted'));
+      return label;
+    }
+    function drawTree(node,parent){
+      const folders=[...node.folders.entries()].sort(([a],[b])=>a.localeCompare(b));
+      for(const [name,child] of folders){
+        const group=e('details','','dl-torrent-folder');group.open=true;
+        group.append(e('summary',name));
+        drawTree(child,group);
+        parent.append(group);
+      }
+      for(const file of node.files)parent.append(fileLabel(file));
+    }
+    function updateBulk(){
+      const matches=matching();
+      const checked=matches.filter(item=>selected.has(item.index)).length;
+      all.checked=matches.length>0 && checked===matches.length;
+      all.indeterminate=checked>0 && checked<matches.length;
+      all.disabled=matches.length===0;
+      count.textContent=selected.size+' of '+manifestFiles.length+' files selected';
+    }
+    function draw(){
+      files.replaceChildren();
+      const matches=matching();
+      if(!matches.length)files.append(e('p','No files match the current filter.','dl-muted'));
+      else if(view.value==='tree')drawTree(torrentTree(matches),files);
+      else for(const file of matches)files.append(fileLabel(file,true));
+      updateBulk();refreshSubmit();
+    }
+    view.addEventListener('change',draw);
+    sort.addEventListener('change',draw);
+    query.addEventListener('input',draw);
+    all.addEventListener('change',()=>{
+      selected=chooseFiltered(selected,matching(),all.checked);
+      draw();
+    });
+    draw();
     return advanced;
   }
+  function showTorrentManifest(manifest,source) {
+    manifestFiles=torrentRows(manifest);
+    torrentSource=manifestFiles.length ? source : 'none';
+    selected=new Set(manifestFiles.map(item=>item.index));
+    details.replaceChildren(e('h3','Torrent or magnet link'));
+    if(source==='upload'){
+      details.append(e('p','Uploaded .torrent files can be inspected, but this Core version cannot create a job from uploaded bytes. Use a magnet link to download.','dl-muted'));
+    }
+    if(!manifestFiles.length)details.append(e('p','No selectable files were reported for this torrent.','dl-muted'));
+    details.append(torrentPicker());
+    refreshSubmit();
+  }
+  async function inspectUploadedTorrent(file) {
+    if(!file)return;
+    const token=generation;
+    if(file.size<20 || file.size>2000000){
+      message('.torrent files must be between 20 bytes and 2 MB.');return;
+    }
+    busy=true;refreshSubmit();message('');
+    try{
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(token!==generation||closed)return;
+      let binary='';
+      for(let i=0;i<bytes.length;i+=32768){
+        binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
+      }
+      const manifest=await api('/torrent-manifest','POST',{torrent_base64:btoa(binary)});
+      if(token!==generation||closed)return;
+      showTorrentManifest(manifest,'upload');
+      message('');
+    }catch(error){
+      if(token===generation&&!closed)message('Could not inspect the uploaded .torrent file.');
+    }finally{busy=false;refreshSubmit();}
+  }
+
   async function render(next, result, warning='') {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
+    playlistAutoSelect=true;limit=Infinity;torrentSource='none';manifestFiles=[];
     message('');
     if(kind==='unsupported'){
       details.append(e('h3','Unsupported or unrecognized link'),
@@ -348,10 +511,29 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       return;
     }
     if(kind==='torrent'){
+      const token=generation;
+      if(!/^magnet:\?/i.test(currentUrl)){
+        details.append(e('h3','Torrent or magnet link'),
+          e('p','Remote HTTP .torrent URLs are not supported. Paste a magnet link or upload .torrent bytes to inspect the files.','dl-muted'),
+          torrentPicker());
+        message('Remote .torrent URLs cannot be inspected or submitted.');
+        return;
+      }
       details.append(e('h3','Torrent or magnet link'),
-        e('p','Torrent downloads are not available yet because the files inside cannot be checked and selected. No download will start.','dl-muted'),
-        torrentPicker());
-      message('Torrent downloads are not available yet.');
+        e('p','Reading the torrent file list from peers…','dl-muted'));
+      busy=true;refreshSubmit();
+      try{
+        const manifest=await api('/torrent-manifest','POST',{url:currentUrl});
+        if(token!==generation||closed)return;
+        showTorrentManifest(manifest,'magnet');
+        message('');
+      }catch(error){
+        if(token!==generation||closed)return;
+        details.replaceChildren(e('h3','Torrent or magnet link'),
+          e('p','Torrent file metadata could not be retrieved. Check the magnet link and its available peers.','dl-muted'),
+          torrentPicker());
+        message('Could not retrieve torrent metadata. Try again later or inspect an uploaded .torrent file.');
+      }finally{busy=false;refreshSubmit();}
       return;
     }
     if(kind==='direct'){
@@ -383,12 +565,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(mediaControls(prefs,false,true),advancedVideo(preview?.subtitle_languages||[],false));
     }
     if(['playlist','channel','gallery','manga'].includes(kind)){
-      choices=previewRows(preview);
+      const page=appendPreviewPage([],preview,0);
+      choices=page.rows;
+      previewNextOffset=page.nextOffset;
       if(kind==='playlist'){
-        // The Core preview is bounded at 100; when more exist, be explicit.
         for(const row of choices)selected.add(row.index);
-        if(preview?.entry_count>choices.length)
-          details.append(e('p','Only the first '+choices.length+' entries can be selected from the current preview.','dl-muted'));
       }else{
         details.append(e('p','Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.','dl-muted'));
       }
@@ -400,7 +581,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const token=++generation;
     const value=input.trim();currentUrl=value;observation?.disconnect();
     details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
-    details.replaceChildren();preview=null;previewCount=PAGE;choices=[];selected=new Set();
+    details.replaceChildren();preview=null;previewNextOffset=null;choices=[];selected=new Set();
     message('');
     const magnet=/^magnet:\?/i.test(value);
     let valid=false;
@@ -408,18 +589,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(!valid){spinner.hidden=true;message(value?'Paste an HTTP(S) link or a magnet URI.':'');return;}
     spinner.hidden=false;
     if(magnet || (()=>{try{return TORRENT.test(new URL(value).pathname)}catch{return false}})()){
-      spinner.hidden=true;await render('torrent',null);return;
+      await render('torrent',null);if(token===generation&&!closed)spinner.hidden=true;return;
     }
     try{
-      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE});
+      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
       if(token!==generation||closed)return;
       const detected=classifyPreview(value,result);
-      // A playlist begins with all returned items selected. Request the
-      // bounded complete preview (up to 100) before showing its item list.
-      if(detected==='playlist' && (result.entry_count>PAGE || result.entries?.length===PAGE)){
-        result=await api('/media-preview','POST',{url:value,max_entries:MAX});
-        if(token!==generation||closed)return;
-      }
+      // All first-page playlist entries are selected; further pages select as loaded.
       spinner.hidden=true;
       await render(detected,result);
     }catch(error){

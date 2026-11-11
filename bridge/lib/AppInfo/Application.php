@@ -8,7 +8,9 @@ use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
+use OCP\Security\CSP\AddContentSecurityPolicyEvent;
 use OCA\DownloaderBridge\Listener\AssetsListener;
+use OCA\DownloaderBridge\Listener\ThumbnailContentSecurityPolicyListener;
 use OCA\DownloaderBridge\Dashboard\DownloadsWidget;
 use OCA\DownloaderBridge\BackgroundJob\ActivitySync;
 use OCP\BackgroundJob\IJobList;
@@ -24,6 +26,7 @@ final class Application extends App implements IBootstrap {
 
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(BeforeTemplateRenderedEvent::class, AssetsListener::class);
+        $context->registerEventListener(AddContentSecurityPolicyEvent::class, ThumbnailContentSecurityPolicyListener::class);
         $context->registerDashboardWidget(DownloadsWidget::class);
         $context->registerSearchProvider(DownloadsProvider::class);
     }

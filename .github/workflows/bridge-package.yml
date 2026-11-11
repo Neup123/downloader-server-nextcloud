@@ -63,6 +63,8 @@ jobs:
           php -l bridge/lib/Settings/PersonalSection.php
           php -l bridge/appinfo/routes.php
           php -l bridge/lib/Listener/AssetsListener.php
+          php -l bridge/lib/Listener/ThumbnailContentSecurityPolicyListener.php
+          php -l bridge/tests/thumbnail-csp-contract.php
           php -l bridge/lib/Dashboard/DownloadsWidget.php
           php -l bridge/lib/Search/DownloadsProvider.php
           php -l bridge/lib/Activity/Setting.php

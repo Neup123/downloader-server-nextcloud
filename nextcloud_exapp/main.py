@@ -9,6 +9,8 @@ import os
 import asyncio
 import re
 import json
+import base64
+import binascii
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -302,22 +304,50 @@ async def update_user_settings(request: Request, context: UserContext = Depends(
 
 @APP.post("/user/api/media-preview")
 async def user_media_preview(request: Request, context: UserContext = Depends(require_user)):
-    """Use Core's bounded yt-dlp preview, not an ExApp-side extractor.
-
-    Core performs its URL and DNS policy checks; no browser can reach its
-    privileged API token or trigger an unbounded channel enumeration here.
-    """
+    """Forward a signed, bounded window from Core without changing source order."""
     body = await request.json()
-    if not isinstance(body, dict) or set(body) != {"url", "max_entries"}:
+    if (not isinstance(body, dict) or
+            not {"url", "max_entries"}.issubset(body) or
+            set(body) - {"url", "max_entries", "offset"}):
         raise HTTPException(status_code=422, detail="Invalid media inspection request")
     url, count = body["url"], body["max_entries"]
+    offset = body.get("offset", 0)
     if (not isinstance(url, str) or not 8 <= len(url) <= 4096
-            or not isinstance(count, int) or isinstance(count, bool)
-            or not 1 <= count <= 100):
+            or type(count) is not int or not 1 <= count <= 100
+            or type(offset) is not int or not 0 <= offset <= 100_000):
         raise HTTPException(status_code=422, detail="Invalid media inspection parameters")
-    return await core_json("POST", "preview", payload={
-        "url": url, "max_entries": count,
-    })
+    payload = {"url": url, "max_entries": count}
+    if "offset" in body:
+        payload["offset"] = offset
+    return await core_json("POST", "preview", payload=payload)
+
+
+@APP.post("/user/api/torrent-manifest")
+async def user_torrent_manifest(request: Request, context: UserContext = Depends(require_user)):
+    """Forward only a magnet or validated uploaded torrent bytes to Core.
+
+    In particular, never fetch a remote HTTP .torrent URL from the ExApp.
+    """
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Invalid torrent manifest request")
+    if set(body) == {"url"}:
+        value = body["url"]
+        if not isinstance(value, str) or not 8 <= len(value) <= 4096 or not value.lower().startswith("magnet:?"):
+            raise HTTPException(status_code=422, detail="Remote .torrent URLs are unsupported; use a magnet link or upload .torrent bytes")
+    elif set(body) == {"torrent_base64"}:
+        value = body["torrent_base64"]
+        if not isinstance(value, str) or not 4 <= len(value) <= 2_800_000:
+            raise HTTPException(status_code=422, detail="Invalid .torrent file")
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(status_code=422, detail="Invalid base64 .torrent file") from exc
+        if not 20 <= len(decoded) <= 2_000_000:
+            raise HTTPException(status_code=422, detail=".torrent file must be between 20 bytes and 2 MB")
+    else:
+        raise HTTPException(status_code=422, detail="Provide either a magnet link or uploaded .torrent bytes")
+    return await core_json("POST", "torrent/manifest", payload=body)
 
 
 @APP.get("/user/api/engines")
