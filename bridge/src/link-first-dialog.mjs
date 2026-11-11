@@ -116,9 +116,21 @@ export function torrentRows(manifest) {
     size_bytes:item.size_bytes,
   }));
 }
-export function torrentMatches(files, query='', order='name') {
+function torrentExtension(item){
+  const dot=item.name.lastIndexOf('.');
+  return dot>0 && dot<item.name.length-1 ? item.name.slice(dot).toLowerCase() : '';
+}
+export function torrentMatches(files, query='', order='name', criteria={}) {
   const q=query.trim().toLowerCase();
-  return files.filter(item=>item.path.toLowerCase().includes(q))
+  const pathTerm=(criteria.path||'').trim().toLowerCase();
+  const extensions=criteria.extensions || new Set();
+  const minBytes=Number.isFinite(criteria.minBytes) ? criteria.minBytes : 0;
+  const maxBytes=Number.isFinite(criteria.maxBytes) ? criteria.maxBytes : Infinity;
+  return files.filter(item=>item.name.toLowerCase().includes(q)
+    && (!extensions.size || extensions.has(torrentExtension(item)))
+    && item.size_bytes>=minBytes && item.size_bytes<=maxBytes
+    && (!pathTerm || item.path.split('/').slice(0,-1)
+      .some(segment=>segment.toLowerCase().includes(pathTerm))))
     .sort((a,b)=>order==='size' ? a.size_bytes-b.size_bytes || a.path.localeCompare(b.path)
       : a.path.localeCompare(b.path));
 }
@@ -235,9 +247,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
     });
     update();
-    const qualityLabel=labeled('Quality',qualityPicker);
-    qualityLabel.classList.add('dl-quality-label');
-    media.append(qualityLabel);
+    qualityPicker.setAttribute('aria-label','Quality');
+    media.append(qualityPicker);
     return media;
   }
   function advancedVideo(subtitleLanguages=[], soundOnly=false) {
@@ -336,7 +347,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if(token===generation&&!closed)message('Could not load more items. Please try again.');
     }finally{busy=false;refreshSubmit();}
   }
-  function itemPicker(type) {
+  function itemPicker(type, advanced) {
     const picker=e('div','','dl-picker');
     const operations=e('div','','dl-picker-controls');
     const selectedLabel=e('span','', 'dl-muted dl-picker-count');
@@ -352,13 +363,15 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       action.append(selectAll,e('span','Select all / none (loaded entries)'));
       operations.append(action);
     }else{
-      const advanced=e('details','','dl-options');advanced.append(e('summary','Advanced filters'));
+      // The single Advanced section owns all search/filter controls.
+      const filters=e('fieldset','','dl-advanced-filters');
+      filters.append(e('legend','Search / filter'));
       filter=e('input');filter.type='search';filter.placeholder='Filter loaded titles';
       filter.addEventListener('input',()=>{drawRows(rows,type);});
-      advanced.append(labeled('Filter loaded items',filter));
+      filters.append(labeled('Filter loaded items',filter));
       const count=pick([['all','All available'],['25','25'],['50','50'],['100','100']], 'all');
       count.addEventListener('change',()=>{limit=count.value==='all'?Infinity:Number(count.value);drawRows(rows,type);});
-      advanced.append(labeled('Maximum visible items',count));
+      filters.append(labeled('Maximum visible items',count));
       const action=e('label','','dl-audio-toggle');
       action.append(selectAll,e('span','Check / uncheck loaded items matching filter'));
       selectAll.checked=false;
@@ -367,16 +380,16 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         selected=chooseFiltered(selected, matching, selectAll.checked);
         drawRows(rows,type);refreshSubmit();
       });
-      advanced.append(action);
+      filters.append(action);
       if(type==='manga'){
         cbz=e('input');cbz.type='checkbox';cbz.checked=true;
         const pack=e('label','','dl-audio-toggle');pack.append(cbz,e('span','Pack as a single CBZ file'));
         cbz.addEventListener('change',refreshSubmit);
-        advanced.append(pack,e('p','Packing these pages into one comic book file is not available yet. Turn this off to download individual items.','dl-muted'));
+        filters.append(pack,e('p','Packing these pages into one comic book file is not available yet. Turn this off to download individual items.','dl-muted'));
         pageChoice=e('input');pageChoice.placeholder='Page selection is not available yet';pageChoice.disabled=true;
-        advanced.append(labeled('Pages',pageChoice));
+        filters.append(labeled('Pages',pageChoice));
       }
-      picker.append(advanced);
+      advanced.append(filters);
     }
     operations.append(selectedLabel);
     picker.append(operations);
@@ -385,29 +398,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     drawRows(rows,type);return picker;
   }
   function torrentPicker() {
-    const advanced=e('details','','dl-options dl-torrent-options');
-    advanced.append(e('summary','Advanced'));
-    // Upload is an inspection path only; the existing submit contract is unchanged.
-    const upload=e('input','','dl-torrent-native-file');
-    upload.type='file';upload.accept='.torrent,application/x-bittorrent';
-    upload.setAttribute('aria-label','Inspect an uploaded .torrent file');
-    upload.addEventListener('change',()=>{void inspectUploadedTorrent(upload.files?.[0]);});
-    const inspect=e('div','','dl-torrent-control dl-torrent-upload-row');
-    inspect.append(e('span','Inspect','dl-torrent-control-label'));
-    const choose=e('button','Choose .torrent file…','dl-torrent-upload-button');
-    choose.type='button';
-    choose.addEventListener('click',()=>upload.click());
-    inspect.append(choose,upload);
-    if(torrentSource==='upload' || !manifestFiles.length){
-      inspect.classList.add('dl-torrent-upload-first');
-      advanced.append(inspect);
-    }
-    if(!manifestFiles.length){
-      advanced.append(e('p','No files to display yet.','dl-muted'));
-      return advanced;
-    }
-    advanced.open=true;
+    const picker=e('div','','dl-picker dl-torrent-picker');
     let view='tree', order='name';
+    const extensions=new Set();
+    let minBytes=0, maxBytes=Infinity;
     const svgIcon=name=>{
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
       svg.setAttribute('viewBox','0 0 24 24');
@@ -433,13 +427,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const controls=e('div','','dl-torrent-controls');
     const viewControl=e('div','','dl-torrent-control');
     viewControl.append(e('span','View','dl-torrent-control-label'));
-    const segment=e('div','','dl-torrent-view-toggle');
+    const segment=e('div','','dl-torrent-view-toggle dl-segmented-toggle');
     segment.setAttribute('role','group');segment.setAttribute('aria-label','File view');
-    const slider=e('span','','dl-torrent-view-slider');slider.setAttribute('aria-hidden','true');
+    const slider=e('span','','dl-torrent-view-slider dl-segmented-slider');slider.setAttribute('aria-hidden','true');
     const treeButton=iconButton('tree','Tree view');
     const flatButton=iconButton('list','Flat list');
-    treeButton.classList.add('dl-torrent-view-button');
-    flatButton.classList.add('dl-torrent-view-button');
+    treeButton.classList.add('dl-torrent-view-button','dl-segmented-button');
+    flatButton.classList.add('dl-torrent-view-button','dl-segmented-button');
     segment.append(slider,treeButton,flatButton);
     const setView=mode=>{
       view=mode;segment.dataset.view=mode;
@@ -461,20 +455,75 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const filterControl=e('div','','dl-torrent-control dl-torrent-filter');
     const filterButton=iconButton('filter','Filter torrent files');
     const query=e('input','','dl-input');query.type='search';
-    query.placeholder='Filter files';query.setAttribute('aria-label','Filter torrent files');
-    filterButton.addEventListener('click',()=>query.focus());
+    query.placeholder='Filter';query.setAttribute('aria-label','Filter torrent file names');
     query.addEventListener('input',draw);
     filterControl.append(filterButton,query);
     controls.append(viewControl,sortButton,filterControl);
+    const filterPanel=e('div','','dl-torrent-filter-panel');
+    filterPanel.id='dl-torrent-filter-panel';filterPanel.hidden=true;
+    filterPanel.setAttribute('role','group');
+    filterPanel.setAttribute('aria-label','Torrent file filters');
+    filterButton.setAttribute('aria-controls',filterPanel.id);
+    filterButton.setAttribute('aria-expanded','false');
+    filterButton.addEventListener('click',()=>{
+      filterPanel.hidden=!filterPanel.hidden;
+      filterButton.setAttribute('aria-expanded',String(!filterPanel.hidden));
+    });
+    const typeGroup=e('fieldset','','dl-torrent-type-filter');
+    typeGroup.append(e('legend','File type'));
+    const typeOptions=e('div','','dl-torrent-type-options');
+    const availableExtensions=[...new Set(manifestFiles.map(torrentExtension))]
+      .sort((a,b)=>a.localeCompare(b));
+    for(const ext of availableExtensions){
+      const label=e('label','','dl-torrent-type-option');
+      const check=e('input');check.type='checkbox';
+      check.addEventListener('change',()=>{
+        if(check.checked)extensions.add(ext);else extensions.delete(ext);
+        draw();
+      });
+      label.append(check,e('span',ext || 'No extension'));
+      typeOptions.append(label);
+    }
+    typeGroup.append(typeOptions);
+    const sizeGroup=e('fieldset','','dl-torrent-size-filter');
+    sizeGroup.append(e('legend','File size (MiB)'));
+    const sizeBounds=e('div','','dl-torrent-size-bounds');
+    const minimum=e('input','','dl-input');minimum.type='number';
+    minimum.min='0';minimum.step='any';minimum.placeholder='Min';
+    const maximum=e('input','','dl-input');maximum.type='number';
+    maximum.min='0';maximum.step='any';maximum.placeholder='Max';
+    const readBound=(input,fallback)=>{
+      if(input.value.trim()==='')return fallback;
+      const value=Number(input.value);
+      return Number.isFinite(value) && value>=0 ? value*1024*1024 : fallback;
+    };
+    const updateBounds=()=>{
+      minBytes=readBound(minimum,0);
+      maxBytes=readBound(maximum,Infinity);
+      draw();
+    };
+    minimum.addEventListener('input',updateBounds);
+    maximum.addEventListener('input',updateBounds);
+    sizeBounds.append(labeled('Minimum',minimum),labeled('Maximum',maximum));
+    sizeGroup.append(sizeBounds);
+    const pathGroup=e('fieldset','','dl-torrent-path-filter');
+    pathGroup.append(e('legend','Path name'));
+    const pathQuery=e('input','','dl-input');pathQuery.type='search';
+    pathQuery.placeholder='Path segment';
+    pathQuery.setAttribute('aria-label','Filter by partial path segment');
+    pathQuery.addEventListener('input',draw);
+    pathGroup.append(pathQuery);
+    filterPanel.append(typeGroup,sizeGroup,pathGroup);
     const selectionLine=e('div','','dl-torrent-selection');
     const root=e('label','','dl-torrent-root');
     const count=e('span','','dl-muted dl-picker-count');
     selectionLine.append(root,count);
     const files=e('div','','dl-torrent-files');
-    advanced.append(controls,selectionLine,files);
-    if(torrentSource==='magnet')advanced.append(inspect);
+    picker.append(controls,filterPanel,selectionLine,files);
 
-    const matching=()=>torrentMatches(manifestFiles,query.value,order);
+    const matching=()=>torrentMatches(manifestFiles,query.value,order,{
+      extensions,minBytes,maxBytes,path:pathQuery.value,
+    });
     let folderChecks=[], fileChecks=[];
     function updateSelection(){
       for(const {check,index} of fileChecks)check.checked=selected.has(index);
@@ -521,9 +570,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       for(const [name,child] of folders){
         const group=e('details','','dl-torrent-folder');group.open=true;
         const heading=e('summary');
-        heading.append(folderCheck(descendants(child),name),e('span',name));
-        group.append(heading);
-        drawTree(child,group);
+        const expander=e('span','','dl-torrent-expander');
+        expander.setAttribute('aria-hidden','true');
+        heading.append(expander,folderCheck(descendants(child),name),e('span',name,'dl-torrent-folder-name'));
+        const children=e('div','','dl-torrent-children');
+        drawTree(child,children);
+        group.append(heading,children);
         parent.append(group);
       }
       for(const file of node.files)parent.append(fileLabel(file));
@@ -537,46 +589,22 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       else for(const file of matches)files.append(fileLabel(file,true));
       updateSelection();refreshSubmit();
     }
-    draw();
-    return advanced;
+    setView('tree');
+    return picker;
   }
-  function showTorrentManifest(manifest,source) {
+  function showTorrentManifest(manifest) {
     manifestFiles=torrentRows(manifest);
-    torrentSource=manifestFiles.length ? source : 'none';
+    torrentSource=manifestFiles.length ? 'magnet' : 'none';
     selected=new Set(manifestFiles.map(item=>item.index));
     details.replaceChildren();
-    if(source==='upload' && manifestFiles.length){
-      details.append(e('p','To download, paste a magnet link above.','dl-muted'));
-    }
     if(!manifestFiles.length)details.append(e('p','No selectable files were reported for this torrent.','dl-muted'));
-    details.append(torrentPicker());
+    else details.append(torrentPicker());
     refreshSubmit();
-  }
-  async function inspectUploadedTorrent(file) {
-    if(!file)return;
-    const token=generation;
-    if(file.size<20 || file.size>2000000){
-      message('.torrent files must be between 20 bytes and 2 MB.');return;
-    }
-    busy=true;refreshSubmit();message('');
-    try{
-      const bytes=new Uint8Array(await file.arrayBuffer());
-      if(token!==generation||closed)return;
-      let binary='';
-      for(let i=0;i<bytes.length;i+=32768){
-        binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
-      }
-      const manifest=await api('/torrent-manifest','POST',{torrent_base64:btoa(binary)});
-      if(token!==generation||closed)return;
-      showTorrentManifest(manifest,'upload');
-      message('');
-    }catch(error){
-      if(token===generation&&!closed)message('Could not inspect the uploaded .torrent file.');
-    }finally{busy=false;refreshSubmit();}
   }
 
   async function render(next, result, warning='') {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
+    dialog.classList.toggle('dl-torrent-dialog',kind==='torrent');
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
     container=null;cbz=null;pageChoice=null;filter=null;selected=new Set();
     playlistAutoSelect=true;limit=Infinity;torrentSource='none';manifestFiles=[];
@@ -596,7 +624,6 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(kind==='torrent'){
       const token=generation;
       if(!/^magnet:\?/i.test(currentUrl)){
-        details.append(torrentPicker());
         message('Direct .torrent URLs cannot be inspected or submitted.');
         return;
       }
@@ -605,12 +632,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       try{
         const manifest=await api('/torrent-manifest','POST',{url:currentUrl});
         if(token!==generation||closed)return;
-        showTorrentManifest(manifest,'magnet');
+        showTorrentManifest(manifest);
         message('');
       }catch(error){
         if(token!==generation||closed)return;
-        details.replaceChildren(torrentPicker());
-        message('Could not load the torrent file list. Check the magnet link or inspect a .torrent file.');
+        details.replaceChildren();
+        message('Could not load the torrent file list. Check the magnet link.');
       }finally{busy=false;refreshSubmit();}
       return;
     }
@@ -624,7 +651,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'':"We have not confirmed this file\'s type or size. Review the filename before downloading.");
+      message(result?'':"We have not confirmed this file's type or size. Review the filename before downloading.");
       refreshSubmit();return;
     }
     const prefs=await settings;
@@ -637,10 +664,15 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     details.append(title);
     if(kind==='video' && (preview?.live_status==='is_live'||preview?.is_live===true))
       title.append(e('span','Live','dl-live-badge'));
+    let advanced;
     if(kind==='audio'){
-      details.append(mediaControls(prefs,true,false),advancedVideo([],true));
+      const media=mediaControls(prefs,true,false);
+      advanced=advancedVideo([],true);
+      details.append(media,advanced);
     }else{
-      details.append(mediaControls(prefs,false,true),advancedVideo(preview?.subtitle_languages||[],false));
+      const media=mediaControls(prefs,false,true);
+      advanced=advancedVideo(preview?.subtitle_languages||[],false);
+      details.append(media,advanced);
     }
     if(['playlist','channel','gallery','manga'].includes(kind)){
       const page=appendPreviewPage([],preview,0);
@@ -651,7 +683,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }else{
         details.append(e('p','Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.','dl-muted'));
       }
-      details.append(itemPicker(kind));
+      details.append(itemPicker(kind,advanced));
     }
     refreshSubmit();
   }
@@ -659,6 +691,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const token=++generation;
     const value=input.trim();currentUrl=value;observation?.disconnect();
     details.hidden=true;buttons.hidden=true;download.disabled=true;kind='unsupported';
+    dialog.classList.remove('dl-torrent-dialog');
     details.replaceChildren();preview=null;previewNextOffset=null;choices=[];selected=new Set();
     message('');
     const magnet=/^magnet:\?/i.test(value);
