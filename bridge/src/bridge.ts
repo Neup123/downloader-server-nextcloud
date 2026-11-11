@@ -272,7 +272,7 @@ function headerProgress(ownerId: string) {
   svg.setAttribute('height', '44');
   svg.classList.add('dl-indicator-svg');
   const arrow = document.createElementNS(ns, 'path');
-  arrow.setAttribute('d', 'M22 9.25v18m0 0-7.5-7.5m7.5 7.5 7.5-7.5M10 30.25v4.5h24v-4.5');
+  arrow.setAttribute('d', 'M22 13.5v12m0 0-5-5m5 5 5-5M14 27.5v3h16v-3');
   arrow.classList.add('dl-arrow');
   const frame = document.createElementNS(ns, 'path');
   // Start at bottom-centre and sweep around the rounded square clockwise.
@@ -821,7 +821,7 @@ function styles() {
     '.dl-trigger:focus-visible{outline:2px solid currentColor;outline-offset:-3px}',
     '.dl-indicator-svg{display:block;width:44px;height:44px;overflow:visible;fill:none;',
     'stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}',
-    '.dl-arrow{stroke-width:2.8}',
+    '.dl-arrow{stroke-width:3}',
     '.dl-frame-progress{stroke-width:2.6;transition:stroke-dashoffset .5s ease}',
     '.dl-count{position:absolute;top:1px;right:0;min-width:16px;height:16px;border-radius:9px;',
     'background:var(--color-primary-text,#fff);color:var(--color-primary,#2066ae);',

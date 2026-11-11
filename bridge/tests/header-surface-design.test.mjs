@@ -21,9 +21,9 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
   // The download arrow and tray must be one SVG path.
   const glyph=bridge.match(/arrow\.setAttribute\('d', '([^']+)'\)/)?.[1];
   assert.ok(glyph,'download glyph path exists');
-  const tray=glyph.match(/M10 ([\d.]+)v([\d.]+)h24v-\2$/);
+  const tray=glyph.match(/M14 ([\d.]+)v([\d.]+)h16v-\2$/);
   assert.ok(tray,'tray is part of the arrow path');
-  const arrowTop=glyph.match(/^M22 ([\d.]+)v18/);
+  const arrowTop=glyph.match(/^M22 ([\d.]+)v12/);
   assert.ok(arrowTop,'download arrow is present');
 
   // The complete glyph must be centred vertically in the 44px viewBox.
@@ -33,7 +33,7 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
     22,
     'download glyph is vertically centred'
   );
-  assert.match(bridge,/\.dl-arrow\{stroke-width:2\.8\}/);
+  assert.match(bridge,/\.dl-arrow\{stroke-width:3\}/);
 });
 test('header bubble opens normal Files dialog and follows active/all user settings',()=>{
   assert.match(bridge,/void openDialog\(null\)/);
