@@ -18,9 +18,9 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
   assert.match(bridge,/color:var\(--color-primary-text,#fff\)!important/);
   assert.match(bridge,/downloadBubbleStatus\(job\)/);
 
-  // The download arrow and tray must be one SVG path.
+  // Pin the owner's exact REVISED glyph; its geometry cannot change in a styling round.
   const glyph=bridge.match(/arrow\.setAttribute\('d', '([^']+)'\)/)?.[1];
-  assert.ok(glyph,'download glyph path exists');
+  assert.equal(glyph,'M22 13.5v12m0 0-5-5m5 5 5-5M14 27.5v3h16v-3');
   const tray=glyph.match(/M14 ([\d.]+)v([\d.]+)h16v-\2$/);
   assert.ok(tray,'tray is part of the arrow path');
   const arrowTop=glyph.match(/^M22 ([\d.]+)v12/);
@@ -34,6 +34,16 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
     'download glyph is vertically centred'
   );
   assert.match(bridge,/\.dl-arrow\{stroke-width:3\}/);
+  assert.match(bridge,/stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;opacity:\.76/);
+  assert.match(bridge,/\.dl-trigger:is\(:hover,:focus,:focus-visible\)/);
+  assert.match(bridge,/\.dl-trigger:is\(:active,\[aria-expanded=true\]\)/);
+  assert.match(bridge,/background:color-mix\(in srgb,var\(--color-primary-text,#fff\) 16%,transparent\)!important/);
+  assert.doesNotMatch(bridge,/\.dl-trigger\[aria-expanded=true\]\{background:(?:#fff|white)/i);
+
+  // A restrained corner badge, rather than the previous 16px-plus white circle.
+  assert.match(bridge,/min-width:13px;height:13px;border-radius:9px/);
+  assert.match(bridge,/border:0;font-size:9px;font-weight:700;line-height:13px/);
+  assert.doesNotMatch(bridge,/min-width:16px;height:16px/);
 });
 test('header bubble opens normal Files dialog and follows active/all user settings',()=>{
   assert.match(bridge,/void openDialog\(null\)/);
@@ -47,6 +57,22 @@ test('header bubble opens normal Files dialog and follows active/all user settin
   assert.match(bridge,/downloadSymbol\(job\)/);
   assert.match(bridge,/\/core\/preview/);
   assert.match(bridge,/for\(const job of jobs\)/);
+
+  // The avatar-menu look is opaque, light and text-dark, never bell-style glass.
+  assert.match(bridge,/background:var\(--color-main-background,#fff\)!important/);
+  assert.match(bridge,/color:var\(--color-main-text,#222\)!important/);
+  assert.match(bridge,/opacity:1!important;backdrop-filter:none!important/);
+  assert.match(bridge,/box-shadow:var\(--shadow-header,0 8px 30px #0003\)/);
+  assert.match(bridge,/\.dl-job:hover\{background:var\(--color-background-hover,#f1f1f1\)/);
+  assert.match(bridge,/\.dl-history-link:hover\{background:var\(--color-background-hover,#f1f1f1\)/);
+
+  // The add control has a fine circular ring with themed hover and active states.
+  assert.match(bridge,/\.dl-popover-add\{display:grid;place-items:center/);
+  assert.match(bridge,/width:28px;height:28px;min-width:28px/);
+  assert.match(bridge,/border:1px solid var\(--color-border,#ddd\)!important/);
+  assert.match(bridge,/background:transparent!important;border-radius:50%!important/);
+  assert.match(bridge,/\.dl-popover-add:hover/);
+  assert.match(bridge,/\.dl-popover-add:active/);
 });
 test('bubble pause and resume use each Core job capability and an accurate reason',()=>{
   assert.match(bridge,/pause_capability\?: \{can_pause\?:boolean;can_resume\?:boolean;reason\?:string\|null\}/);

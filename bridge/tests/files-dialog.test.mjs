@@ -186,7 +186,7 @@ test('Core thumbnail, duration, dates and Live metadata survive without invented
   assert.equal(previewMeta(rows[2]),'2023-11-14');
   assert.equal(rows[3].thumbnail,null);
   assert.deepEqual(rows.map(r=>r.index),[1,2,3,4]);
-  assert.match(dialog,/row.is_live/);
+  assert.match(dialog,/row\.is_live/);
   assert.match(dialog,/dl-entry-live-badge/);
   assert.match(dialog,/preview\?\.is_live===true/);
   assert.match(dialog,/Thumbnail unavailable/);
@@ -221,22 +221,102 @@ test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep oth
     {index:3,path:'Cover.jpg',name:'Cover.jpg',size_bytes:10},
   ]});
   assert.equal(files.length,3);
-  assert.deepEqual(torrentMatches(files,'Album').map(f=>f.index),[1,2]);
+
+  // The inline query matches the file's name only; neither folder is a filename.
+  assert.deepEqual(torrentMatches(files,'Album').map(f=>f.index),[]);
+  assert.deepEqual(torrentMatches(files,'Sub').map(f=>f.index),[]);
+  assert.deepEqual(torrentMatches(files,'MP3').map(f=>f.index),[1,2]);
+  assert.deepEqual(torrentMatches(files,'a.mp3').map(f=>f.index),[1]);
+
+  // The funnel's separate path criterion searches partial directory segments.
+  assert.deepEqual(torrentMatches(files,'','name',{path:'alb'}).map(f=>f.index),[1,2]);
+  assert.deepEqual(torrentMatches(files,'','name',{path:'suB'}).map(f=>f.index),[2]);
+  assert.deepEqual(torrentMatches(files,'','name',{path:'cover'}).map(f=>f.index),[]);
+
+  // The implementation currently includes the leading dot in lowercased extension keys.
+  assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.mp3'])}).map(f=>f.index),[1,2]);
+  assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.jpg'])}).map(f=>f.index),[3]);
+  assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.mp3','.jpg'])}).map(f=>f.index),[1,2,3]);
+  // Extension option labels display mp3, while the criteria above retain .mp3.
+  assert.match(dialog,/label\.append\(check,e\('span',ext\?ext\.slice\(1\):'No extension'\)\)/);
+
+  assert.deepEqual(torrentMatches(files,'','name',{minBytes:20,maxBytes:300}).map(f=>f.index),[1,2]);
+  assert.deepEqual(torrentMatches(files,'','name',{minBytes:21,maxBytes:300}).map(f=>f.index),[2]);
+  assert.deepEqual(torrentMatches(files,'','name',{maxBytes:10}).map(f=>f.index),[3]);
+
+  // All four filters combine by AND. A mismatch in any one returns no files.
+  const combined={path:'Sub',extensions:new Set(['.mp3']),minBytes:21,maxBytes:350};
+  assert.deepEqual(torrentMatches(files,'b','name',combined).map(f=>f.index),[2]);
+  assert.deepEqual(torrentMatches(files,'a','name',combined).map(f=>f.index),[]);
+  assert.deepEqual(torrentMatches(files,'b','name',{...combined,maxBytes:299}).map(f=>f.index),[]);
+  assert.deepEqual(torrentMatches(files,'b','name',{...combined,extensions:new Set(['.jpg'])}).map(f=>f.index),[]);
+  assert.deepEqual(torrentMatches(files,'b','name',{...combined,path:'Other'}).map(f=>f.index),[]);
+
   assert.deepEqual(torrentMatches(files,'','size').map(f=>f.index),[3,1,2]);
   const tree=torrentTree(files);
   assert.equal(tree.folders.get('Album').files[0].name,'a.mp3');
   assert.equal(tree.folders.get('Album').folders.get('Sub').files[0].index,2);
+
   let selected=new Set(files.map(f=>f.index));
-  selected=chooseFiltered(selected,torrentMatches(files,'Sub'),false);
+  const scoped=torrentMatches(files,'','name',combined);
+  selected=chooseFiltered(selected,scoped,false);
   assert.deepEqual([...selected].sort(),[1,3]);
-  selected=chooseFiltered(selected,torrentMatches(files,'Sub'),true);
+  selected=chooseFiltered(selected,scoped,true);
   assert.deepEqual([...selected].sort(),[1,2,3]);
+
+  // A filtered-out unchecked item cannot make the visible folder/root indeterminate.
+  selected=chooseFiltered(selected,[files[1]],false);
+  const visible=torrentMatches(files,'a.mp3');
+  assert.equal(visible.length,1);
+  assert.equal(visible.every(file=>selected.has(file.index)),true);
+  assert.equal(files.every(file=>selected.has(file.index)),false);
+
   assert.match(dialog,/drawTree\(torrentTree\(matches\),files\)/);
   assert.match(dialog,/else for\(const file of matches\)files.append\(fileLabel\(file,true\)\)/);
   assert.match(dialog,/folderCheck\(matches,'all torrent files'\)/);
   assert.match(dialog,/selected=chooseFiltered\(selected,rows,checked\)/);
-  assert.match(dialog,/torrent_base64:btoa\(binary\)/);
+  assert.match(dialog,/const matching=\(\)=>torrentMatches\(manifestFiles,query\.value,order,\{/);
+  assert.match(dialog,/extensions,minBytes,maxBytes,path:pathQuery\.value/);
+  assert.match(dialog,/const checked=rows\.filter\(row=>selected\.has\(row\.index\)\)\.length/);
+  assert.match(dialog,/check\.indeterminate=checked>0 && checked<rows\.length/);
+  assert.match(dialog,/check\.addEventListener\('change',\(\)=>applyScope\(rows,check\.checked\)\)/);
+  assert.match(dialog,/query\.placeholder='Filter'/);
+  assert.match(dialog,/pathQuery\.placeholder='Path segment'/);
+  assert.match(dialog,/const typeGroup=e\('fieldset','','dl-torrent-type-filter'\)/);
+  assert.match(dialog,/const sizeGroup=e\('fieldset','','dl-torrent-size-filter'\)/);
+  assert.match(dialog,/const pathGroup=e\('fieldset','','dl-torrent-path-filter'\)/);
+  assert.doesNotMatch(dialog,/torrent_base64:btoa\(binary\)/);
   assert.doesNotMatch(dialog,/seed-time|seed-ratio|Seeding controls/i);
+});
+
+test('torrent picker is immediately visible without Inspect/upload, and failures have no action',()=>{
+  const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
+  assert.ok(picker,'torrentPicker source must exist');
+  assert.match(picker,/const picker=e\('div','','dl-picker dl-torrent-picker'\)/);
+  assert.match(picker,/picker\.append\(controls,filterPanel,selectionLine,files\)/);
+  assert.doesNotMatch(picker,/e\('details','','dl-options|summary','Advanced'|inspectUploadedTorrent/);
+  assert.doesNotMatch(dialog,/dl-torrent-native-file|dl-torrent-upload-row|Choose \.torrent file|inspectUploadedTorrent|torrent_base64/);
+  assert.match(dialog,/else details\.append\(torrentPicker\(\)\)/);
+  assert.match(dialog,/if\(!manifestFiles\.length\)details\.append\(e\('p','No selectable files were reported/);
+  assert.match(dialog,/details\.replaceChildren\(\);\s*message\('Could not load the torrent file list\. Check the magnet link\.'\)/);
+  assert.doesNotMatch(dialog,/details\.replaceChildren\(torrentPicker\(\)\)/);
+  assert.match(dialog,/buttons\.hidden=kind==='unsupported' \|\| \(kind==='torrent' && torrentSource!=='magnet'\)/);
+  assert.match(dialog,/if\(!\/\^magnet:/);
+});
+
+test('channel search and selection filters are nested in the single Advanced fieldset',()=>{
+  assert.match(dialog,/const advanced=e\('details','','dl-options'\)/);
+  assert.match(dialog,/advanced\.append\(e\('summary','Advanced'\)\)/);
+  assert.match(dialog,/function itemPicker\(type, advanced\)/);
+  assert.match(dialog,/const filters=e\('fieldset','','dl-advanced-filters'\)/);
+  assert.match(dialog,/filters\.append\(e\('legend','Search \/ filter'\)\)/);
+  assert.match(dialog,/filters\.append\(labeled\('Filter loaded items',filter\)\)/);
+  assert.match(dialog,/filters\.append\(labeled\('Maximum visible items',count\)\)/);
+  assert.match(dialog,/advanced\.append\(filters\)/);
+  assert.match(dialog,/details\.append\(itemPicker\(kind,advanced\)\)/);
+  assert.match(source,/\.dl-advanced-filters\{display:grid;gap:10px/);
+  assert.match(source,/border:1px solid var\(--color-border,#ddd\)/);
+  assert.doesNotMatch(dialog,/e\('summary','Advanced filters'\)/);
 });
 
 test('Torrent submission selects actual one-based aria2 file indices and never accepts a remote URL',()=>{
@@ -286,11 +366,12 @@ test('dialog has no visible title and hides status text unless a problem exists'
 });
 
 
-test('quality is inline and all dialog inputs use content width except link and item lists',()=>{
-  assert.match(dialog,/const qualityLabel=labeled\('Quality',qualityPicker\)/);
-  assert.match(dialog,/qualityLabel\.classList\.add\('dl-quality-label'\)/);
-  assert.match(source,/\.dl-link-dialog \.dl-media-row \.dl-quality-label\{display:inline-flex;align-items:center;/);
-  assert.match(source,/gap:8px;flex:0 0 auto;margin:0;width:max-content/);
+test('quality picker is inline and accessible without a visible label; other inputs keep content width',()=>{
+  assert.match(dialog,/qualityPicker\.setAttribute\('aria-label','Quality'\)/);
+  assert.match(dialog,/media\.append\(qualityPicker\)/);
+  assert.doesNotMatch(dialog,/const qualityLabel=labeled\('Quality',qualityPicker\)/);
+  assert.doesNotMatch(dialog,/qualityLabel\.classList\.add\('dl-quality-label'\)/);
+  assert.match(source,/\.dl-media-row select\.dl-input\{flex:0 1 auto;width:max-content;max-width:100%\}/);
   assert.match(source,/\.dl-link-dialog select\.dl-input\{width:max-content;field-sizing:content;max-width:100%;/);
   assert.match(source,/\.dl-link-dialog \.dl-label\{width:max-content;max-width:100%;justify-self:start\}/);
   assert.match(source,/\.dl-link-dialog \.dl-options\{width:max-content;max-width:100%;justify-self:start\}/);
@@ -311,4 +392,3 @@ test('video and audio default to the same plain Best quality label',()=>{
   assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
   assert.doesNotMatch(dialog,/Best available video|Best available audio/);
 });
-
