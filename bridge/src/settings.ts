@@ -1,3 +1,4 @@
+import {renderCookieVault} from './cookie-vault';
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
@@ -70,6 +71,12 @@ const CSS=`
 #downloader-settings-app .downloader-picker-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
 #downloader-settings-app .downloader-advanced{margin-top:16px;padding:16px;border:1px solid var(--color-border,#ccc);border-radius:10px}
 #downloader-settings-app .downloader-advanced summary{font-weight:600;cursor:pointer}
+#downloader-settings-app .downloader-vault{margin:18px 0;padding:16px 0;border-bottom:1px solid var(--color-border,#ccc)}
+#downloader-settings-app .downloader-vault-warning{font-size:13px}
+#downloader-settings-app .downloader-vault-sites{display:grid;gap:8px}
+#downloader-settings-app .downloader-vault-site{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--color-border,#ccc);border-radius:8px}
+#downloader-settings-app .downloader-vault-site span:first-child{font-weight:600;margin-right:auto}
+#downloader-settings-app .downloader-vault-action{min-height:32px;padding:5px 9px}
 #downloader-settings-app select.downloader-header-select{width:max-content;max-width:100%;align-self:start}
 #downloader-settings-app :is(button,input,select,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
 `;
@@ -420,7 +427,9 @@ function start() {
         retry.hidden=true;
       }
     });
-    advanced.append(toggle,explanation,label('Engine settings JSON',json),saveJson);
+    advanced.append(toggle);
+    renderCookieVault(advanced,api);
+    advanced.append(explanation,label('Engine settings JSON',json),saveJson);
     root.append(advanced);
   }
   async function reload(){
