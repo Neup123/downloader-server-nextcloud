@@ -98,12 +98,12 @@ test('selection works within filtered entries without touching the other checked
 test('unsupported direct fallback and torrent metadata limitations are explicit',()=>{
   assert.match(dialog,/We could not find a supported download at this link/);
   assert.match(dialog,/Try as a direct file/);
-  assert.match(dialog,/Remote HTTP \.torrent URLs are not supported/);
+  assert.match(dialog,/Direct \.torrent URLs cannot be inspected or submitted/);
   assert.match(dialog,/api\('\/torrent-manifest','POST'/);
   assert.match(dialog,/Packing these pages into one comic book file is not available yet/);
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
-  assert.match(dialog,/Sort by size/);
+  assert.match(dialog,/Sort: Name \(switch to size\)/);
 });
 
 test('detected dialog categories are server-routed; a Files context still carries its folder',()=>{
@@ -233,8 +233,8 @@ test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep oth
   assert.deepEqual([...selected].sort(),[1,2,3]);
   assert.match(dialog,/drawTree\(torrentTree\(matches\),files\)/);
   assert.match(dialog,/else for\(const file of matches\)files.append\(fileLabel\(file,true\)\)/);
-  assert.match(dialog,/all.addEventListener\('change'/);
-  assert.match(dialog,/selected=chooseFiltered\(selected,matching\(\),all.checked\)/);
+  assert.match(dialog,/folderCheck\(matches,'all torrent files'\)/);
+  assert.match(dialog,/selected=chooseFiltered\(selected,rows,checked\)/);
   assert.match(dialog,/torrent_base64:btoa\(binary\)/);
   assert.doesNotMatch(dialog,/seed-time|seed-ratio|Seeding controls/i);
 });
@@ -279,7 +279,7 @@ test('dialog has no visible title and hides status text unless a problem exists'
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
   assert.match(dialog,/spinner\.hidden=false/);
   assert.match(dialog,/message\('This link is not supported\./);
-  assert.match(dialog,/Remote \.torrent URLs cannot be inspected or submitted/);
+  assert.match(dialog,/Direct \.torrent URLs cannot be inspected or submitted/);
   assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
   assert.match(dialog,/message\(value\?'Paste an HTTP\(S\) link or a magnet URI\.':''\)/);
   assert.match(dialog,/previewNextOffset/);
