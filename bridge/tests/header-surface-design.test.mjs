@@ -15,7 +15,7 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
   assert.match(bridge,/flex:0 0 44px/);
   assert.doesNotMatch(bridge,/dl-frame-track/);
   assert.match(bridge,/bellSlot\.parentElement\.insertBefore\(container,bellSlot\)/);
-  assert.match(bridge,/color:var\(--color-primary-text,#fff\)!important/);
+  assert.match(bridge,/color:var\(--color-background-plain-text,var\(--color-primary-text,#fff\)\)!important/);
   assert.match(bridge,/downloadBubbleStatus\(job\)/);
 
   // Pin the owner's exact REVISED glyph; its geometry cannot change in a styling round.
@@ -34,7 +34,7 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
     'download glyph is vertically centred'
   );
   assert.match(bridge,/\.dl-arrow\{stroke-width:3\}/);
-  assert.match(bridge,/stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;opacity:\.76/);
+  assert.match(bridge,/mask:var\(--header-menu-icon-mask\);-webkit-mask:var\(--header-menu-icon-mask\)/);
   assert.match(bridge,/\.dl-trigger:is\(:hover,:focus,:focus-visible\)/);
   assert.match(bridge,/\.dl-trigger:is\(:active,\[aria-expanded=true\]\)/);
   assert.match(bridge,/background:color-mix\(in srgb,var\(--color-primary-text,#fff\) 16%,transparent\)!important/);
