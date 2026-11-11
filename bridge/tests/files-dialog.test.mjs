@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {filesJobRequest, selectedMediaFormat, playlistIndices} from '../src/files-dialog-payload.mjs';
 import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows, previewMeta,
-  appendPreviewPage, torrentRows, torrentMatches, torrentTree} from '../src/link-first-dialog.mjs';
+  appendPreviewPage, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes} from '../src/link-first-dialog.mjs';
 
 const source=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf8');
 const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
@@ -103,7 +103,7 @@ test('unsupported direct fallback and torrent metadata limitations are explicit'
   assert.match(dialog,/Packing these pages into one comic book file is not available yet/);
   assert.match(dialog,/Tree view/);
   assert.match(dialog,/Flat list/);
-  assert.match(dialog,/Sort: Name \(switch to size\)/);
+  assert.match(dialog,/sortOption\('type','name','Name'\)/);
 });
 
 test('detected dialog categories are server-routed; a Files context still carries its folder',()=>{
@@ -271,16 +271,16 @@ test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep oth
   assert.equal(visible.every(file=>selected.has(file.index)),true);
   assert.equal(files.every(file=>selected.has(file.index)),false);
 
-  assert.match(dialog,/drawTree\(torrentTree\(matches\),files\)/);
-  assert.match(dialog,/else for\(const file of matches\)files.append\(fileLabel\(file,true\)\)/);
-  assert.match(dialog,/folderCheck\(matches,'all torrent files'\)/);
+  assert.match(dialog,/drawTree\(torrentTree\(matches\),fullTree,children\)/);
+  assert.match(dialog,/else for\(const file of matches\)children.append\(fileLabel\(file,true\)\)/);
+  assert.match(dialog,/folderRow\('All files',matches,manifestFiles,manifestFiles\)/);
   assert.match(dialog,/selected=chooseFiltered\(selected,rows,checked\)/);
   assert.match(dialog,/const matching=\(\)=>torrentMatches\(manifestFiles,query\.value,order,\{/);
   assert.match(dialog,/extensions,minBytes,maxBytes,path:pathQuery\.value/);
   assert.match(dialog,/const checked=rows\.filter\(row=>selected\.has\(row\.index\)\)\.length/);
   assert.match(dialog,/check\.indeterminate=checked>0 && checked<rows\.length/);
-  assert.match(dialog,/check\.addEventListener\('change',\(\)=>applyScope\(rows,check\.checked\)\)/);
-  assert.match(dialog,/query\.placeholder='Filter'/);
+  assert.match(dialog,/check\.addEventListener\('change',\(\)=>applyScope\(scopeRows,check\.checked\)\)/);
+  assert.match(dialog,/query\.placeholder='File name'/);
   assert.match(dialog,/pathQuery\.placeholder='Path segment'/);
   assert.match(dialog,/const typeGroup=e\('fieldset','','dl-torrent-type-filter'\)/);
   assert.match(dialog,/const sizeGroup=e\('fieldset','','dl-torrent-size-filter'\)/);
@@ -289,11 +289,113 @@ test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep oth
   assert.doesNotMatch(dialog,/seed-time|seed-ratio|Seeding controls/i);
 });
 
+test('round 4: dynamic extensions begin checked; explicitly empty checked set hides every file',()=>{
+  const files=torrentRows({files:[
+    {index:1,path:'A/song.mp3',name:'song.mp3',size_bytes:11},
+    {index:2,path:'A/photo.jpg',name:'photo.jpg',size_bytes:12},
+    {index:3,path:'README',name:'README',size_bytes:13},
+  ]});
+  assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set()}),[]);
+  assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.mp3','.jpg',''])}).length,3);
+  assert.equal(torrentMatches(files).length,3,'omitted criterion remains unrestricted');
+  const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
+  assert.match(picker,/availableExtensions=\[\.\.\.new Set\(manifestFiles\.map\(torrentExtension\)\)\]/);
+  assert.match(picker,/const extensions=new Set\(availableExtensions\)/);
+  assert.match(picker,/check\.type='checkbox';check\.checked=true/);
+  assert.match(dialog,/!\(extensions instanceof Set\) \|\| extensions\.has\(torrentExtension\(item\)\)/);
+  assert.match(picker,/ext\?ext\.slice\(1\):'No extension'/);
+});
+
+test('round 4: selected folder weights count hidden files while tri-state stays visible-only',()=>{
+  const files=torrentRows({files:[
+    {index:1,path:'Album/a.mp3',name:'a.mp3',size_bytes:10},
+    {index:2,path:'Album/Sub/b.mp3',name:'b.mp3',size_bytes:90},
+    {index:3,path:'Other/c.txt',name:'c.txt',size_bytes:400},
+  ]});
+  const full=torrentTree(files);
+  const album=full.folders.get('Album');
+  const selected=new Set([1,2]);
+  const visible=torrentMatches(files,'a.mp3');
+  assert.deepEqual(visible.map(f=>f.index),[1]);
+  assert.equal(torrentSelectedBytes(visible,selected),10);
+  assert.equal(torrentSelectedBytes(files,selected),100);
+  const descendants=node=>[...node.files,...[...node.folders.values()].flatMap(descendants)];
+  assert.equal(torrentSelectedBytes(descendants(album),selected),100);
+  selected.delete(1);
+  assert.equal(torrentSelectedBytes(descendants(album),selected),90,
+    'selected hidden descendant must continue contributing to the folder label');
+  assert.match(dialog,/const allRows=descendants\(fullNode\.folders\.get\(name\)\)/);
+  assert.match(dialog,/sizeOutput\.textContent=sizeLabel\(torrentSelectedBytes\(totalRows,selected\)\)/);
+  assert.match(dialog,/const checked=rows\.filter\(row=>selected\.has\(row\.index\)\)\.length/);
+});
+
+test('round 4: All files is a real tree root with all-manifest click scope',()=>{
+  const files=torrentRows({files:[
+    {index:1,path:'One/a.mp3',name:'a.mp3',size_bytes:1},
+    {index:2,path:'Two/b.jpg',name:'b.jpg',size_bytes:2},
+  ]});
+  const visible=torrentMatches(files,'a.mp3');
+  assert.equal(visible.length,1);
+  assert.deepEqual([...chooseFiltered(new Set([1,2]),files,false)],[],
+    'root unchecks hidden files too, unlike a visible-only folder');
+  const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
+  assert.match(picker,/folderRow\('All files',matches,manifestFiles,manifestFiles\)/);
+  assert.match(picker,/group\.classList\.add\('dl-torrent-all-files'\)/);
+  assert.match(picker,/files\.append\(group\)/);
+  assert.match(picker,/const group=e\('details','','dl-torrent-folder'\)/);
+  assert.match(picker,/heading\.append\(expander,folderCheck/);
+  assert.match(picker,/check\.addEventListener\('change',\(\)=>applyScope\(scopeRows,check\.checked\)\)/);
+  assert.match(picker,/check\.checked=rows\.length>0 && checked===rows\.length/);
+  assert.match(source,/\.dl-torrent-children\{/);
+});
+
+test('round 4: desktop order menu offers both type and direction with leading checks',()=>{
+  const files=torrentRows({files:[
+    {index:1,path:'c.txt',name:'c.txt',size_bytes:5},
+    {index:2,path:'a.txt',name:'a.txt',size_bytes:50},
+    {index:3,path:'b.txt',name:'b.txt',size_bytes:15},
+  ]});
+  assert.deepEqual(torrentMatches(files).map(f=>f.index),[2,3,1],
+    'default is by filename ascending A–Z');
+  assert.deepEqual(torrentMatches(files,'','name',{},'desc').map(f=>f.index),[1,3,2]);
+  assert.deepEqual(torrentMatches(files,'','size',{},'asc').map(f=>f.index),[1,3,2]);
+  assert.deepEqual(torrentMatches(files,'','size',{},'desc').map(f=>f.index),[2,3,1]);
+  const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
+  assert.match(picker,/let view='tree', order='name', direction='asc'/);
+  assert.match(picker,/sortOption\('type','name','Name'\)/);
+  assert.match(picker,/sortOption\('type','size','Size'\)/);
+  assert.match(picker,/sortOption\('direction','asc','Ascending \(A–Z\)'\)/);
+  assert.match(picker,/sortOption\('direction','desc','Descending \(Z–A\)'\)/);
+  assert.match(picker,/sortMenu\.append\([\s\S]*divider,[\s\S]*sortOption\('direction'/);
+  assert.match(picker,/divider\.setAttribute\('role','separator'\)/);
+  assert.match(picker,/const tick=e\('span','✓','dl-torrent-sort-check'\)/);
+  assert.match(picker,/button\.append\(tick,e\('span',label\)\)/);
+  assert.match(picker,/button\.setAttribute\('aria-checked',String\(checked\)\)/);
+  assert.match(picker,/tick\.hidden=!checked/);
+  assert.match(source,/\.dl-torrent-sort-divider\{[\s\S]*border-top:2px/);
+});
+
+test('round 4: filter button is absent and filters precede view/order and the tree',()=>{
+  const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
+  assert.doesNotMatch(picker,/filterButton|filterPanel\.hidden|Filter torrent files/);
+  assert.match(picker,/filterPanel\.append\(typeGroup,sizeGroup,nameGroup,pathGroup\)/);
+  assert.match(picker,/nameGroup\.append\(e\('legend','File name'\)\)/);
+  assert.match(picker,/query\.setAttribute\('aria-label','Filter by file name'\)/);
+  assert.match(picker,/controls\.append\(viewControl,sortControl\)/);
+  assert.match(picker,/picker\.append\(filterPanel,controls,selectionLine,files\)/);
+  assert.match(picker,/sortMenu\.hidden=true/);
+  assert.match(source,/\.dl-torrent-filter-panel\{display:grid/);
+  assert.doesNotMatch(source,/\.dl-torrent-filter-panel\[hidden\]/);
+  assert.match(source,/\.dl-link-dialog \.dl-segmented-toggle \.dl-segmented-button\{/);
+  assert.match(source,/mask:var\(--header-menu-icon-mask\)/);
+  assert.doesNotMatch(source,/stroke-linejoin:round;opacity:\.76/);
+});
+
 test('torrent picker is immediately visible without Inspect/upload, and failures have no action',()=>{
   const picker=dialog.split('function torrentPicker() {')[1]?.split('function showTorrentManifest(')[0];
   assert.ok(picker,'torrentPicker source must exist');
   assert.match(picker,/const picker=e\('div','','dl-picker dl-torrent-picker'\)/);
-  assert.match(picker,/picker\.append\(controls,filterPanel,selectionLine,files\)/);
+  assert.match(picker,/picker\.append\(filterPanel,controls,selectionLine,files\)/);
   assert.doesNotMatch(picker,/e\('details','','dl-options|summary','Advanced'|inspectUploadedTorrent/);
   assert.doesNotMatch(dialog,/dl-torrent-native-file|dl-torrent-upload-row|Choose \.torrent file|inspectUploadedTorrent|torrent_base64/);
   assert.match(dialog,/else details\.append\(torrentPicker\(\)\)/);
