@@ -481,7 +481,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         if(check.checked)extensions.add(ext);else extensions.delete(ext);
         draw();
       });
-      label.append(check,e('span',ext || 'No extension'));
+      label.append(check,e('span',ext?ext.slice(1):'No extension'));
       typeOptions.append(label);
     }
     typeGroup.append(typeOptions);

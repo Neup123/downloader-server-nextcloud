@@ -237,6 +237,8 @@ test('Torrent tree, flat view, size/name sort and filter-scoped uncheck keep oth
   assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.mp3'])}).map(f=>f.index),[1,2]);
   assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.jpg'])}).map(f=>f.index),[3]);
   assert.deepEqual(torrentMatches(files,'','name',{extensions:new Set(['.mp3','.jpg'])}).map(f=>f.index),[1,2,3]);
+  // Extension option labels display mp3, while the criteria above retain .mp3.
+  assert.match(dialog,/label\.append\(check,e\('span',ext\?ext\.slice\(1\):'No extension'\)\)/);
 
   assert.deepEqual(torrentMatches(files,'','name',{minBytes:20,maxBytes:300}).map(f=>f.index),[1,2]);
   assert.deepEqual(torrentMatches(files,'','name',{minBytes:21,maxBytes:300}).map(f=>f.index),[2]);
