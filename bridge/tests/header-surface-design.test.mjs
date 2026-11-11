@@ -17,6 +17,23 @@ test('header is a ghost arrow with an aggregate border-only frame and count badg
   assert.match(bridge,/bellSlot\.parentElement\.insertBefore\(container,bellSlot\)/);
   assert.match(bridge,/color:var\(--color-primary-text,#fff\)!important/);
   assert.match(bridge,/downloadBubbleStatus\(job\)/);
+
+  // The download arrow and tray must be one SVG path.
+  const glyph=bridge.match(/arrow\.setAttribute\('d', '([^']+)'\)/)?.[1];
+  assert.ok(glyph,'download glyph path exists');
+  const tray=glyph.match(/M14 ([\d.]+)v([\d.]+)h16v-\2$/);
+  assert.ok(tray,'tray is part of the arrow path');
+  const arrowTop=glyph.match(/^M22 ([\d.]+)v12/);
+  assert.ok(arrowTop,'download arrow is present');
+
+  // The complete glyph must be centred vertically in the 44px viewBox.
+  assert.match(bridge,/svg\.setAttribute\('viewBox', '0 0 44 44'\)/);
+  assert.equal(
+    (Number(arrowTop[1])+Number(tray[1])+Number(tray[2]))/2,
+    22,
+    'download glyph is vertically centred'
+  );
+  assert.match(bridge,/\.dl-arrow\{stroke-width:3\}/);
 });
 test('header bubble opens normal Files dialog and follows active/all user settings',()=>{
   assert.match(bridge,/void openDialog\(null\)/);
