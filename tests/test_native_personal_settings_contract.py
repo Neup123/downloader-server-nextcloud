@@ -32,3 +32,15 @@ def test_header_dropdown_preferences_use_signed_user_preference_storage():
         assert f'pref.set_value(name, patch[name])' in source
     assert '"header_indicator_visibility", {"active", "always"}' in source
     assert '"dropdown_content", {"active", "all"}' in source
+
+
+def test_owner_cookie_selection_is_owner_scoped_and_host_matched():
+    # This gateway contract belongs in the repo-level suite, not the
+    # bridge-only package tests (which cannot access nextcloud_exapp/).
+    source = (ROOT / "nextcloud_exapp/main.py").read_text()
+    assert "async def attach_owner_cookie(" in source
+    assert "unscoped_cookie_filename(context.user_id, filename)" in source
+    assert 'host == domain or host.endswith("." + domain)' in source
+    assert 'if overrides.get("cookies_file"):' in source
+    assert 'overrides["cookies_file"] = max(choices)[1]' in source
+    assert "await attach_owner_cookie(context, request_body)" in source

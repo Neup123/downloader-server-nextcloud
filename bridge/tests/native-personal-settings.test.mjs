@@ -124,13 +124,3 @@ test('cookie status never falsely claims an unimplemented validation endpoint su
   assert.match(vault,/requires a Core test endpoint/);
   assert.doesNotMatch(vault,/Valid ✓|Cookies are valid/);
 });
-
-test('owner cookie selection is host-matched and never exposes another owner cookie',()=>{
-  const source=readFileSync(new URL('../../nextcloud_exapp/main.py',import.meta.url),'utf8');
-  assert.match(source,/async def attach_owner_cookie\(/);
-  assert.match(source,/unscoped_cookie_filename\(context\.user_id, filename\)/);
-  assert.match(source,/host == domain or host\.endswith\("\." \+ domain\)/);
-  assert.match(source,/if overrides\.get\("cookies_file"\):/);
-  assert.match(source,/overrides\["cookies_file"\] = max\(choices\)\[1\]/);
-  assert.match(source,/await attach_owner_cookie\(context, request_body\)/);
-});
