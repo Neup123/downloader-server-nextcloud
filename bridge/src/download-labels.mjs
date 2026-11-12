@@ -2,7 +2,7 @@
  * Shared presentation-only helpers for the Nextcloud header, Dashboard and
  * Files bridge. They never fetch, download, or handle API/WebDAV credentials.
  * @typedef {{id:string,url:string,status:string,engine?:string,owner_id?:string,
- * error?:string|null,progress?:{percent?:number,speed_bytes_per_second?:number,downloaded_bytes?:number},
+ * error?:string|null,progress?:{percent?:number,speed_bytes_per_second?:number,downloaded_bytes?:number,phase?:string,service?:string},
  * output_files?:Array<{filename:string,path?:string,verified?:boolean,file_id?:string|number,size_bytes?:number}>}} Job
  */
 
@@ -38,8 +38,24 @@ export function downloadSymbol(job) {
   return '↓';
 }
 
+/** Show Core service lifecycle phases without changing job completion state. */
+function servicePhase(job) {
+  const phase=job.progress?.phase;
+  if (phase==='starting_service' || phase==='stopping_service') {
+    const service=job.progress?.service==='pyload'?'pyLoad'
+      :job.progress?.service==='cobalt'?'cobalt':'background';
+    return (phase==='starting_service'?'Starting ':'Stopping ') + service + ' service…';
+  }
+  if (phase==='downloading' && !['completed','failed','cancelled','downloading'].includes(job.status)) {
+    return 'Downloading';
+  }
+  return null;
+}
+
 /** @param {Job} job */
 export function downloadStatus(job) {
+  const phase = servicePhase(job);
+  if (phase) return phase;
   const percentage = Number(job.progress?.percent);
   const percent = Number.isFinite(percentage) ? Math.max(0, Math.min(100, percentage)) : null;
   if (job.status === 'completed') {
@@ -60,6 +76,8 @@ export function downloadStatus(job) {
 
 /** Bubble has a dedicated percentage beside the pause button. */
 export function downloadBubbleStatus(job) {
+  const phase = servicePhase(job);
+  if (phase) return phase;
   if (job.status !== 'downloading') return downloadStatus(job);
   const speed = Number(job.progress?.speed_bytes_per_second);
   return 'Downloading' + (Number.isFinite(speed) && speed > 0

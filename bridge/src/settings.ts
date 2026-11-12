@@ -1,4 +1,5 @@
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
+import {createBackgroundServicePanel} from './background-services.mjs';
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
   destination_routes:Record<string,string>;
@@ -31,6 +32,23 @@ async function api<T>(path:string,method='GET',payload?:unknown):Promise<T>{
     throw new Error(error?.detail||'Your settings could not be saved.');
   }
   return body as T;
+}
+async function adminServiceApi(engine:string, method='GET', payload?:unknown):Promise<unknown> {
+  const url=oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/admin/api/engines/'
+    +encodeURIComponent(engine)+'/settings');
+  const response=await fetch(url,{
+    method,credentials:'same-origin',
+    headers:{'OCS-APIRequest':'true',
+      ...(oc()?.requestToken?{requesttoken:oc()!.requestToken!}:{}),
+      ...(payload===undefined?{}:{'Content-Type':'application/json'})},
+    ...(payload===undefined?{}:{body:JSON.stringify(payload)}),
+  });
+  const body=await response.json().catch(()=>null) as {detail?:string}|null;
+  if(!response.ok){
+    throw Object.assign(new Error(body?.detail||'Could not load background services.'),
+      {status:response.status});
+  }
+  return body;
 }
 const CSS=`
 #downloader-settings-app{max-width:1020px;min-width:0;color:var(--color-main-text,#222)}
@@ -72,6 +90,15 @@ const CSS=`
 #downloader-settings-app .downloader-advanced summary{font-weight:600;cursor:pointer}
 #downloader-settings-app select.downloader-header-select{width:max-content;max-width:100%;align-self:start}
 #downloader-settings-app :is(button,input,select,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
+#downloader-settings-app .downloader-service-panel{margin:14px 0;padding:14px;border:1px solid var(--color-border,#ccc);border-radius:10px}
+#downloader-settings-app .downloader-service-panel h3{font-size:16px;margin:0 0 8px}
+#downloader-settings-app .downloader-service-panel p{font-size:13px;line-height:1.5}
+#downloader-settings-app .downloader-service-group{margin:12px 0;padding:12px;min-width:0;border:1px solid var(--color-border,#ccc);border-radius:8px}
+#downloader-settings-app .downloader-service-group legend{font-weight:650;padding:0 4px}
+#downloader-settings-app .downloader-service-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;border-radius:9px;background:var(--color-background-hover,#eee)}
+#downloader-settings-app .downloader-service-modes button{font-size:12px;padding:7px 4px;min-height:36px;border:1px solid transparent;border-radius:7px}
+#downloader-settings-app .downloader-service-modes button[aria-pressed=true]{background:var(--color-primary-element-light,#dceafa);border-color:var(--color-primary,#377bd1);font-weight:700}
+#downloader-settings-app .downloader-service-error{color:var(--color-error,#b42318)!important;overflow-wrap:anywhere}
 `;
 // Icons are fixed SVG markup (never interpolated from user-provided folder names).
 const FOLDER_SEARCH_ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/><circle cx="17" cy="17" r="3"/><path d="m19.3 19.3 2.2 2.2"/></svg>';
@@ -100,7 +127,16 @@ function start() {
   const retry=element('button','Retry saving');retry.hidden=true;retry.type='button';
   status.append(retry);
   const cards=element('div');cards.className='downloader-settings-grid';
-  root.append(title,intro,status,cards);
+  const advanced=element('details');advanced.className='downloader-advanced';
+  const toggle=element('summary','Advanced — technical engine settings');
+  const services=createBackgroundServicePanel(document,adminServiceApi);
+  advanced.append(toggle,services.element);
+  root.append(title,intro,status,cards,advanced);
+  advanced.addEventListener('toggle',()=>{if(advanced.open)void services.refresh();});
+  const refreshTimer=window.setInterval(()=>{
+    if(!advanced.isConnected){window.clearInterval(refreshTimer);return;}
+    if(advanced.open && !document.hidden)void services.refresh();
+  },5000);
   let personal:Personal|null=null;
   let dirty:Record<string,unknown>={};
   let saving=false;
@@ -403,8 +439,6 @@ function start() {
     check('Notify me when a download finishes','notify_finished',data.notify_finished!==false);
     check('Notify me if a download fails','notify_failed',data.notify_failed!==false);
 
-    const advanced=element('details');advanced.className='downloader-advanced';
-    const toggle=element('summary','Advanced — technical engine settings');
     const explanation=element('p','JSON options are for administrators and experienced users only.');
     const json=element('textarea');json.rows=6;
     json.value=JSON.stringify(data.engine_settings||{},null,2);
@@ -420,8 +454,7 @@ function start() {
         retry.hidden=true;
       }
     });
-    advanced.append(toggle,explanation,label('Engine settings JSON',json),saveJson);
-    root.append(advanced);
+    advanced.replaceChildren(toggle,services.element,explanation,label('Engine settings JSON',json),saveJson);
   }
   async function reload(){
     try{
