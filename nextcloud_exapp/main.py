@@ -576,6 +576,53 @@ async def user_cookie_delete(filename: str, context: UserContext = Depends(requi
     return await core_json("DELETE", "cookies/" + name)
 
 
+# Global Core service modes. These are administrator settings, never per-user options.
+_BACKGROUND_ENGINES = frozenset({"pyload", "cobalt"})
+_BACKGROUND_MODES = frozenset({"off", "always", "on-demand"})
+
+
+def _background_engine(engine: str) -> str:
+    if engine not in _BACKGROUND_ENGINES:
+        raise HTTPException(status_code=404, detail="Unknown background service")
+    return engine
+
+
+def _background_settings_response(reply: object) -> dict:
+    if not isinstance(reply, dict) or not isinstance(reply.get("settings"), dict):
+        raise HTTPException(status_code=502, detail="Invalid background service response")
+    settings = reply["settings"]
+    mode = settings.get("mode", "off")
+    if not isinstance(mode, str) or mode not in _BACKGROUND_MODES:
+        raise HTTPException(status_code=502, detail="Invalid background service mode")
+    return {**reply, "settings": {**settings, "mode": mode}}
+
+
+@APP.get("/admin/api/engines/{engine}/settings")
+async def admin_get_service_settings(engine: str,
+                                     admin: UserContext = Depends(require_admin)):
+    _background_engine(engine)
+    return _background_settings_response(await core_json("GET", f"engines/{engine}/settings"))
+
+
+@APP.put("/admin/api/engines/{engine}/settings")
+async def admin_put_service_settings(engine: str, request: Request,
+                                     admin: UserContext = Depends(require_admin)):
+    _background_engine(engine)
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid service settings JSON") from exc
+    if (not isinstance(body, dict) or set(body) != {"settings"}
+            or not isinstance(body["settings"], dict)
+            or set(body["settings"]) != {"mode"}
+            or type(body["settings"]["mode"]) is not str
+            or body["settings"]["mode"] not in _BACKGROUND_MODES):
+        raise HTTPException(status_code=422, detail="Service mode must be off, always or on-demand")
+    payload = {"settings": {"mode": body["settings"]["mode"]}}
+    return _background_settings_response(
+        await core_json("PUT", f"engines/{engine}/settings", payload=payload))
+
+
 @APP.get("/admin/api/connection")
 async def admin_connection_status(admin: UserContext = Depends(require_admin)):
     """Verify the actual core connection without ever sending its key to the browser."""
