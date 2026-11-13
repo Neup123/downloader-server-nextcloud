@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {filesJobRequest, selectedMediaFormat, playlistIndices} from '../src/files-dialog-payload.mjs';
 import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows, previewMeta,
-  appendPreviewPage, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes} from '../src/link-first-dialog.mjs';
+  appendPreviewPage, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes,
+  shouldDisableSubtitleLanguage} from '../src/link-first-dialog.mjs';
 
 const source=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf8');
 const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
@@ -436,12 +437,54 @@ test('Torrent submission selects actual one-based aria2 file indices and never a
 test('advanced subtitle checkbox and label share the Audio only row alignment',()=>{
   assert.match(dialog,/const subToggle=e\('label','','dl-audio-toggle dl-subtitle-toggle'\)/);
   assert.match(dialog,/subToggle\.append\(subtitles,e\('span','Download subtitles'\)\)/);
-  assert.match(dialog,/advanced\.append\(subToggle\)/);
+  assert.match(dialog,/subFrame\.append\(subToggle\)/);
   assert.doesNotMatch(dialog,/labeled\('Download subtitles',subtitles\)/);
   assert.match(source,/\.dl-options \.dl-audio-toggle\{display:flex;align-items:center;gap:6px\}/);
   assert.match(source,/\.dl-options \.dl-subtitle-toggle input\{width:18px;height:18px;margin:0\}/);
 });
 
+
+test('advanced subtitles use an offset legend frame around both controls',()=>{
+  const advanced=dialog.split('function advancedVideo(')[1].split('function drawRows(')[0];
+  assert.match(advanced,/const subFrame=e\('fieldset','','dl-subtitles-frame'\)/);
+  assert.match(advanced,/subFrame\.append\(e\('legend','Subtitles'\)\)/);
+  assert.match(advanced,/subFrame\.append\(subToggle\)/);
+  assert.match(advanced,/subFrame\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
+  assert.match(source,/\.dl-link-dialog \.dl-subtitles-frame\{display:grid;gap:8px;box-sizing:border-box;/);
+  assert.match(source,/width:max-content;max-width:100%;min-width:0;margin:0;padding:8px 10px 10px;/);
+  assert.match(source,/border:1px solid color-mix\(in srgb,var\(--color-border,#ddd\) 65%,transparent\)/);
+  assert.match(source,/\.dl-link-dialog \.dl-subtitles-frame legend\{margin-inline-start:25%/);
+});
+
+test('Format sits after the subtitles frame in a top-aligned wrapping row',()=>{
+  const advanced=dialog.split('function advancedVideo(')[1].split('function drawRows(')[0];
+  assert.match(advanced,/const optionsRow=e\('div','','dl-advanced-media-row'\)/);
+  assert.ok(advanced.indexOf('optionsRow.append(subFrame)') <
+    advanced.indexOf("optionsRow.append(labeled('Format',container))"));
+  assert.match(advanced,/optionsRow\.append\(labeled\('Format',container\)\)/);
+  assert.match(advanced,/advanced\.append\(optionsRow\)/);
+  assert.doesNotMatch(dialog,/labeled\('Container',container\)/);
+  assert.match(source,/\.dl-link-dialog \.dl-advanced-media-row\{display:flex;align-items:flex-start;gap:14px;/);
+  assert.match(source,/width:max-content;max-width:100%;flex-wrap:wrap/);
+});
+
+test('no detected subtitle languages keeps the selector disabled and explains why',()=>{
+  assert.equal(shouldDisableSubtitleLanguage(false,false,[].length>0),true);
+  assert.equal(shouldDisableSubtitleLanguage(true,false,[].length>0),true);
+  assert.match(dialog,/subtitleLanguagesAvailable=subtitleLanguages\.length>0/);
+  assert.match(dialog,/subtitleLanguage\.disabled=true/);
+  assert.match(dialog,/if\(!subtitleLanguagesAvailable\)\s+subFrame\.append\(e\('small','No subtitles available\.','dl-subtitles-unavailable'\)\)/);
+  assert.match(source,/\.dl-link-dialog \.dl-subtitles-frame \.dl-input:disabled\{opacity:\.55;/);
+  assert.match(source,/background:var\(--color-background-dark,#f4f4f4\);cursor:not-allowed/);
+});
+
+test('available subtitle languages enable only when checked and not Audio only',()=>{
+  assert.equal(shouldDisableSubtitleLanguage(false,false,['en'].length>0),true);
+  assert.equal(shouldDisableSubtitleLanguage(true,false,['en'].length>0),false);
+  assert.equal(shouldDisableSubtitleLanguage(true,true,['en'].length>0),true);
+  assert.match(dialog,/subtitles\.addEventListener\('change',\(\)=>\{\s+subtitleLanguage\.disabled=shouldDisableSubtitleLanguage\(\s+subtitles\.checked,Boolean\(audioOnly\?\.checked\),subtitleLanguagesAvailable\)/);
+  assert.match(dialog,/subtitles\.disabled=audioOnly\.checked;\s+subtitleLanguage\.disabled=shouldDisableSubtitleLanguage\(\s+subtitles\.checked,audioOnly\.checked,subtitleLanguagesAvailable\)/);
+});
 
 test('direct-file details remain in the box while a verified file has no status message',()=>{
   assert.match(dialog,/form\.append\(line,status,details,buttons\)/);
@@ -485,8 +528,8 @@ test('quality picker is inline and accessible without a visible label; other inp
   assert.match(source,/\.dl-link-line input\{flex:1;min-width:0\}/);
   assert.match(source,/\.dl-playlist-list\{display:grid/);
   assert.match(source,/\.dl-gallery-grid\{display:grid/);
-  assert.match(dialog,/advanced\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
-  assert.match(dialog,/advanced\.append\(labeled\('Container',container\)\)/);
+  assert.match(dialog,/subFrame\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
+  assert.match(dialog,/optionsRow\.append\(labeled\('Format',container\)\)/);
 });
 
 
