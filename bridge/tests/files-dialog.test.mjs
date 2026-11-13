@@ -53,6 +53,7 @@ test('single-video quality, audio/music, subtitles and original container map co
   assert.match(dialog,/\['original','Original format'\]/);
 });
 
+
 test('playlist all-selected maps to one yt-dlp job and bounded item indices',()=>{
   assert.equal(playlistIndices([3,1,2,2]),'1,2,3');
   assert.deepEqual(filesJobRequest('https://example.org/list','Folder','best',false,{
@@ -97,7 +98,7 @@ test('selection works within filtered entries without touching the other checked
 });
 
 test('unsupported direct fallback and torrent metadata limitations are explicit',()=>{
-  assert.match(dialog,/We could not find a supported download at this link/);
+  assert.doesNotMatch(dialog,/We could not find a supported download at this link/);
   assert.match(dialog,/Try as a direct file/);
   assert.match(dialog,/Direct \.torrent URLs cannot be inspected or submitted/);
   assert.match(dialog,/api\('\/torrent-manifest','POST'/);
@@ -503,11 +504,11 @@ test('dialog has no visible title and hides status text unless a problem exists'
   assert.match(dialog,/const message=\(text\)=>\{status\.textContent=text;status\.hidden=!text;\}/);
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
   assert.match(dialog,/spinner\.hidden=false/);
-  assert.match(dialog,/message\('This link is not supported\./);
-  assert.match(dialog,/Direct \.torrent URLs cannot be inspected or submitted/);
+  assert.match(dialog,/message\(linkFailureMessage\(failure\)\)/);
+  assert.match(dialog,/message\('Direct \.torrent URLs cannot be inspected or submitted\.'\)/);
+  assert.match(dialog,/message\('Could not load the torrent file list\. Check the magnet link\.'\)/);
   assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
-  assert.match(dialog,/message\(value\?'Paste an HTTP\(S\) link or a magnet URI\.':''\)/);
-  assert.match(dialog,/previewNextOffset/);
+  assert.match(dialog,/message\(value\?linkFailureMessage\(classifyLinkFailure\(value\)\):''\)/);
 });
 
 

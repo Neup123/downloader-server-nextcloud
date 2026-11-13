@@ -44,6 +44,32 @@ export function classifyPreview(url, preview) {
   }
   return 'unsupported';
 }
+// Core returns the same 422 for extraction failures, unavailable items and
+// validation errors. Free-text errors cannot prove which failure occurred.
+export function isValidSourceLink(input) {
+  const value = input.trim();
+  if (/^magnet:\?/i.test(value)) return true;
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return ['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.hostname)
+      && !parsed.username && !parsed.password;
+  } catch { return false; }
+}
+export function classifyLinkFailure(input, failure = null) {
+  if (!isValidSourceLink(input)) return 'malformed';
+  // The gateway retains failure.httpStatus, but 422 is shared by Core errors,
+  // and even an HTTP 404 from the gateway is not proof of an item-level 404.
+  // Host-claim, item HTTP status and non-media signals are not exposed today.
+  void failure;
+  return 'could_not_check';
+}
+export function linkFailureMessage(cause) {
+  return cause === 'malformed'
+    ? 'Paste a valid HTTP(S) link or magnet URI.'
+    : 'Could not check this link. Try again.';
+}
+
 export function chooseFiltered(indices, matching, checked) {
   const next = new Set(indices);
   for (const item of matching) {
@@ -700,7 +726,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     refreshSubmit();
   }
 
-  async function render(next, result, warning='') {
+  async function render(next, result, failure='could_not_check') {
     kind=next;preview=result;details.replaceChildren();details.hidden=false;
     dialog.classList.toggle('dl-torrent-dialog',kind==='torrent');
     buttons.hidden=true;quality=null;audioOnly=null;subtitles=null;subtitleLanguage=null;
@@ -708,15 +734,16 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     playlistAutoSelect=true;limit=Infinity;torrentSource='none';manifestFiles=[];
     message('');
     if(kind==='unsupported'){
-      details.append(e('h3','Unsupported or unrecognized link'),
-        e('p','We could not find a supported download at this link. Ordinary web pages cannot be downloaded here.','dl-muted'));
-      if(warning)details.append(e('p',warning,'dl-muted'));
+      // Exactly one explanation, in the status line; no unsupported heading
+      // or second diagnosis based on an extractor check that did not succeed.
+      details.hidden=true;
       if(looksLikeDirectFile(currentUrl)){
         const tryDirect=e('button','Try as a direct file');tryDirect.type='button';
         tryDirect.addEventListener('click',()=>{void render('direct',null);});
         details.append(tryDirect);
+        details.hidden=false;
       }
-      message('This link is not supported. Try a direct file link or another media link.');
+      message(linkFailureMessage(failure));
       return;
     }
     if(kind==='torrent'){
@@ -793,9 +820,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     details.replaceChildren();preview=null;previewNextOffset=null;choices=[];selected=new Set();
     message('');
     const magnet=/^magnet:\?/i.test(value);
-    let valid=false;
-    try {valid=magnet || ['http:','https:'].includes(new URL(value).protocol);}catch{}
-    if(!valid){spinner.hidden=true;message(value?'Paste an HTTP(S) link or a magnet URI.':'');return;}
+    if(!isValidSourceLink(value)){
+      spinner.hidden=true;
+      message(value?linkFailureMessage(classifyLinkFailure(value)):'');
+      return;
+    }
     spinner.hidden=false;
     if(magnet || (()=>{try{return TORRENT.test(new URL(value).pathname)}catch{return false}})()){
       await render('torrent',null);if(token===generation&&!closed)spinner.hidden=true;return;
@@ -810,7 +839,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }catch(error){
       if(token!==generation||closed)return;
       spinner.hidden=true;
-      await render('unsupported',null,'We could not check this link. Try another link or use the direct-file option if it is a file.');
+      await render('unsupported',null,classifyLinkFailure(value,error));
     }
   }
   function schedule(){
