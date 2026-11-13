@@ -186,8 +186,15 @@ def scoped_core_path(identifier: str) -> str:
     return identifier
 
 
+PREVIEW_REASON_CODES = frozenset({
+    "malformed_link", "unsupported_domain", "item_not_found",
+    "not_media", "could_not_check",
+})
+
+
 async def core_json(method: str, path: str, *, payload: dict | None = None,
-                    params: dict[str, str | int] | None = None):
+                    params: dict[str, str | int] | None = None,
+                    preview_reason_code: bool = False):
     settings = config()
     try:
         url = upstream_api_url(settings.origin, path)
@@ -208,8 +215,18 @@ async def core_json(method: str, path: str, *, payload: dict | None = None,
     except ValueError:
         raise HTTPException(status_code=502, detail="Invalid downloader response")
     if response.status_code >= 400:
+        if preview_reason_code and isinstance(body, dict):
+            reason = body.get("reason_code")
+            if isinstance(reason, str) and reason in PREVIEW_REASON_CODES:
+                # A typed preview failure has a safe message; never forward the
+                # extractor's raw detail in the browser-visible structured error.
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail={"message": "Media preview check failed", "reason_code": reason},
+                )
         detail = body.get("detail", "Downloader request failed") if isinstance(body, dict) else "Downloader request failed"
-        # These errors originate from the core, which never returns the ExApp secret.
+        # Legacy string detail remains unchanged for other endpoints, and for
+        # old Core versions with no recognized preview reason code.
         raise HTTPException(status_code=response.status_code, detail=str(detail)[:500])
     return body
 
@@ -319,7 +336,7 @@ async def user_media_preview(request: Request, context: UserContext = Depends(re
     payload = {"url": url, "max_entries": count}
     if "offset" in body:
         payload["offset"] = offset
-    return await core_json("POST", "preview", payload=payload)
+    return await core_json("POST", "preview", payload=payload, preview_reason_code=True)
 
 
 @APP.post("/user/api/torrent-manifest")

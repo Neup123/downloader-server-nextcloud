@@ -44,8 +44,8 @@ export function classifyPreview(url, preview) {
   }
   return 'unsupported';
 }
-// Core returns the same 422 for extraction failures, unavailable items and
-// validation errors. Free-text errors cannot prove which failure occurred.
+// Core returns the same 422 for different failures. Classify only with a
+// stable preview reason code; free-text errors and HTTP status cannot prove why.
 export function isValidSourceLink(input) {
   const value = input.trim();
   if (/^magnet:\?/i.test(value)) return true;
@@ -58,16 +58,27 @@ export function isValidSourceLink(input) {
 }
 export function classifyLinkFailure(input, failure = null) {
   if (!isValidSourceLink(input)) return 'malformed';
-  // The gateway retains failure.httpStatus, but 422 is shared by Core errors,
-  // and even an HTTP 404 from the gateway is not proof of an item-level 404.
-  // Host-claim, item HTTP status and non-media signals are not exposed today.
-  void failure;
-  return 'could_not_check';
+  switch (failure?.reasonCode) {
+    case 'malformed_link': return 'malformed';
+    case 'unsupported_domain':
+    case 'item_not_found':
+    case 'not_media':
+    case 'could_not_check':
+      return failure.reasonCode;
+    default: return 'could_not_check';
+  }
 }
 export function linkFailureMessage(cause) {
-  return cause === 'malformed'
-    ? 'Paste a valid HTTP(S) link or magnet URI.'
-    : 'Could not check this link. Try again.';
+  switch (cause) {
+    case 'malformed': return 'Paste a valid HTTP(S) link or magnet URI.';
+    case 'unsupported_domain':
+      return 'This link is not supported. Try a direct file link or another media link.';
+    case 'item_not_found':
+      return 'This link no longer exists. It may have been deleted or made private.';
+    case 'not_media':
+      return 'Nothing downloadable was found at this link. Ordinary web pages cannot be downloaded here.';
+    default: return 'Could not check this link. Try again.';
+  }
 }
 
 export function chooseFiltered(indices, matching, checked) {
