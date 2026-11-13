@@ -174,6 +174,9 @@ function pick(choices, value) {
   select.value = value;
   return select;
 }
+export function shouldDisableSubtitleLanguage(checked, audioOnly, languagesAvailable) {
+  return !checked || audioOnly || !languagesAvailable;
+}
 function sizeLabel(value) {
   if (!Number.isSafeInteger(value) || value < 0) return 'Size not available';
   if (value < 1024) return value + ' B';
@@ -214,6 +217,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let kind='unsupported', preview=null, choices=[], selected=new Set(), limit=Infinity;
   let previewNextOffset=null, playlistAutoSelect=true, torrentSource='none', manifestFiles=[];
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
+  let subtitleLanguagesAvailable=false;
   let cbz=null, pageChoice=null, filter=null;
   let observation=null, currentUrl='', busy=false;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
@@ -250,7 +254,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     audioOnly?.addEventListener('change',()=>{
       update();
       if(subtitles){
-        subtitles.disabled=audioOnly.checked;subtitleLanguage.disabled=!subtitles.checked || audioOnly.checked;
+        subtitles.disabled=audioOnly.checked;
+        subtitleLanguage.disabled=shouldDisableSubtitleLanguage(
+          subtitles.checked,audioOnly.checked,subtitleLanguagesAvailable);
       }
     });
     update();
@@ -261,18 +267,28 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   function advancedVideo(subtitleLanguages=[], soundOnly=false) {
     const advanced=e('details','','dl-options');
     advanced.append(e('summary','Advanced'));
+    const optionsRow=e('div','','dl-advanced-media-row');
     if(!soundOnly){
+      subtitleLanguagesAvailable=subtitleLanguages.length>0;
+      const subFrame=e('fieldset','','dl-subtitles-frame');
+      subFrame.append(e('legend','Subtitles'));
       subtitles=e('input'); subtitles.type='checkbox';subtitles.checked=false;
       const subToggle=e('label','','dl-audio-toggle dl-subtitle-toggle');
       subToggle.append(subtitles,e('span','Download subtitles'));
-      advanced.append(subToggle);
+      subFrame.append(subToggle);
       const system=(navigator.language||'en').split('-')[0].toLowerCase();
       subtitleLanguage=pick([['', 'System language ('+system+')'],
         ...subtitleLanguages.filter(lang=>typeof lang==='string' && lang!==system)
           .slice(0,50).map(lang=>[lang,lang])], '');
       subtitleLanguage.disabled=true;
-      subtitles.addEventListener('change',()=>{subtitleLanguage.disabled=!subtitles.checked;});
-      advanced.append(labeled('Subtitle language',subtitleLanguage));
+      subtitles.addEventListener('change',()=>{
+        subtitleLanguage.disabled=shouldDisableSubtitleLanguage(
+          subtitles.checked,Boolean(audioOnly?.checked),subtitleLanguagesAvailable);
+      });
+      subFrame.append(labeled('Subtitle language',subtitleLanguage));
+      if(!subtitleLanguagesAvailable)
+        subFrame.append(e('small','No subtitles available.','dl-subtitles-unavailable'));
+      optionsRow.append(subFrame);
     } else {subtitles=null;subtitleLanguage=null;}
     container=pick([], 'original');
     const setContainers=()=>{
@@ -287,7 +303,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     };
     setContainers();
     audioOnly?.addEventListener('change',setContainers);
-    advanced.append(labeled('Container',container));
+    optionsRow.append(labeled('Format',container));
+    advanced.append(optionsRow);
     return advanced;
   }
   function drawRows(containerNode, type) {
