@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import httpx
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
@@ -10,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from nextcloud_exapp.main import APP, user_media_preview, user_torrent_manifest
+from nextcloud_exapp.main import APP, core_json, user_media_preview, user_torrent_manifest
 from nextcloud_exapp.user import UserContext, job_submission
 
 
@@ -53,10 +54,60 @@ class LinkFirstGatewayTests(TestCase):
                 got = await user_media_preview(request, context())
                 core.assert_awaited_once_with("POST", "preview", payload={
                     "url": "https://example.org/watch", "max_entries": 24,
-                })
+                }, preview_reason_code=True)
                 self.assertEqual(got["kind"], "video")
 
         asyncio.run(run())
+
+    def _core_error(self, body, *, path="preview"):
+        async def run():
+            client = httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: httpx.Response(422, json=body),
+            ))
+            settings = SimpleNamespace(origin="https://core.example.org", token="test-token")
+            with (patch("nextcloud_exapp.main.config", return_value=settings),
+                  patch("nextcloud_exapp.main.httpx.AsyncClient", return_value=client)):
+                with self.assertRaises(HTTPException) as caught:
+                    if path == "preview":
+                        request = Request({"type": "http", "headers": []})
+                        request._json = {"url": "https://example.org/watch", "max_entries": 24}
+                        await user_media_preview(request, context())
+                    else:
+                        await core_json("GET", path)
+                return caught.exception
+        return asyncio.run(run())
+
+    def test_preview_error_forwards_stable_reason_without_engine_detail(self):
+        error = self._core_error({
+            "reason_code": "item_not_found",
+            "detail": "PRIVATE_RAW_ENGINE_ERROR: internal extractor trace",
+        })
+        self.assertEqual(error.status_code, 422)
+        self.assertEqual(error.detail, {
+            "message": "Media preview check failed",
+            "reason_code": "item_not_found",
+        })
+        self.assertNotIn("PRIVATE_RAW_ENGINE_ERROR", str(error.detail))
+
+    def test_preview_error_without_code_keeps_legacy_string_detail(self):
+        error = self._core_error({"detail": "Legacy Core preview error"})
+        self.assertEqual(error.status_code, 422)
+        self.assertEqual(error.detail, "Legacy Core preview error")
+
+    def test_unknown_preview_reason_code_is_not_forwarded(self):
+        error = self._core_error({
+            "reason_code": "UNKNOWN_ENGINE_DETAIL",
+            "detail": "Legacy Core preview error",
+        })
+        self.assertEqual(error.detail, "Legacy Core preview error")
+
+    def test_other_endpoints_keep_string_detail_even_when_core_has_code(self):
+        error = self._core_error({
+            "reason_code": "item_not_found",
+            "detail": "Existing string error contract",
+        }, path="jobs")
+        self.assertEqual(error.status_code, 422)
+        self.assertEqual(error.detail, "Existing string error contract")
 
     def test_invalid_or_unbounded_preview_never_reaches_core(self):
         invalid = (
@@ -113,7 +164,7 @@ class LinkFirstGatewayTests(TestCase):
                 self.assertEqual(data["entries"][0]["index"], 101)
                 core.assert_awaited_once_with("POST", "preview", payload={
                     "url": "https://example.org/playlist", "max_entries": 100, "offset": 100,
-                })
+                }, preview_reason_code=True)
 
         asyncio.run(run())
         for offset in (-1, 100001, "100", True, None):

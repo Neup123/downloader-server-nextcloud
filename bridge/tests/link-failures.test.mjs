@@ -57,7 +57,7 @@ async function detectedDialog(link, preview) {
   }
 }
 
-test('malformed URL is the only locally provable specific link failure', () => {
+test('malformed URL is classified before requesting Core', () => {
   for (const bad of [
     'example.com/video', 'not a link', 'https:example.com', 'https://',
     'ftp://example.com/video', 'https://user:secret@example.org/file',
@@ -71,7 +71,7 @@ test('malformed URL is the only locally provable specific link failure', () => {
   assert.equal(linkFailureMessage('malformed'),'Paste a valid HTTP(S) link or magnet URI.');
 });
 
-test('unsupported host, deleted item and ordinary-page guesses require unavailable Core signals', () => {
+test('HTTP status and extractor text alone cannot prove a failure reason', () => {
   const cases=[
     // Core's generic 422 does not identify whether an extractor claims a host.
     ['https://no-claimed-engine.example/video', {httpStatus:422}],
@@ -88,6 +88,29 @@ test('unsupported host, deleted item and ordinary-page guesses require unavailab
   assert.equal(linkFailureMessage('could_not_check'),'Could not check this link. Try again.');
 });
 
+for (const [reasonCode, expected, message] of [
+  ['malformed_link', 'malformed', 'Paste a valid HTTP(S) link or magnet URI.'],
+  ['unsupported_domain', 'unsupported_domain', 'This link is not supported. Try a direct file link or another media link.'],
+  ['item_not_found', 'item_not_found', 'This link no longer exists. It may have been deleted or made private.'],
+  ['not_media', 'not_media', 'Nothing downloadable was found at this link. Ordinary web pages cannot be downloaded here.'],
+  ['could_not_check', 'could_not_check', 'Could not check this link. Try again.'],
+]) {
+  test(`reason_code ${reasonCode} produces only its corresponding explanation`, () => {
+    const error=Object.assign(new Error('PRIVATE_RAW_ENGINE_ERROR'),{reasonCode,httpStatus:422});
+    const reason=classifyLinkFailure('https://example.org/video',error);
+    assert.equal(reason,expected);
+    assert.equal(linkFailureMessage(reason),message);
+  });
+}
+
+test('an absent reason_code falls back to could-not-check', () => {
+  assert.equal(classifyLinkFailure('https://example.org/video',{httpStatus:422}),'could_not_check');
+});
+test('an unknown reason_code falls back to could-not-check', () => {
+  assert.equal(classifyLinkFailure('https://example.org/video',
+    {httpStatus:422,reasonCode:'PRIVATE_UNKNOWN_CLASS'}),'could_not_check');
+});
+
 test('malformed pasted text displays one explanation, without a second card', async () => {
   const {status,details,buttons}=await detectedDialog('not a URL',() => {
     throw new Error('Preview must not run for malformed input');
@@ -99,8 +122,23 @@ test('malformed pasted text displays one explanation, without a second card', as
   assert.equal(buttons.hidden,true);
 });
 
-test('Core extractor failures display one retryable line and never expose raw error text', async () => {
-  const error=Object.assign(new Error('PRIVATE_RAW_ENGINE_ERROR: SoundCloud internal details'),{httpStatus:422});
+test('SoundCloud unsupported-domain code shows exactly one line without raw extractor text', async () => {
+  const error=Object.assign(new Error('PRIVATE_RAW_ENGINE_ERROR: SoundCloud internal details'),
+    {httpStatus:422,reasonCode:'unsupported_domain'});
+  const {status,details,buttons}=await detectedDialog(
+    'https://soundcloud.com/artist/deleted-track',() => Promise.reject(error),
+  );
+  assert.equal(status.textContent,'This link is not supported. Try a direct file link or another media link.');
+  assert.equal(status.hidden,false);
+  assert.equal(details.hidden,true);
+  assert.equal(details.children.length,0);
+  assert.equal(buttons.hidden,true);
+  assert.doesNotMatch(status.textContent,/PRIVATE_RAW_ENGINE_ERROR|SoundCloud|Could not check/);
+  assert.doesNotMatch(dialogSource,/Unsupported or unrecognized link/);
+});
+
+test('a failed check without a code shows only the retryable line', async () => {
+  const error=Object.assign(new Error('PRIVATE_RAW_ENGINE_ERROR'),{httpStatus:422});
   const {status,details,buttons}=await detectedDialog(
     'https://soundcloud.com/artist/deleted-track',() => Promise.reject(error),
   );
@@ -109,8 +147,7 @@ test('Core extractor failures display one retryable line and never expose raw er
   assert.equal(details.hidden,true);
   assert.equal(details.children.length,0);
   assert.equal(buttons.hidden,true);
-  assert.doesNotMatch(status.textContent,/PRIVATE_RAW_ENGINE_ERROR|SoundCloud|not supported/);
-  assert.doesNotMatch(dialogSource,/We could not find a supported download at this link|Unsupported or unrecognized link/);
+  assert.doesNotMatch(status.textContent,/PRIVATE_RAW_ENGINE_ERROR|not supported/);
 });
 
 test('an ambiguous successful preview cannot be relabeled as unsupported or not-media', async () => {
@@ -142,6 +179,8 @@ test('verified direct-file result has no status line', async () => {
 test('bridge preserves structured preview HTTP status, not a raw Core error message', () => {
   assert.match(bridgeSource,/if \(path === '\/media-preview'\)/);
   assert.match(bridgeSource,/failure\.httpStatus = res\.status/);
+  assert.match(bridgeSource,/detail\?\.reason_code/);
+  assert.match(bridgeSource,/failure\.reasonCode = reasonCode/);
   assert.match(bridgeSource,/throw failure;/);
   assert.match(dialogSource,/classifyLinkFailure\(value,error\)/);
   assert.doesNotMatch(dialogSource,/message\(error\.message\)|message\(error instanceof Error/);

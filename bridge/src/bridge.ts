@@ -40,10 +40,14 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     if (path === '/media-preview') {
-      // The Core detail may be a raw extractor error. Keep only the structured
-      // gateway HTTP status; the dialog must never show that detail to users.
-      const failure = new Error('Media preview check failed') as Error & {httpStatus: number};
+      // Never surface Core extractor detail: keep only the HTTP status and
+      // the preview gateway's structured failure reason.
+      const failure = new Error('Media preview check failed') as Error & {
+        httpStatus: number; reasonCode?: string
+      };
       failure.httpStatus = res.status;
+      const reasonCode = (body as {detail?: {reason_code?: unknown}} | null)?.detail?.reason_code;
+      if (typeof reasonCode === 'string') failure.reasonCode = reasonCode;
       throw failure;
     }
     const detail = (body as {detail?: string} | null)?.detail;
