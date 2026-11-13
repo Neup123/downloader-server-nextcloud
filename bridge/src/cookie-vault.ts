@@ -51,17 +51,13 @@ export function renderCookieVault(host:HTMLElement,api:Api):void{
         const line=node('div');line.className='downloader-vault-site';
         const name=entry.filename.slice(0,-4);
         line.append(node('span',name),node('span','Saved · validity not tested'));
-        const test=iconButton('Test site cookies for '+name,'Test');
         const remove=iconButton('Remove site cookies for '+name,'Remove');
-        test.addEventListener('click',()=>{
-          feedback.textContent='Cookie validation requires a Core test endpoint that is not yet available.';
-        });
         remove.addEventListener('click',()=>{
           void api('/cookies/'+encodeURIComponent(entry.filename),'DELETE').then(()=>{
             feedback.textContent='Cookies removed for '+name;void refresh();
           }).catch(()=>{feedback.textContent='Could not remove those cookies.';});
         });
-        line.append(test,remove);rows.append(line);
+        line.append(remove);rows.append(line);
       }
     }catch{feedback.textContent='Could not load saved site cookie status.';}
   }

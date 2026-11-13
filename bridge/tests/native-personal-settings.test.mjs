@@ -114,13 +114,12 @@ test('site cookie vault is mounted in Advanced settings with owner-scoped API an
   assert.match(vault,/content_base64:utf8Base64\(bytes\)/);
   assert.match(vault,/paste\.value=''/);
   assert.match(vault,/upload\.value=''/);
-  assert.match(vault,/Test site cookies/);
   assert.match(vault,/Remove site cookies/);
   assert.doesNotMatch(vault,/innerHTML|console\.|localStorage|sessionStorage/);
 });
 
 test('cookie status never falsely claims an unimplemented validation endpoint succeeded',()=>{
   assert.match(vault,/Saved · validity not tested/);
-  assert.match(vault,/requires a Core test endpoint/);
+  assert.doesNotMatch(vault,/Test site cookies/);
   assert.doesNotMatch(vault,/Valid ✓|Cookies are valid/);
 });
