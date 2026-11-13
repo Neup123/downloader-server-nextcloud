@@ -120,19 +120,26 @@ function torrentExtension(item){
   const dot=item.name.lastIndexOf('.');
   return dot>0 && dot<item.name.length-1 ? item.name.slice(dot).toLowerCase() : '';
 }
-export function torrentMatches(files, query='', order='name', criteria={}) {
+export function torrentMatches(files, query='', order='name', criteria={}, direction='asc') {
   const q=query.trim().toLowerCase();
   const pathTerm=(criteria.path||'').trim().toLowerCase();
-  const extensions=criteria.extensions || new Set();
+  // An omitted type criterion is unrestricted; an explicitly empty set matches nothing.
+  const extensions=criteria.extensions;
   const minBytes=Number.isFinite(criteria.minBytes) ? criteria.minBytes : 0;
   const maxBytes=Number.isFinite(criteria.maxBytes) ? criteria.maxBytes : Infinity;
+  const sign=direction==='desc' ? -1 : 1;
   return files.filter(item=>item.name.toLowerCase().includes(q)
-    && (!extensions.size || extensions.has(torrentExtension(item)))
+    && (!(extensions instanceof Set) || extensions.has(torrentExtension(item)))
     && item.size_bytes>=minBytes && item.size_bytes<=maxBytes
     && (!pathTerm || item.path.split('/').slice(0,-1)
       .some(segment=>segment.toLowerCase().includes(pathTerm))))
-    .sort((a,b)=>order==='size' ? a.size_bytes-b.size_bytes || a.path.localeCompare(b.path)
-      : a.path.localeCompare(b.path));
+    .sort((a,b)=>sign*(order==='size'
+      ? a.size_bytes-b.size_bytes || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
+      : a.name.localeCompare(b.name) || a.path.localeCompare(b.path)));
+}
+/** Selected bytes are computed against the full folder manifest, not the visible filter result. */
+export function torrentSelectedBytes(files, selected) {
+  return files.reduce((sum,item)=>sum+(selected.has(item.index)?item.size_bytes:0),0);
 }
 export function torrentTree(files) {
   const root={folders:new Map(),files:[]};
@@ -399,9 +406,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   }
   function torrentPicker() {
     const picker=e('div','','dl-picker dl-torrent-picker');
-    let view='tree', order='name';
-    const extensions=new Set();
+    let view='tree', order='name', direction='asc';
+    // The choices are computed afresh for each manifest, including extensionless files.
+    const availableExtensions=[...new Set(manifestFiles.map(torrentExtension))]
+      .sort((a,b)=>a.localeCompare(b));
+    const extensions=new Set(availableExtensions);
     let minBytes=0, maxBytes=Infinity;
+
     const svgIcon=name=>{
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
       svg.setAttribute('viewBox','0 0 24 24');
@@ -411,7 +422,6 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         tree:['M5 3v18','M5 6h6','M5 18h6','M11 3h9v6h-9z','M11 15h9v6h-9z'],
         list:['M4 6h16','M4 12h16','M4 18h16'],
         sort:['M7 4v16','M3 16l4 4 4-4','M17 20V4','M13 8l4-4 4 4'],
-        filter:['M4 5h16l-6.5 8v5l-3 2v-7z'],
       };
       for(const d of paths[name]){
         const path=document.createElementNS('http://www.w3.org/2000/svg','path');
@@ -424,12 +434,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       button.type='button';button.title=title;button.setAttribute('aria-label',title);
       button.append(svgIcon(name));return button;
     };
+
     const controls=e('div','','dl-torrent-controls');
     const viewControl=e('div','','dl-torrent-control');
     viewControl.append(e('span','View','dl-torrent-control-label'));
     const segment=e('div','','dl-torrent-view-toggle dl-segmented-toggle');
     segment.setAttribute('role','group');segment.setAttribute('aria-label','File view');
-    const slider=e('span','','dl-torrent-view-slider dl-segmented-slider');slider.setAttribute('aria-hidden','true');
+    const slider=e('span','','dl-torrent-view-slider dl-segmented-slider');
+    slider.setAttribute('aria-hidden','true');
     const treeButton=iconButton('tree','Tree view');
     const flatButton=iconButton('list','Flat list');
     treeButton.classList.add('dl-torrent-view-button','dl-segmented-button');
@@ -444,39 +456,80 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     treeButton.addEventListener('click',()=>setView('tree'));
     flatButton.addEventListener('click',()=>setView('flat'));
     viewControl.append(segment);
-    const sortButton=iconButton('sort','Sort: Name (switch to size)');
-    const updateSortTooltip=()=>{
-      const text=order==='name'?'Sort: Name (switch to size)':'Sort: Size (switch to name)';
-      sortButton.title=text;sortButton.setAttribute('aria-label',text);
+
+    // Desktop-style unified sort menu: one checked type, one checked direction.
+    const sortControl=e('div','','dl-torrent-control dl-torrent-sort-control');
+    const sortButton=iconButton('sort','Order by');
+    sortButton.setAttribute('aria-haspopup','menu');
+    sortButton.setAttribute('aria-expanded','false');
+    const sortMenu=e('div','','dl-torrent-sort-menu');
+    sortMenu.setAttribute('role','menu');sortMenu.setAttribute('aria-label','Order by');
+    sortMenu.hidden=true;
+    const sortOptions=[];
+    const sortOption=(group,value,label)=>{
+      const button=e('button','','dl-torrent-sort-option');
+      button.type='button';button.setAttribute('role','menuitemradio');
+      const tick=e('span','✓','dl-torrent-sort-check');tick.setAttribute('aria-hidden','true');
+      button.append(tick,e('span',label));
+      button.addEventListener('click',()=>{
+        if(group==='type')order=value;else direction=value;
+        updateSortMenu();closeSortMenu();draw();sortButton.focus();
+      });
+      sortOptions.push({button,group,value,tick});
+      return button;
+    };
+    const divider=e('div','','dl-torrent-sort-divider');
+    divider.setAttribute('role','separator');
+    sortMenu.append(
+      sortOption('type','name','Name'),
+      sortOption('type','size','Size'),
+      divider,
+      sortOption('direction','asc','Ascending (A–Z)'),
+      sortOption('direction','desc','Descending (Z–A)')
+    );
+    const updateSortMenu=()=>{
+      for(const {button,group,value,tick} of sortOptions){
+        const checked=(group==='type'?order:direction)===value;
+        button.setAttribute('aria-checked',String(checked));
+        tick.hidden=!checked;
+      }
+      sortButton.title='Order by: '+(order==='name'?'Name':'Size')+
+        ', '+(direction==='asc'?'ascending':'descending');
+    };
+    const closeSortMenu=()=>{
+      sortMenu.hidden=true;sortButton.setAttribute('aria-expanded','false');
     };
     sortButton.addEventListener('click',()=>{
-      order=order==='name'?'size':'name';updateSortTooltip();draw();
+      sortMenu.hidden=!sortMenu.hidden;
+      sortButton.setAttribute('aria-expanded',String(!sortMenu.hidden));
+      if(!sortMenu.hidden){
+        const active=sortOptions.find(o=>o.group==='type' && o.value===order);
+        active?.button.focus();
+      }
     });
-    const filterControl=e('div','','dl-torrent-control dl-torrent-filter');
-    const filterButton=iconButton('filter','Filter torrent files');
-    const query=e('input','','dl-input');query.type='search';
-    query.placeholder='Filter';query.setAttribute('aria-label','Filter torrent file names');
-    query.addEventListener('input',draw);
-    filterControl.append(filterButton,query);
-    controls.append(viewControl,sortButton,filterControl);
+    dialog.addEventListener('click',event=>{
+      if(!sortControl.contains(event.target))closeSortMenu();
+    });
+    dialog.addEventListener('keydown',event=>{
+      if(event.key==='Escape' && !sortMenu.hidden){
+        event.preventDefault();event.stopPropagation();
+        closeSortMenu();sortButton.focus();
+      }
+    });
+    updateSortMenu();
+    sortControl.append(sortButton,sortMenu);
+    controls.append(viewControl,sortControl);
+
+    // Always-visible filters, laid out in the order they are used.
     const filterPanel=e('div','','dl-torrent-filter-panel');
-    filterPanel.id='dl-torrent-filter-panel';filterPanel.hidden=true;
     filterPanel.setAttribute('role','group');
     filterPanel.setAttribute('aria-label','Torrent file filters');
-    filterButton.setAttribute('aria-controls',filterPanel.id);
-    filterButton.setAttribute('aria-expanded','false');
-    filterButton.addEventListener('click',()=>{
-      filterPanel.hidden=!filterPanel.hidden;
-      filterButton.setAttribute('aria-expanded',String(!filterPanel.hidden));
-    });
     const typeGroup=e('fieldset','','dl-torrent-type-filter');
     typeGroup.append(e('legend','File type'));
     const typeOptions=e('div','','dl-torrent-type-options');
-    const availableExtensions=[...new Set(manifestFiles.map(torrentExtension))]
-      .sort((a,b)=>a.localeCompare(b));
     for(const ext of availableExtensions){
       const label=e('label','','dl-torrent-type-option');
-      const check=e('input');check.type='checkbox';
+      const check=e('input');check.type='checkbox';check.checked=true;
       check.addEventListener('change',()=>{
         if(check.checked)extensions.add(ext);else extensions.delete(ext);
         draw();
@@ -506,6 +559,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     maximum.addEventListener('input',updateBounds);
     sizeBounds.append(labeled('Minimum',minimum),labeled('Maximum',maximum));
     sizeGroup.append(sizeBounds);
+    const nameGroup=e('fieldset','','dl-torrent-name-filter');
+    nameGroup.append(e('legend','File name'));
+    const query=e('input','','dl-input');query.type='search';
+    query.placeholder='File name';query.setAttribute('aria-label','Filter by file name');
+    query.addEventListener('input',draw);
+    nameGroup.append(query);
     const pathGroup=e('fieldset','','dl-torrent-path-filter');
     pathGroup.append(e('legend','Path name'));
     const pathQuery=e('input','','dl-input');pathQuery.type='search';
@@ -513,39 +572,41 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     pathQuery.setAttribute('aria-label','Filter by partial path segment');
     pathQuery.addEventListener('input',draw);
     pathGroup.append(pathQuery);
-    filterPanel.append(typeGroup,sizeGroup,pathGroup);
+    filterPanel.append(typeGroup,sizeGroup,nameGroup,pathGroup);
     const selectionLine=e('div','','dl-torrent-selection');
-    const root=e('label','','dl-torrent-root');
     const count=e('span','','dl-muted dl-picker-count');
-    selectionLine.append(root,count);
+    selectionLine.append(count);
     const files=e('div','','dl-torrent-files');
-    picker.append(controls,filterPanel,selectionLine,files);
+    picker.append(filterPanel,controls,selectionLine,files);
 
     const matching=()=>torrentMatches(manifestFiles,query.value,order,{
       extensions,minBytes,maxBytes,path:pathQuery.value,
-    });
-    let folderChecks=[], fileChecks=[];
+    },direction);
+    let folderChecks=[],fileChecks=[];
     function updateSelection(){
       for(const {check,index} of fileChecks)check.checked=selected.has(index);
-      for(const {check,rows} of folderChecks){
+      for(const {check,rows,scopeRows,totalRows,sizeOutput} of folderChecks){
+        // Tri-state is deliberately based ONLY on visible rows, even for All files.
         const checked=rows.filter(row=>selected.has(row.index)).length;
         check.checked=rows.length>0 && checked===rows.length;
         check.indeterminate=checked>0 && checked<rows.length;
-        check.disabled=rows.length===0;
+        check.disabled=scopeRows.length===0;
+        sizeOutput.textContent=sizeLabel(torrentSelectedBytes(totalRows,selected));
       }
-      const total=manifestFiles.reduce((sum,row)=>sum+(selected.has(row.index)?row.size_bytes:0),0);
-      count.textContent=selected.size+' of '+manifestFiles.length+' files selected · '+sizeLabel(total)+' total';
+      count.textContent=selected.size+' of '+manifestFiles.length+' files selected · '+
+        sizeLabel(torrentSelectedBytes(manifestFiles,selected))+' total';
     }
     function applyScope(rows,checked){
       selected=chooseFiltered(selected,rows,checked);
       updateSelection();refreshSubmit();
     }
-    function folderCheck(rows,name){
+    function folderCheck(rows,name,scopeRows,totalRows,sizeOutput){
       const check=e('input');check.type='checkbox';
-      check.setAttribute('aria-label','Select visible files in '+name);
+      check.setAttribute('aria-label','Select files in '+name);
       check.addEventListener('click',event=>event.stopPropagation());
-      check.addEventListener('change',()=>applyScope(rows,check.checked));
-      folderChecks.push({check,rows});return check;
+      check.addEventListener('change',()=>applyScope(scopeRows,check.checked));
+      folderChecks.push({check,rows,scopeRows,totalRows,sizeOutput});
+      return check;
     }
     function fileLabel(item,showPath=false){
       const label=e('label','','dl-torrent-file');
@@ -565,28 +626,48 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       for(const child of node.folders.values())result.push(...descendants(child));
       return result;
     }
-    function drawTree(node,parent){
-      const folders=[...node.folders.entries()].sort(([a],[b])=>a.localeCompare(b));
+    function folderRow(name,visibleRows,allRows,scopeRows=visibleRows){
+      const group=e('details','','dl-torrent-folder');
+      group.open=true;
+      const heading=e('summary');
+      const expander=e('span','','dl-torrent-expander');
+      expander.setAttribute('aria-hidden','true');
+      const size=e('small','','dl-torrent-folder-size dl-muted');
+      heading.append(expander,folderCheck(visibleRows,name,scopeRows,allRows,size),
+        e('span',name,'dl-torrent-folder-name'),size);
+      const children=e('div','','dl-torrent-children');
+      group.append(heading,children);
+      return {group,children};
+    }
+    function drawTree(node,fullNode,parent){
+      const folders=[...node.folders.entries()].sort(([a,childA],[b,childB])=>{
+        if(order==='size'){
+          const bytes=node=>descendants(node).reduce((sum,file)=>sum+file.size_bytes,0);
+          const delta=bytes(childA)-bytes(childB);
+          if(delta)return direction==='desc'?-delta:delta;
+        }
+        return (direction==='desc'?-1:1)*a.localeCompare(b);
+      });
       for(const [name,child] of folders){
-        const group=e('details','','dl-torrent-folder');group.open=true;
-        const heading=e('summary');
-        const expander=e('span','','dl-torrent-expander');
-        expander.setAttribute('aria-hidden','true');
-        heading.append(expander,folderCheck(descendants(child),name),e('span',name,'dl-torrent-folder-name'));
-        const children=e('div','','dl-torrent-children');
-        drawTree(child,children);
-        group.append(heading,children);
+        const allRows=descendants(fullNode.folders.get(name));
+        const {group,children}=folderRow(name,descendants(child),allRows);
+        drawTree(child,fullNode.folders.get(name),children);
         parent.append(group);
       }
       for(const file of node.files)parent.append(fileLabel(file));
     }
     function draw(){
-      files.replaceChildren();root.replaceChildren();folderChecks=[];fileChecks=[];
+      files.replaceChildren();folderChecks=[];fileChecks=[];
       const matches=matching();
-      root.append(folderCheck(matches,'all torrent files'),e('span','All files'));
-      if(!matches.length)files.append(e('p','No files match the current filter.','dl-muted'));
-      else if(view==='tree')drawTree(torrentTree(matches),files);
-      else for(const file of matches)files.append(fileLabel(file,true));
+      const fullTree=torrentTree(manifestFiles);
+      // Root affects ALL manifest files, irrespective of filters. Its displayed
+      // checkbox state remains visible-only, like every other folder.
+      const {group,children}=folderRow('All files',matches,manifestFiles,manifestFiles);
+      group.classList.add('dl-torrent-all-files');
+      if(!matches.length)children.append(e('p','No files match the current filter.','dl-muted'));
+      else if(view==='tree')drawTree(torrentTree(matches),fullTree,children);
+      else for(const file of matches)children.append(fileLabel(file,true));
+      files.append(group);
       updateSelection();refreshSubmit();
     }
     setView('tree');
