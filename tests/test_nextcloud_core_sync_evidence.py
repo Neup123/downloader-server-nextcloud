@@ -191,7 +191,12 @@ class CoreSyncEvidenceTests(unittest.TestCase):
             self.assertIn("grep -vFx 'web/src/App.tsx'", content)
             self.assertIn('git diff --exit-code upstream/main -- "${shared_ui[@]}"', content)
         source = (ROOT / "scripts/record_core_sync.py").read_text()
-        self.assertIn("*CORE_OWNED_PATHS, *core_shared_web_paths(core)", source)
+        self.assertIn("*CORE_BYTE_PARITY_PATHS, *core_shared_web_paths(core)", source)
+        backend_scope = source.split("CORE_BYTE_PARITY_PATHS = (", 1)[1].split("\n)", 1)[0]
+        self.assertIn('":(exclude)app/delivery.py"', backend_scope)
+        self.assertIn('":(exclude)app/schemas.py"', backend_scope)
+        web_scope = source.split("WEB_BYTE_PARITY_EXEMPTIONS =", 1)[1].splitlines()[0]
+        self.assertIn('"web/src/ui-options.ts"', web_scope)
 
     def test_core_parity_scope_is_explicit_and_no_private_target_claim(self):
         self.assertIn("BLUEPRINT.md", CORE_OWNED_PATHS)

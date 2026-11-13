@@ -20,6 +20,13 @@ CORE_OWNED_PATHS = (
     "Dockerfile.egress", "compose.egress.yaml", "scripts/egress_guard.sh",
     "EGRESS_GUARD.md",
 )
+# Approved downstream delivery and schema features are exempt from byte parity;
+# the other files covered by app/ and all remaining Core paths stay protected.
+CORE_BYTE_PARITY_PATHS = (
+    *CORE_OWNED_PATHS,
+    ":(exclude)app/delivery.py",
+    ":(exclude)app/schemas.py",
+)
 
 
 def validate_record(
@@ -49,8 +56,11 @@ def validate_record(
         "source_is_exact_second_parent": True,
         "source_ancestry_verified": True,
         "core_owned_files_byte_identical": True,
-        "core_owned_paths": list(CORE_OWNED_PATHS),
-        "shared_core_ui": "all upstream web/src source files except intentional web/src/App.tsx",
+        "core_owned_paths": list(CORE_BYTE_PARITY_PATHS),
+        "shared_core_ui": (
+            "all upstream web/src source files except intentional web/src/App.tsx "
+            "and approved downstream web/src/ui-options.ts"
+        ),
         "acceptance": {
             "full_upstream_python_tests": "passed",
             "reviewed_nextcloud_python_tests": "passed",
@@ -85,8 +95,11 @@ def validate_revalidation_record(
         "source_is_exact_second_parent": False,
         "source_ancestry_verified": True,
         "core_owned_files_byte_identical": True,
-        "core_owned_paths": list(CORE_OWNED_PATHS),
-        "shared_core_ui": "all upstream web/src source files except intentional web/src/App.tsx",
+        "core_owned_paths": list(CORE_BYTE_PARITY_PATHS),
+        "shared_core_ui": (
+            "all upstream web/src source files except intentional web/src/App.tsx "
+            "and approved downstream web/src/ui-options.ts"
+        ),
         "acceptance": {
             "full_upstream_python_tests": "passed",
             "reviewed_nextcloud_python_tests": "passed",
@@ -106,6 +119,9 @@ def git(*args: str) -> str:
 # UserApp.tsx and AdminApp.tsx. Every other file Core owns in web/src must
 # remain byte-identical in the downstream merge.
 INTENTIONAL_WEB_DIVERGENCE = "web/src/App.tsx"
+# Approved downstream UI-options features are also exempt from byte parity;
+# the remaining upstream web/src files stay protected.
+WEB_BYTE_PARITY_EXEMPTIONS = (INTENTIONAL_WEB_DIVERGENCE, "web/src/ui-options.ts")
 
 
 def core_shared_web_paths(core_sha: str) -> tuple[str, ...]:
@@ -120,7 +136,7 @@ def core_shared_web_paths(core_sha: str) -> tuple[str, ...]:
         for item in items
     ):
         raise ValueError("Invalid Core UI inventory")
-    return tuple(item for item in items if item != INTENTIONAL_WEB_DIVERGENCE)
+    return tuple(item for item in items if item not in WEB_BYTE_PARITY_EXEMPTIONS)
 
 
 def accepted_sync_record() -> dict:
@@ -138,7 +154,7 @@ def accepted_sync_record() -> dict:
         check=False, capture_output=True, timeout=10,
     ).returncode == 0
     byte_parity = subprocess.run(
-        ["git", "diff", "--quiet", core, merged, "--", *CORE_OWNED_PATHS, *core_shared_web_paths(core)],
+        ["git", "diff", "--quiet", core, merged, "--", *CORE_BYTE_PARITY_PATHS, *core_shared_web_paths(core)],
         check=False, capture_output=True, timeout=15,
     ).returncode == 0
     return validate_record(
@@ -160,7 +176,7 @@ def accepted_main_revalidation_record() -> dict:
         check=False, capture_output=True, timeout=10,
     ).returncode == 0
     parity = subprocess.run(
-        ["git", "diff", "--quiet", core, current, "--", *CORE_OWNED_PATHS, *core_shared_web_paths(core)],
+        ["git", "diff", "--quiet", core, current, "--", *CORE_BYTE_PARITY_PATHS, *core_shared_web_paths(core)],
         check=False, capture_output=True, timeout=15,
     ).returncode == 0
     return validate_revalidation_record(
