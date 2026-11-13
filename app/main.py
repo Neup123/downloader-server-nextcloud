@@ -16,7 +16,10 @@ from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, cast, or_, Text, delete
 from sqlalchemy.orm import Session
 
@@ -24,6 +27,7 @@ from app.adapters.aria2 import Aria2Rpc
 from app.adapters.process_env import downloader_environment
 from app.completion import load_completed_files
 from app.config import Settings
+from app.cookies import encrypt_cookie
 from app.version import product_version
 from app.discovery import PreviewError, inspect_ytdlp
 from app.options_catalog import get_catalog
@@ -31,7 +35,7 @@ from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make
 from app.job_states import JobStatus, TERMINAL_STATUSES, ACTIVE_STATUSES, transition_job
 from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery, verify_delivery_destination
 from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn
-from app.security import UnsafeUrlError, preflight_source_dns, validate_target_url
+from app.security import SourceResolutionError, UnsafeUrlError, preflight_source_dns, validate_target_url
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
 
 
@@ -75,6 +79,17 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
     app.state.session_factory = session_factory
     app.state.worker = worker
 
+    @app.exception_handler(RequestValidationError)
+    async def preview_validation_failure(request: Request, exc: RequestValidationError):
+        # FastAPI's request schema 422 is also a preview failure. Preserve the
+        # original detail list; add a code only on the preview endpoint.
+        if request.url.path == "/api/v1/preview":
+            return JSONResponse(
+                status_code=422,
+                content={"detail": jsonable_encoder(exc.errors()), "reason_code": "malformed_link"},
+            )
+        return await request_validation_exception_handler(request, exc)
+
     def db_session():
         with session_factory() as session:
             yield session
@@ -95,8 +110,14 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             if not config.allow_private_targets:
                 await asyncio.to_thread(preflight_source_dns, url)
             return await inspect_ytdlp(url, max_entries=payload.max_entries, offset=payload.offset)
-        except (UnsafeUrlError, ValueError, PreviewError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SourceResolutionError as exc:
+            detail, code = str(exc), "could_not_check"
+        except (UnsafeUrlError, ValueError) as exc:
+            detail, code = str(exc), "malformed_link"
+        except PreviewError as exc:
+            detail, code = str(exc), exc.reason_code
+        # Same HTTP 422 and exact detail string as before; only the code is new.
+        return JSONResponse(status_code=422, content={"detail": detail, "reason_code": code})
 
 
     @app.post("/api/v1/torrent/manifest", tags=["jobs"])
@@ -219,6 +240,10 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             raise HTTPException(status_code=422, detail="Cookie file must be valid base64-encoded UTF-8 text") from exc
         if len(content) > 1_000_000 or "\x00" in decoded:
             raise HTTPException(status_code=413, detail="Cookie file is too large or contains invalid bytes")
+        try:
+            encrypted = encrypt_cookie(content, config.encryption_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         cookie_dir = config.data_dir / "cookies"
         cookie_dir.mkdir(parents=True, exist_ok=True)
         if cookie_dir.is_symlink():
@@ -234,8 +259,8 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                 suffix=".part", delete=False,
             ) as stream:
                 temporary = Path(stream.name)
-                os.fchmod(stream.fileno(), 0o600)
-                stream.write(content)
+                os.chmod(stream.name, 0o600)
+                stream.write(encrypted)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, target)
