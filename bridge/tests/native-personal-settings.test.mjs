@@ -114,7 +114,14 @@ test('site cookie vault is mounted in Advanced settings with owner-scoped API an
   assert.match(vault,/content_base64:utf8Base64\(bytes\)/);
   assert.match(vault,/paste\.value=''/);
   assert.match(vault,/upload\.value=''/);
-  assert.match(vault,/Remove site cookies/);
+  assert.match(vault,/role','listbox'/);
+  assert.match(vault,/aria-selected/);
+  assert.match(vault,/iconButton\('Add site cookies','\+'/);
+  assert.match(vault,/iconButton\('Remove selected site cookies','−'/);
+  assert.match(vault,/iconButton\('Move selected site cookies up','▲'/);
+  assert.match(vault,/iconButton\('Move selected site cookies down','▼'/);
+  assert.match(vault,/Reset cookies to default/);
+  assert.match(vault,/submit\.type='submit'/);
   assert.doesNotMatch(vault,/innerHTML|console\.|localStorage|sessionStorage/);
 });
 
