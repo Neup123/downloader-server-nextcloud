@@ -10,8 +10,19 @@ const bridgeSource=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf
 
 function fakeDocument() {
   function createElement(tagName) {
+    const classNames=new Set();
     return {
       tagName, children: [], hidden: false, textContent: '',
+      classList: {
+        add(...names) { for(const name of names)classNames.add(name); },
+        remove(...names) { for(const name of names)classNames.delete(name); },
+        toggle(name,force) {
+          const present=force===undefined ? !classNames.has(name) : Boolean(force);
+          if(present)classNames.add(name);
+          else classNames.delete(name);
+          return present;
+        },
+      },
       append(...items) { this.children.push(...items); },
       replaceChildren(...items) { this.children = items; },
       setAttribute() {},

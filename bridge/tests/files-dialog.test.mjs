@@ -505,10 +505,10 @@ test('dialog has no visible title and hides status text unless a problem exists'
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
   assert.match(dialog,/spinner\.hidden=false/);
   assert.match(dialog,/message\(linkFailureMessage\(failure\)\)/);
-  assert.match(dialog,/message\('Torrent downloads are not available yet\.'\)/);
+  assert.match(dialog,/message\('Direct \.torrent URLs cannot be inspected or submitted\.'\)/);
+  assert.match(dialog,/message\('Could not load the torrent file list\. Check the magnet link\.'\)/);
   assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
   assert.match(dialog,/message\(value\?linkFailureMessage\(classifyLinkFailure\(value\)\):''\)/);
-  assert.match(dialog,/Only the first 100 items are available to select/);
 });
 
 
