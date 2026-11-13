@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 const js=readFileSync(new URL('../src/settings.ts',import.meta.url),'utf8');
+const vault=readFileSync(new URL('../src/cookie-vault.ts',import.meta.url),'utf8');
 const form=readFileSync(new URL('../lib/Settings/PersonalSettings.php',import.meta.url),'utf8');
 const section=readFileSync(new URL('../lib/Settings/PersonalSection.php',import.meta.url),'utf8');
 const xml=readFileSync(new URL('../appinfo/info.xml',import.meta.url),'utf8');
@@ -100,4 +101,32 @@ test('folder reset, per-type overrides and inherited routes retain their saving 
   assert.match(routing,/changed\('destination_routes',\{\[kind\]:null\}\)/);
   assert.match(routing,/onFolderChosen=setDefaultFolder/);
   // The server's explicit starting-folder priority is tested by Python route-contract tests.
+});
+
+test('site cookie vault is mounted in Advanced settings with owner-scoped API and no secret rehydration',()=>{
+  assert.match(js,/renderCookieVault\(advanced,api\)/);
+  assert.match(vault,/Site cookies/);
+  assert.match(vault,/Get cookies\.txt LOCALLY/);
+  assert.match(vault,/cclelndahbckbenkjhflpdbgdldlbecc/);
+  assert.match(vault,/effectively a password/);
+  assert.match(vault,/older “Get cookies\.txt” extension/);
+  assert.match(vault,/\/cookies'/);
+  assert.match(vault,/content_base64:utf8Base64\(bytes\)/);
+  assert.match(vault,/paste\.value=''/);
+  assert.match(vault,/upload\.value=''/);
+  assert.match(vault,/role','listbox'/);
+  assert.match(vault,/aria-selected/);
+  assert.match(vault,/iconButton\('Add site cookies','\+'/);
+  assert.match(vault,/iconButton\('Remove selected site cookies','−'/);
+  assert.match(vault,/iconButton\('Move selected site cookies up','▲'/);
+  assert.match(vault,/iconButton\('Move selected site cookies down','▼'/);
+  assert.match(vault,/Reset cookies to default/);
+  assert.match(vault,/submit\.type='submit'/);
+  assert.doesNotMatch(vault,/innerHTML|console\.|localStorage|sessionStorage/);
+});
+
+test('cookie status never falsely claims an unimplemented validation endpoint succeeded',()=>{
+  assert.match(vault,/Saved · validity not tested/);
+  assert.doesNotMatch(vault,/Test site cookies/);
+  assert.doesNotMatch(vault,/Valid ✓|Cookies are valid/);
 });
