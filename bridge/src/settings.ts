@@ -1,4 +1,5 @@
 import {renderCookieVault} from './cookie-vault';
+import {reconcileSettingsPatch,mergePendingPatches,overlayPendingSettings} from './settings-reconcile.mjs';
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
@@ -119,6 +120,7 @@ function start() {
   let dirty:Record<string,unknown>={};
   let saving=false;
   let timer:number|undefined;
+  let needsReconciliation=false;
 
   async function save(){
     window.clearTimeout(timer);
@@ -133,9 +135,26 @@ function start() {
       status.firstChild!.textContent=Object.keys(dirty).length
         ? 'Saving your latest changes…' : 'Saved ✓ Changes apply to new downloads.';
     }catch(error){
-      dirty={...patch,...dirty};
-      status.firstChild!.textContent=error instanceof Error?error.message:'Could not save settings.';
-      retry.hidden=false;
+      const reason=error instanceof Error?error.message:'Could not save settings.';
+      try{
+        const saved=await api<Personal>('/settings');
+        const outcome=reconcileSettingsPatch(patch,saved);
+        dirty=mergePendingPatches(outcome.remaining,dirty);
+        setup(overlayPendingSettings(saved,dirty) as Personal);
+        const report=[
+          outcome.applied.length?'Applied: '+outcome.applied.join(', '):'No requested values were applied',
+          outcome.pending.length?'Not saved: '+outcome.pending.join(', '):'',
+          outcome.unverified.length?'Cannot verify: '+outcome.unverified.join(', '):'',
+        ].filter(Boolean).join('. ');
+        status.firstChild!.textContent=reason+' '+report+'.';
+        retry.hidden=!Object.keys(dirty).length;
+      }catch{
+        // Never blindly replay a possibly-partial write until GET succeeds.
+        dirty=mergePendingPatches(patch,dirty);
+        needsReconciliation=true;
+        status.firstChild!.textContent=reason+' Could not verify saved settings; retry will check first.';
+        retry.hidden=false;
+      }
     }finally{
       saving=false;
       if(Object.keys(dirty).length && retry.hidden){
@@ -143,7 +162,28 @@ function start() {
       }
     }
   }
-  retry.addEventListener('click',()=>{retry.hidden=true;void save();});
+  retry.addEventListener('click',()=>{
+    retry.hidden=true;
+    void (async()=>{
+      if(needsReconciliation){
+        try{
+          const saved=await api<Personal>('/settings');
+          const outcome=reconcileSettingsPatch(dirty,saved);
+          dirty=outcome.remaining;
+          setup(overlayPendingSettings(saved,dirty) as Personal);
+          needsReconciliation=false;
+          if(!Object.keys(dirty).length){
+            status.firstChild!.textContent='Settings verified. All requested values are already saved.';
+            return;
+          }
+        }catch{
+          status.firstChild!.textContent='Could not verify saved settings. Try again when Nextcloud is available.';
+          retry.hidden=false;return;
+        }
+      }
+      await save();
+    })();
+  });
   function changed(key:string,value:unknown){
     if(key==='destination_routes' && typeof value==='object' && value!==null){
       const before=dirty[key] as Record<string,unknown>|undefined;
@@ -400,8 +440,18 @@ function start() {
       void api<Personal>('/settings','PUT',{app_password:secret}).then(updated=>{
         personal={...personal,...updated};connection.textContent='Configured ✓ Your Files password was saved.';
         connect.textContent='Update Files connection';form.hidden=true;
-      }).catch(error=>{
-        connection.textContent=error instanceof Error?error.message:'Could not connect Files.';
+      }).catch(async error=>{
+        const reason=error instanceof Error?error.message:'Could not connect Files.';
+        try{
+          const saved=await api<Personal>('/settings');
+          personal={...personal,...saved};
+          connect.textContent=saved.app_password_configured?'Update Files connection':'Connect my Files';
+          connection.textContent=reason+(saved.app_password_configured
+            ? ' A Files password is configured, but this update cannot be verified. Re-enter it to retry.'
+            : ' No Files password is configured.');
+        }catch{
+          connection.textContent=reason+' Could not verify the Files connection. Reload before trying again.';
+        }
       }).finally(()=>{apply.disabled=false;});
     });
     files.append(connect,form);

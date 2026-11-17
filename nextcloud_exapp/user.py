@@ -11,6 +11,7 @@ import asyncio
 import os
 import json
 import re
+import uuid
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
@@ -265,6 +266,12 @@ async def read_user_preferences(context: UserContext) -> dict[str, Any]:
 
 
 async def write_user_preferences(context: UserContext, patch: dict[str, Any]) -> dict[str, Any]:
+    """Validate every field first; restore attempted writes if Nextcloud fails.
+
+    Preferences are individual Nextcloud API calls, not one DB transaction. A
+    rollback is best-effort: callers must re-read the saved settings on errors,
+    especially if Nextcloud was unavailable during compensation.
+    """
     if not isinstance(patch, dict):
         raise HTTPException(status_code=422, detail="Invalid personal settings")
     allowed = {"destination_folder", "engine_settings", "app_password",
@@ -273,57 +280,51 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
                "destination_routes", "existing_file_behavior"}
     if set(patch) - allowed:
         raise HTTPException(status_code=422, detail="Unknown personal setting")
-    pref = context.nc.preferences_ex
-    if "existing_file_behavior" in patch and patch["existing_file_behavior"] not in ("rename", "skip"):
-        raise HTTPException(status_code=422, detail="Choose Rename or Skip; overwrite is never offered")
+
+    # Build all changes before taking a snapshot or changing any preference.
+    validated: dict[str, str] = {}
+    if "destination_folder" in patch:
+        validated["destination_folder"] = validate_folder(patch["destination_folder"])
+    if "existing_file_behavior" in patch:
+        if patch["existing_file_behavior"] not in ("rename", "skip"):
+            raise HTTPException(status_code=422, detail="Choose Rename or Skip; overwrite is never offered")
+        validated["existing_file_behavior"] = patch["existing_file_behavior"]
     if "destination_routes" in patch:
         route_patch = patch["destination_routes"]
         if not isinstance(route_patch, dict) or set(route_patch) - set(ROUTE_SUBFOLDERS):
             raise HTTPException(status_code=422, detail="Invalid content-type destination routes")
-        for route_path in route_patch.values():
+        for kind, route_path in route_patch.items():
             if route_path is None:
-                continue  # Reset to the implicit route; created on first use.
-            validated = validate_folder(route_path)
-            # Persist only existing folders belonging to the signed-in owner.
-            # A structurally valid but nonexistent typed path is not a valid route.
+                continue  # Reset an override to the implicit destination.
+            path = validate_folder(route_path)
             try:
-                node = await context.nc.files.by_path("/" + validated if validated else "/")
+                node = await context.nc.files.by_path("/" + path if path else "/")
             except (FileNotFoundError, NextcloudException) as exc:
                 raise HTTPException(status_code=422, detail="Folder not found in your Files. Choose an existing folder") from exc
             except Exception as exc:
                 raise HTTPException(status_code=409, detail="Could not check this folder in your Files. Try again") from exc
             if node is None or not bool(getattr(node, "is_dir", False)):
                 raise HTTPException(status_code=422, detail="Folder not found in your Files. Choose an existing folder")
-    if "destination_folder" in patch:
-        folder = validate_folder(patch["destination_folder"])
-        await pref.set_value("destination_folder", folder)
-    if "destination_routes" in patch:
-        overrides = _saved_destination_route_overrides(
-            await pref.get_value("destination_routes", "{}")
-        )
-        for kind, path in patch["destination_routes"].items():
-            if path is None:
-                overrides.pop(kind, None)
-            else:
-                overrides[kind] = validate_folder(path)
-        await pref.set_value("destination_routes", json.dumps(overrides, separators=(",", ":")))
-    if "existing_file_behavior" in patch:
-        await pref.set_value("existing_file_behavior", patch["existing_file_behavior"])
+            validated["route:" + kind] = path
     if "engine_settings" in patch:
         settings = patch["engine_settings"]
-        if (
-            not isinstance(settings, dict)
-            or any(name not in ENGINES or not isinstance(values, dict) for name, values in settings.items())
-            or len(json.dumps(settings)) > 16000
+        if not isinstance(settings, dict) or any(
+            name not in ENGINES or not isinstance(values, dict)
+            for name, values in settings.items()
         ):
             raise HTTPException(status_code=422, detail="Invalid per-engine preferences")
-        await pref.set_value("engine_settings", json.dumps(settings, separators=(",", ":")))
+        try:
+            encoded = json.dumps(settings, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid per-engine preferences") from exc
+        if len(json.dumps(settings)) > 16000:
+            raise HTTPException(status_code=422, detail="Invalid per-engine preferences")
+        validated["engine_settings"] = encoded
     for name in ("notify_finished", "notify_failed"):
         if name in patch:
-            value = patch[name]
-            if not isinstance(value, bool):
+            if not isinstance(patch[name], bool):
                 raise HTTPException(status_code=422, detail="Notification preference must be on or off")
-            await pref.set_value(name, "1" if value else "0")
+            validated[name] = "1" if patch[name] else "0"
     for name, choices in (
         ("header_indicator_visibility", {"active", "always"}),
         ("dropdown_content", {"active", "all"}),
@@ -333,18 +334,70 @@ async def write_user_preferences(context: UserContext, patch: dict[str, Any]) ->
         if name in patch:
             if not isinstance(patch[name], str) or patch[name] not in choices:
                 raise HTTPException(status_code=422, detail="Invalid downloads display preference")
-            await pref.set_value(name, patch[name])
+            validated[name] = patch[name]
     if "app_password" in patch:
         password = patch["app_password"]
         if not isinstance(password, str) or len(password) > 1024:
             raise HTTPException(status_code=422, detail="Invalid Nextcloud app password")
-        if password:
-            await pref.set_value("dav_app_password", password, sensitive=True)
-        else:
-            await pref.delete("dav_app_password")
+        validated["dav_app_password"] = password
+
+    pref = context.nc.preferences_ex
+    if "destination_routes" in patch:
+        overrides = _saved_destination_route_overrides(
+            await pref.get_value("destination_routes", "{}")
+        )
+        for kind, path in patch["destination_routes"].items():
+            if path is None:
+                overrides.pop(kind, None)
+            else:
+                overrides[kind] = validated["route:" + kind]
+        validated["destination_routes"] = json.dumps(overrides, separators=(",", ":"))
+
+    # Nextcloud has no multi-key preference transaction: snapshot all target
+    # keys before writing. Include a failing key in compensation because a
+    # remote write can persist and then raise (e.g. a lost response).
+    order = ("destination_folder", "destination_routes", "existing_file_behavior",
+             "engine_settings", "notify_finished", "notify_failed",
+             "header_indicator_visibility", "dropdown_content",
+             "default_video_quality", "default_audio_quality", "dav_app_password")
+    names = [name for name in order if name in validated]
+    missing = "__downloader_missing_" + uuid.uuid4().hex + "__"
+    before = {name: await pref.get_value(name, missing) for name in names}
+    attempted: list[str] = []
+    try:
+        for name in names:
+            attempted.append(name)
+            if name == "dav_app_password" and not validated[name]:
+                await pref.delete(name)
+            elif name == "dav_app_password":
+                await pref.set_value(name, validated[name], sensitive=True)
+            elif name in ("header_indicator_visibility", "dropdown_content",
+                          "default_video_quality", "default_audio_quality"):
+                await pref.set_value(name, patch[name])
+            else:
+                await pref.set_value(name, validated[name])
+    except Exception as exc:
+        restore_failed = []
+        for name in reversed(attempted):
+            try:
+                if before[name] == missing:
+                    await pref.delete(name)
+                elif name == "dav_app_password":
+                    await pref.set_value(name, before[name], sensitive=True)
+                else:
+                    await pref.set_value(name, before[name])
+            except Exception:
+                restore_failed.append(name)
+        if restore_failed:
+            raise HTTPException(
+                status_code=503,
+                detail="Settings save failed and some previous values could not be restored. Reload to check the saved settings.",
+            ) from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Settings save failed; previous values were restored.",
+        ) from exc
     return await read_user_preferences(context)
-
-
 
 
 async def read_legacy_personal_presets(context: UserContext) -> list[dict[str, Any]]:

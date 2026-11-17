@@ -149,6 +149,85 @@ class UserUnitTests(TestCase):
         with self.assertRaises(HTTPException):
             validate_folder("Movies/../other")
 
+
+    def test_combined_patch_valid_early_and_invalid_late_is_untouched(self):
+        """No field may be saved until all settings, even late ones, validate."""
+        from unittest.mock import AsyncMock
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved.update({
+            "destination_folder": "Original",
+            "existing_file_behavior": "rename",
+            "notify_failed": "1",
+            "engine_settings": '{"yt-dlp":{"format":"best"}}',
+            "dav_app_password": "old-secret",
+        })
+        original = dict(nc.preferences_ex.saved)
+        nc.preferences_ex.set_value = AsyncMock(wraps=nc.preferences_ex.set_value)
+        nc.preferences_ex.delete = AsyncMock(wraps=nc.preferences_ex.delete)
+        for late in (
+            {"engine_settings": {"unknown-engine": {}}},
+            {"notify_failed": "false"},
+            {"default_audio_quality": "lossless"},
+            {"app_password": 123},
+        ):
+            with self.subTest(late=late), self.assertRaises(HTTPException) as failure:
+                asyncio.run(write_user_preferences(UserContext("alice", nc), {
+                    "destination_folder": "Updated",
+                    "existing_file_behavior": "skip",
+                    **late,
+                }))
+            self.assertEqual(failure.exception.status_code, 422)
+            self.assertEqual(nc.preferences_ex.saved, original)
+        nc.preferences_ex.set_value.assert_not_awaited()
+        nc.preferences_ex.delete.assert_not_awaited()
+
+    def test_partial_nextcloud_write_is_compensated_even_if_failing_key_changed(self):
+        """A lost write response must roll back the failing key as well."""
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved.update({
+            "destination_folder": "Original", "notify_failed": "1",
+            "dav_app_password": "original-secret",
+        })
+        original = dict(nc.preferences_ex.saved)
+        pref = nc.preferences_ex
+        normal_set = pref.set_value
+        attempts = []
+        async def fail_after_writing(name, value, sensitive=None):
+            attempts.append(name)
+            await normal_set(name, value, sensitive=sensitive)
+            if name == "notify_failed" and attempts.count(name) == 1:
+                raise OSError("lost response after persisting")
+        pref.set_value = fail_after_writing
+        with self.assertRaises(HTTPException) as failure:
+            asyncio.run(write_user_preferences(UserContext("alice", nc), {
+                "destination_folder": "Updated", "notify_failed": False,
+            }))
+        self.assertEqual(failure.exception.status_code, 409)
+        self.assertEqual(pref.saved, original)
+        self.assertEqual(attempts, ["destination_folder", "notify_failed",
+                                    "notify_failed", "destination_folder"])
+
+    def test_rollback_failure_reports_uncertain_saved_state(self):
+        """Never claim atomic rollback if Nextcloud also refuses compensation."""
+        nc = FakeNc("alice")
+        pref = nc.preferences_ex
+        pref.saved.update({"destination_folder": "Original", "notify_failed": "1"})
+        original_set = pref.set_value
+        async def fail_and_block_restoration(name, value, sensitive=None):
+            if name == "notify_failed":
+                raise OSError("write unavailable")
+            if name == "destination_folder" and value == "Original":
+                raise OSError("rollback unavailable")
+            await original_set(name, value, sensitive=sensitive)
+        pref.set_value = fail_and_block_restoration
+        with self.assertRaises(HTTPException) as failure:
+            asyncio.run(write_user_preferences(UserContext("alice", nc), {
+                "destination_folder": "Updated", "notify_failed": False,
+            }))
+        self.assertEqual(failure.exception.status_code, 503)
+        self.assertIn("could not be restored", failure.exception.detail)
+        self.assertEqual(asyncio.run(read_user_preferences(UserContext("alice", nc)))["destination_folder"], "Updated")
+
     def test_submission_ignores_arbitrary_owner_and_rejects_cross_user_folder(self):
         nc = FakeNc("alice")
         nc.preferences_ex.saved["dav_app_password"] = "alice-webdav-secret"
