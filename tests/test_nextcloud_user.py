@@ -429,6 +429,83 @@ class TrackingTests(TestCase):
             shutil.rmtree(tracker.path.parent)
 
 
+    def test_intent_is_durable_before_core_and_recovers_after_post_accept_tracker_failure(self):
+        import sqlite3
+        from nextcloud_exapp.main import _queue_and_track
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                tracker=JobTracker(Path(temp)/"notices.sqlite")
+                context=UserContext("alice",FakeNc("alice"))
+                request=Request({"type":"http","headers":[],"username":"alice",
+                                 "app":SimpleNamespace(state=SimpleNamespace(job_tracker=tracker))})
+                submission="550e8400-e29b-41d4-a716-446655440000"
+                body={"url":"https://example.org/item","engine":"yt-dlp","owner_id":"alice",
+                      "submission_id":submission,"delivery":{"mode":"webdav"}}
+                accepted={"id":"11111111-1111-4111-8111-111111111111",
+                          "owner_id":"alice","status":"queued"}
+                orig_add=tracker.add
+                calls=[]
+                async def core(method,path,payload=None,**kwargs):
+                    calls.append((method,path))
+                    return accepted
+                with patch("nextcloud_exapp.main.core_json",side_effect=core), \
+                     patch("nextcloud_exapp.main.update_index",return_value=None), \
+                     patch.object(tracker,"add",side_effect=sqlite3.OperationalError("locked")):
+                    result=await _queue_and_track(request,context,body)
+                self.assertEqual(result,accepted,"A Core-accepted job must return success")
+                self.assertEqual(calls,[("POST","jobs")])
+                self.assertEqual(tracker.pending_intents(),[(submission,"alice")])
+                self.assertEqual(tracker.pending(),[])
+                tracker=JobTracker(Path(temp)/"notices.sqlite")
+                async def find(owner,key):
+                    self.assertEqual((owner,key),("alice",submission))
+                    return accepted
+                await tracker.reconcile_intents(find)
+                self.assertEqual(tracker.pending_intents(),[])
+                self.assertEqual(tracker.pending(),[(accepted["id"],"alice")])
+        asyncio.run(scenario())
+
+    def test_pre_core_intent_failure_never_submits_a_download(self):
+        from nextcloud_exapp.main import _queue_and_track
+        from unittest.mock import MagicMock
+        async def scenario():
+            tracker=MagicMock()
+            tracker.begin_submission.side_effect=PermissionError("unwritable DB")
+            context=UserContext("alice",FakeNc("alice"))
+            request=Request({"type":"http","headers":[],"username":"alice",
+                             "app":SimpleNamespace(state=SimpleNamespace(job_tracker=tracker))})
+            with patch("nextcloud_exapp.main.core_json") as backend:
+                with self.assertRaises(HTTPException) as failure:
+                    await _queue_and_track(request,context,{
+                        "url":"https://example.org/item", "owner_id":"alice",
+                        "submission_id":"550e8400-e29b-41d4-a716-446655440001",
+                    })
+                self.assertEqual(failure.exception.status_code,503)
+                backend.assert_not_called()
+        asyncio.run(scenario())
+
+    def test_restart_reconciles_core_committed_job_without_second_core_post(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"pending.sqlite"
+                tracker=JobTracker(path)
+                identifier="550e8400-e29b-41d4-a716-446655440002"
+                tracker.begin_submission(identifier,"alice")
+                tracker=JobTracker(path)
+                calls=[]
+                async def find(owner,key):
+                    calls.append((owner,key))
+                    return {"id":"22222222-2222-4222-8222-222222222222","owner_id":"alice"}
+                await tracker.reconcile_intents(find)
+                self.assertEqual(calls,[("alice",identifier)])
+                self.assertEqual(tracker.pending(),[("22222222-2222-4222-8222-222222222222","alice")])
+                await tracker.reconcile_intents(find)
+                self.assertEqual(len(calls),1)
+                tracker.add("22222222-2222-4222-8222-222222222222","alice")
+                self.assertEqual(len(tracker.pending()),1)
+        asyncio.run(scenario())
+
+
 class ProvenanceContractTests(TestCase):
     def test_provenance_owner_isolation(self):
         from nextcloud_exapp.user import own_job_provenance
