@@ -46,7 +46,8 @@ def login(page) -> None:
 
 
 def check_library(page) -> None:
-    page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    assert response and response.status < 400, f"Native Library HTTP {response.status if response else 'no response'}"
     root = page.locator("#downloader-library-app")
     expect(root).to_be_visible(timeout=25_000)
     # Real signed ExApp API and delivery fixture already verified a terminal job.
@@ -109,7 +110,8 @@ def check_header_and_dialog(page) -> None:
 
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
-    page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    assert response and response.status < 400, f"Native Library HTTP {response.status if response else 'no response'}"
     expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
     page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
     in_viewport(page, "#downloader-library-app h1")
