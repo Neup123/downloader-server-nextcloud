@@ -7,6 +7,7 @@ import {downloadStatus, downloadTitle, downloadBubbleStatus, DOWNLOAD_QUEUED_MES
 const catalog=JSON.parse(readFileSync(new URL('../l10n/he.json', import.meta.url), 'utf8'));
 const javascript=readFileSync(new URL('../l10n/he.js', import.meta.url), 'utf8');
 const labels=readFileSync(new URL('../src/download-labels.mjs', import.meta.url), 'utf8');
+const library=readFileSync(new URL('../src/library.ts', import.meta.url), 'utf8');
 
 test('Nextcloud Hebrew JavaScript and PHP catalog forms are identical',()=>{
   let browserCatalog;
@@ -19,6 +20,16 @@ test('Nextcloud Hebrew JavaScript and PHP catalog forms are identical',()=>{
   for(const match of labels.matchAll(/t\('downloader_bridge', '([^']+)'/g)){
     assert.equal(typeof catalog.translations[match[1]],'string',
       'Translation missing for: '+match[1]);
+  }
+});
+
+test('Library labels resolve through the same Nextcloud domain and catalog',()=>{
+  assert.match(library,/downloadSymbol, t \} from '\.\/download-labels\.mjs'/);
+  const matches=[...library.matchAll(/t\('downloader_bridge', '([^']+)'/g)];
+  assert.ok(matches.length>=35,'A full Library screen must not fall back to unlocalized raw labels');
+  for(const match of matches){
+    assert.equal(typeof catalog.translations[match[1]],'string',
+      'Missing native Library catalog translation for '+match[1]);
   }
 });
 
