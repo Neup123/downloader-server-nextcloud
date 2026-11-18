@@ -68,6 +68,11 @@ function notify(message: string) {
   document.body.append(toast);
   window.setTimeout(() => toast.remove(), 5000);
 }
+function announceQueued(created: {id?: string} | null) {
+  if (!created?.id) throw new Error('The download was not confirmed. Try again from Downloads.');
+  notify(DOWNLOAD_QUEUED_MESSAGE);
+  window.dispatchEvent(new CustomEvent('downloader:job-queued', {detail: {id: created.id}}));
+}
 function contentTypeFromMime(mime: string): 'video'|'audio'|'images'|'direct' {
   if(mime.startsWith('video/')) return 'video';
   if(mime.startsWith('audio/')) return 'audio';
@@ -140,10 +145,10 @@ function registerActions() {
         && sourceIsHttp(attributes.download_source_url) ? attributes.download_source_url : '';
       if (original) {
         try {
-          await api('/jobs', 'POST', {
+          const created = await api<{id?:string}>('/jobs', 'POST', {
             url: original, content_type: contentTypeFromMime(context.nodes[0].mime),
           });
-          notify(DOWNLOAD_QUEUED_MESSAGE);
+          announceQueued(created);
           return true;
         } catch (error) {
           notify(error instanceof Error ? error.message : 'Download failed');
@@ -181,12 +186,12 @@ function attachLegacyViewerAction() {
     }}}).OCA?.Viewer?.fileInfo;
     const source = current?.download_source_url;
     if (source && sourceIsHttp(source)) {
-      void api('/jobs', 'POST', {
+      void api<{id?:string}>('/jobs', 'POST', {
         url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
       }).then(
-        () => notify(DOWNLOAD_QUEUED_MESSAGE),
+        created => announceQueued(created),
         error => notify(error instanceof Error ? error.message : 'Download failed'),
-      );
+      ).catch(error => notify(error instanceof Error ? error.message : 'Download failed'));
     } else {
       void openDialog(null);
     }
@@ -610,8 +615,8 @@ function registerProvenanceSidebar() {
             redownload.addEventListener('click', async () => {
               redownload.disabled = true;
               try {
-                await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
-                notify(DOWNLOAD_QUEUED_MESSAGE);
+                const created = await api<{id?:string}>('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
+                announceQueued(created);
               } catch (error) {
                 notify(error instanceof Error ? error.message : 'Could not re-download source');
               } finally {
