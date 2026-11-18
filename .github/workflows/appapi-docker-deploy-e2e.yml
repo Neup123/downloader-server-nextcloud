@@ -117,6 +117,13 @@ jobs:
               raise SystemExit("Disposable Nextcloud did not become ready")
           PY
 
+      - name: Disable disposable Nextcloud first-run tour before native browser acceptance
+        shell: bash
+        run: |
+          # The standard Nextcloud first-login presentation is independent of
+          # Downloader and intercepts keyboard focus in newly created accounts.
+          docker exec --user www-data downloader-appapi-nextcloud php occ app:disable firstrunwizard
+
       - name: Register a real AppAPI Deploy Daemon on disposable Docker
         shell: bash
         run: |
