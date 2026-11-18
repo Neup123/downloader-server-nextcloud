@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync, existsSync} from 'node:fs';
 import vm from 'node:vm';
 import {downloadStatus, downloadTitle, downloadBubbleStatus, DOWNLOAD_QUEUED_MESSAGE} from '../src/download-labels.mjs';
 
@@ -43,7 +43,14 @@ test('shared status labels use native user-language translation when provided',(
   assert.equal(DOWNLOAD_QUEUED_MESSAGE,'Download queued. Follow progress in Downloads.');
 });
 
-test('release packaging includes matching catalogs for PHP and JavaScript',()=>{
+test('release packaging includes matching catalogs for PHP and JavaScript',t=>{
+  // The bridge-package workflow intentionally runs tests in an isolated
+  // bridge-only directory. Repository workflows are verified by the separate
+  // root-level Python packaging contract in Nextcloud preflight CI.
+  if(!existsSync(new URL('../../.github/workflows/bridge-package.yml',import.meta.url))){
+    t.skip('Workflow files excluded by isolated bridge build');
+    return;
+  }
   const release=readFileSync(new URL('../../.github/workflows/bridge-package.yml',import.meta.url),'utf8');
   const deploy=readFileSync(new URL('../../.github/workflows/appapi-docker-deploy-e2e.yml',import.meta.url),'utf8');
   assert.match(release,/cp -a bridge\/appinfo bridge\/lib bridge\/js bridge\/templates bridge\/l10n/);
