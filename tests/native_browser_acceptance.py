@@ -96,6 +96,25 @@ def check_settings(page) -> None:
     expect(root.locator(".downloader-settings-grid")).to_be_visible(timeout=30_000)
     expect(root.get_by_text("Destination routing by content type")).to_be_visible()
     assert root.locator("input, select, button").count() >= 4
+    # #162: one content-hugging routing group, default folder first, each
+    # field followed by adjacent browse/reset icons rather than stacked buttons.
+    routing = root.locator(".downloader-routing-list")
+    expect(routing).to_be_visible()
+    rows = routing.locator(".downloader-route-item")
+    expect(rows).to_have_count(7)
+    expect(rows.first.locator(".downloader-route-label")).to_have_text("Default Files folder")
+    for row in rows.all():
+        field = row.locator("input.downloader-route-field")
+        actions = row.locator(".downloader-route-controls")
+        choose = actions.get_by_role("button", name="Choose folder")
+        reset = actions.get_by_role("button", name="Use default")
+        expect(field).to_be_visible()
+        expect(choose).to_have_attribute("title", "Choose folder")
+        expect(reset).to_have_attribute("title", "Use default")
+        field_box, action_box = field.bounding_box(), actions.bounding_box()
+        assert field_box and action_box, "Folder input or compact toolbar not rendered"
+        assert action_box["x"] >= field_box["x"] + field_box["width"] - 1, "Folder actions fell under the field"
+        assert abs(action_box["y"] - field_box["y"]) <= 8, "Folder actions are not aligned to their field"
     capture(page, "02-personal-settings.png")
 
 
@@ -129,6 +148,61 @@ def check_header_and_dialog(page) -> None:
     page.keyboard.press("Escape")
     expect(popover).to_be_hidden()
     expect(trigger).to_be_focused()
+
+
+
+def check_subtitle_layout(page) -> None:
+    """#166: use an intercepted deterministic media preview, real native DOM/CSS."""
+    import json
+
+    # No actual download or untrusted network call: only media preview metadata
+    # is mocked. The native dialog itself is loaded from disposable Nextcloud.
+    fixture = {
+        "kind": "video", "title": "Browser fixture clip",
+        "formats": [{"format_id": "x", "ext": "mp4", "vcodec": "avc1", "acodec": "mp4a"}],
+        "subtitle_languages": [],
+    }
+
+    def preview(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(fixture))
+
+    page.route("**/user/api/media-preview", preview)
+    header = page.locator("#downloader-topbar-progress")
+    expect(header.locator("button.dl-trigger")).to_be_visible()
+    header.locator("button.dl-trigger").click()
+    page.locator("#downloader-header-popover .dl-popover-add").click()
+    dialog = page.locator("dialog.dl-link-dialog")
+    expect(dialog).to_be_visible()
+    source = dialog.get_by_role("textbox", name="Source link")
+    source.fill("https://example.org/watch?v=browserfixture")
+    advanced = dialog.locator("details.dl-options")
+    expect(advanced).to_be_visible(timeout=20_000)
+    advanced.locator("summary").click()
+    frame = advanced.locator("fieldset.dl-subtitles-frame")
+    expect(frame).to_be_visible()
+    expect(frame.locator("legend")).to_have_text("Subtitles")
+    expect(frame.get_by_text("No subtitles available.")).to_be_visible()
+    language = frame.get_by_label("Subtitle language")
+    expect(language).to_be_disabled()
+    fmt = advanced.get_by_label("Format")
+    expect(fmt).to_be_visible()
+    fb, sb = fmt.bounding_box(), frame.bounding_box()
+    assert fb and sb, "Format or subtitle frame is not visible"
+    assert fb["x"] >= sb["x"] + sb["width"] - 1, "Format not to the right of subtitle frame"
+    assert abs(fb["y"] - sb["y"]) < 45, "Format is not top-aligned"
+    capture(page, "08-subtitles-unavailable-desktop.png")
+
+    fixture["subtitle_languages"] = ["en", "fr"]
+    source.fill("https://example.org/watch?v=withsubtitles")
+    frame = advanced.locator("fieldset.dl-subtitles-frame")
+    expect(frame).to_be_visible(timeout=20_000)
+    language = frame.get_by_label("Subtitle language")
+    expect(language).to_be_disabled()
+    frame.get_by_label("Download subtitles").check()
+    expect(language).to_be_enabled()
+    capture(page, "09-subtitles-available-desktop.png")
+    page.keyboard.press("Escape")
+    page.unroute("**/user/api/media-preview", preview)
 
 
 def check_mobile_rtl_and_theme(page) -> None:
@@ -175,6 +249,7 @@ def main() -> None:
             check_library(page)
             check_settings(page)
             check_header_and_dialog(page)
+            check_subtitle_layout(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")
