@@ -110,7 +110,7 @@ class UserUnitTests(TestCase):
     def test_all_privileged_exapp_handlers_require_admin_in_backend(self):
         from nextcloud_exapp.main import APP
         protected = {"/", "/api-reference", "/api/v1/{path:path}",
-                     "/admin/api/entitlements"}
+                     "/admin/api/entitlements", "/admin/api/tracker-health"}
         matches = [route for route in APP.routes if getattr(route, "path", None) in protected]
         self.assertEqual({route.path for route in matches}, protected)
         self.assertTrue(all(
@@ -355,6 +355,78 @@ class TrackingTests(TestCase):
                     self.assertEqual(len(created), 3)
                     self.assertEqual(created[-1][0], "alice")
         asyncio.run(run())
+
+
+    def test_tracker_failure_health_is_redacted_rate_limited_and_recovers_after_restart(self):
+        import logging
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "notifications.sqlite"
+                tracker = JobTracker(path)
+                tracker.add("failed-first", "alice")
+                fake = FakeNc("alice")
+                attempted = []
+
+                class BrokenNotifications:
+                    async def create(self, **kwargs):
+                        attempted.append(kwargs)
+                        raise RuntimeError("private credential failure must not enter log or health")
+
+                fake.notifications = BrokenNotifications()
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.LOGGER.warning") as warning:
+                    async def core(job_id):
+                        return {"id": job_id, "owner_id": "alice", "status": "failed"}
+                    for _ in range(4):
+                        await tracker.tick(core)
+                    status = tracker.health()
+                    self.assertEqual(status["status"], "degraded")
+                    self.assertEqual(status["pending_notifications"]["count"], 1)
+                    self.assertIsNotNone(status["pending_notifications"]["oldest_pending_seconds"])
+                    self.assertEqual(status["consecutive_failures"]["notification"], 4)
+                    self.assertEqual(status["consecutive_failures"]["index"], 0)
+                    self.assertEqual(warning.call_count, 1)
+                    self.assertNotIn("private credential", str(warning.call_args))
+                    self.assertNotIn("alice", str(status))
+                    self.assertNotIn("failed-first", str(status))
+                # Restart preserves outstanding rows; notifications remain incomplete.
+                tracker = JobTracker(path)
+                self.assertEqual(tracker.pending(), [("failed-first", "alice")])
+                delivered = []
+                class WorkingNotifications:
+                    async def create(self, **kwargs):
+                        delivered.append(kwargs)
+                fake.notifications = WorkingNotifications()
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.update_index", side_effect=RuntimeError("index offline")):
+                    await tracker.tick(core)
+                    await tracker.tick(core)
+                self.assertEqual(len(delivered), 1, "Indexing failures must not duplicate native notifications")
+                self.assertEqual(tracker.flags("failed-first"), (True, False))
+                self.assertEqual(tracker.health()["consecutive_failures"]["index"], 2)
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.update_index", return_value=None), \
+                     patch("nextcloud_exapp.tracking.reconcile_first_verified", return_value=None):
+                    await tracker.tick(core)
+                self.assertEqual(tracker.pending(), [])
+                self.assertEqual(len(delivered), 1)
+                self.assertEqual(tracker.health()["status"], "ready")
+        asyncio.run(scenario())
+
+    def test_tracker_health_is_admin_only(self):
+        from nextcloud_exapp.main import admin_tracker_health
+        tracker = JobTracker(Path(tempfile.mkdtemp()) / "notices.sqlite")
+        try:
+            request = Request({
+                "type": "http", "headers": [], "username": "alice",
+                "app": SimpleNamespace(state=SimpleNamespace(job_tracker=tracker)),
+            })
+            state = asyncio.run(admin_tracker_health(request, UserContext("alice", FakeNc("alice"))))
+            self.assertEqual(state["pending_notifications"]["count"], 0)
+            self.assertEqual(state["status"], "ready")
+        finally:
+            import shutil
+            shutil.rmtree(tracker.path.parent)
 
 
 class ProvenanceContractTests(TestCase):
