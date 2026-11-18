@@ -657,6 +657,13 @@ async def admin_connection_status(admin: UserContext = Depends(require_admin)):
         }
 
 
+@APP.get("/admin/api/tracker-health")
+async def admin_tracker_health(request: Request, admin: UserContext = Depends(require_admin)):
+    """Admin-scoped notification and indexing health; no job/owner identifiers."""
+    tracker = request.app.state.job_tracker
+    return tracker.health()
+
+
 @APP.get("/admin/api/files-connections")
 async def admin_read_files_connections(admin: UserContext = Depends(require_admin)):
     """Read-only administrator visibility, with no app password returned."""
