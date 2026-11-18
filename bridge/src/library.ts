@@ -1,5 +1,6 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
 
 type Job = {
   id:string;url:string;status:string;owner_id?:string;engine?:string;
@@ -211,10 +212,10 @@ function main() {
       const params=new URLSearchParams({limit:'50',offset:String(at),state:state.value,q:search.value.trim()});
       const page=await api<Page>('/library?'+params.toString());
       if (current!==generation) return;
-      const scroll = reset ? list.scrollTop : 0;
+      const interaction=reset ? captureRowState(list,'.library-row','.library-overflow') : null;
       if (reset) list.replaceChildren(...page.jobs.map(renderJob));
       else list.append(...page.jobs.map(renderJob));
-      if (reset) list.scrollTop = scroll;
+      if (interaction) restoreRowState(list,interaction,'.library-row','.library-overflow',search);
       offset=page.next_offset;
       more.hidden=offset===null;
       if (!list.children.length && offset===null) list.append(el('p','Nothing here yet. Your downloads will appear here.'));
