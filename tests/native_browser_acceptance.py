@@ -265,7 +265,10 @@ def check_torrent_selector(page) -> None:
     order = picker.get_by_role("button", name="Order by")
     order.click()
     picker.get_by_role("menuitemradio", name="Size").click()
-    expect(picker.get_by_role("menuitemradio", name="Size")).to_have_attribute("aria-checked", "true")
+    # The menu closes after choice; inspect its retained DOM state, not a
+    # hidden-by-default accessibility-tree locator.
+    size_option = picker.locator('.dl-torrent-sort-menu [role="menuitemradio"]').filter(has_text="Size")
+    expect(size_option).to_have_attribute("aria-checked", "true")
     capture(page, "11-torrent-selector-desktop.png")
 
     # The primary action must stay inside the visible dialog at a narrow width.
