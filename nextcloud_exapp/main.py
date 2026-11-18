@@ -402,7 +402,13 @@ async def user_redownload_source(file_id: str, request: Request,
                         params={"owner_id": context.user_id, "file_id": file_id}),
         context.user_id,
     )
-    request_data = {"url": provenance["source_url"]}
+    try:
+        action = await request.json()
+    except ValueError:
+        action = {}
+    if not isinstance(action, dict) or set(action) - {"submission_id"}:
+        raise HTTPException(status_code=422, detail="Invalid re-download request")
+    request_data = {"url": provenance["source_url"], **action}
     submitted = await job_submission(context, request_data)
     return await _queue_and_track(request, context, submitted)
 
