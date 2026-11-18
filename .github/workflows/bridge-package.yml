@@ -84,7 +84,7 @@ jobs:
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates package/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge/l10n package/downloader_bridge/
           cp bridge/README.md package/downloader_bridge/
           cd package
           zip -q -r ../downloader-bridge-0.5.3.zip downloader_bridge
