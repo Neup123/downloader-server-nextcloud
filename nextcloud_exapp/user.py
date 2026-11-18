@@ -61,6 +61,9 @@ def _saved_destination_route_overrides(value: Any) -> dict[str, str]:
 
 ENGINES = frozenset({"yt-dlp", "aria2c", "gallery-dl", "generic", "you-get", "svtplay-dl", "get-sauce"})
 PRIVILEGED_CORE_ROUTES = frozenset({"settings", "delivery", "cookies", "engine-rules"})
+# Compatibility-only list for obsolete saved Nextcloud values. The Core adapter
+# remains the authoritative enforcement of these mandatory policy options.
+ARIA2_LEGACY_MANAGED_OPTIONS = frozenset({"seed-time", "seed-ratio", "check-integrity"})
 
 
 @dataclass
@@ -452,7 +455,18 @@ async def job_submission(
         request_options = options.get("options", {})
         if not isinstance(saved_options, dict) or not isinstance(request_options, dict):
             raise HTTPException(status_code=422, detail="Invalid aria2 options")
-        overrides["options"] = {**saved_options, **request_options}
+        invalid = ARIA2_LEGACY_MANAGED_OPTIONS.intersection(request_options)
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail="Torrent seeding and integrity settings are controlled by the download server",
+            )
+        # Legacy per-user saved keys from older versions cannot be forwarded
+        # to Core's stricter API; remove only obsolete keys, not valid options.
+        overrides["options"] = {
+            key: value for key, value in {**saved_options, **request_options}.items()
+            if key not in ARIA2_LEGACY_MANAGED_OPTIONS
+        }
     # Replace user-visible cookie filenames with the own user's opaque core key.
     for option in ("cookies_file",):
         if overrides.get(option):
