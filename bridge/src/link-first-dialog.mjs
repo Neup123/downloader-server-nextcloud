@@ -264,7 +264,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   function explainFilesConnection(text){
     connectionHelp.replaceChildren(e('p',text));
     const link=e('a','Open Downloader settings');
-    link.href=window.OC?.generateUrl?.('/settings/user/downloader')||'/settings/user/downloader';
+    link.href=(typeof window === 'object' && window.OC?.generateUrl
+      ? window.OC.generateUrl('/settings/user/downloader') : '/settings/user/downloader');
     connectionHelp.append(link);
   }
   const settings=api('/settings').then(value=>{
