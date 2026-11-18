@@ -257,6 +257,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let subtitleLanguagesAvailable=false;
   let cbz=null, pageChoice=null, filter=null;
   let observation=null, currentUrl='', busy=false;
+  let lastSubmissionPayload=null, lastSubmissionId=null;
   const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
@@ -877,6 +878,18 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         selectedIndices:[...selected],cbz:cbz?.checked,
       });
     }catch(error){notify('Please review your download options and try again.');return;}
+    // One UUID per unchanged user action; retrying a lost response cannot
+    // create a second Core job. Changed choices start a new action.
+    const identity=JSON.stringify(body);
+    if(identity!==lastSubmissionPayload){
+      if(typeof globalThis.crypto?.randomUUID!=='function'){
+        notify('A secure browser connection is required to start downloads.');
+        return;
+      }
+      lastSubmissionPayload=identity;
+      lastSubmissionId=globalThis.crypto.randomUUID();
+    }
+    body.submission_id=lastSubmissionId;
     busy=true;refreshSubmit();
     try{
       const created=await api('/jobs','POST',body);
