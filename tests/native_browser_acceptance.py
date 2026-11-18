@@ -117,6 +117,22 @@ def check_settings(page) -> None:
         assert abs(action_box["y"] - field_box["y"]) <= 8, "Folder actions are not aligned to their field"
     capture(page, "02-personal-settings.png")
 
+    # #154: inspect the real Advanced cookie-vault list/toolbar layout.
+    advanced = root.locator("details.downloader-advanced")
+    expect(advanced).to_be_visible()
+    advanced.locator("summary").click()
+    vault = root.locator("#downloader-site-cookies")
+    expect(vault).to_be_visible()
+    expect(vault.get_by_role("listbox", name="Saved site cookies")).to_be_visible()
+    for name in ("Add site cookies", "Remove selected site cookies",
+                 "Move selected site cookies up", "Move selected site cookies down"):
+        expect(vault.get_by_role("button", name=name)).to_be_visible()
+    expect(vault.get_by_role("button", name="Reset cookies to default")).to_be_visible()
+    expect(vault.get_by_role("link", name="Get cookies.txt LOCALLY")).to_be_visible()
+    vault.get_by_role("button", name="Add site cookies").click()
+    expect(vault.get_by_placeholder("example.com")).to_be_focused()
+    capture(page, "10-cookie-vault-settings.png")
+
 
 def check_header_and_dialog(page) -> None:
     page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
