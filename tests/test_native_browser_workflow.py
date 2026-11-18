@@ -19,7 +19,7 @@ def test_browser_harness_compiles_and_is_real_playwright():
         assert selector in code
     for step in ("login(page)", "check_library(page)", "check_settings(page)",
                  "check_header_and_dialog(page)", "check_subtitle_layout(page)",
-                 "check_mobile_rtl_and_theme(page)"):
+                 "check_torrent_selector(page)", "check_mobile_rtl_and_theme(page)"):
         assert step in code
     assert "page.keyboard.press(\"Escape\")" in code
     assert "getComputedStyle(el).color" in code
@@ -28,6 +28,9 @@ def test_browser_harness_compiles_and_is_real_playwright():
     assert "08-subtitles-unavailable-desktop.png" in code
     assert "09-subtitles-available-desktop.png" in code
     assert "10-cookie-vault-settings.png" in code
+    assert "11-torrent-selector-desktop.png" in code
+    assert "12-torrent-selector-mobile.png" in code
+    assert "4.0 MiB total" in code
     assert "Saved site cookies" in code
     assert "Folder actions fell under the field" in code
     assert "No subtitles available." in code
