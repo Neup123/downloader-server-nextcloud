@@ -9,6 +9,7 @@ import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
 
 type Job = {
   id: string; url: string; status: string; owner_id?: string; engine?: string;
@@ -510,12 +511,12 @@ function headerProgress(ownerId: string) {
           .sort((a,b)=>finishTimestamp(b)-finishTimestamp(a));
         displayed=[...displayed,...finished];
       }
-      // Preserve the browser's scroll when jobs are updated while open.
-      const scroll=list.scrollTop;
+      // Preserve the focused job control and scroll across the 2.5s refresh.
+      const interaction=captureRowState(list,'.dl-job',null);
       list.replaceChildren(...(displayed.length
         ?displayed.slice(0,75).map(renderRow)
         :[node('p','No active downloads.','dl-empty')]));
-      list.scrollTop=scroll;
+      restoreRowState(list,interaction,'.dl-job',null,button);
       for(const job of jobs){
         const old=lastStatuses.get(job.id);
         // A short download can finish before the first poll after submission.
