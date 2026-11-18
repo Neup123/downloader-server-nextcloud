@@ -472,7 +472,8 @@ async def _visible_owner_jobs(context: UserContext, state: str) -> list[dict]:
             break
     else:
         raise HTTPException(status_code=422, detail="Too many downloads to update together")
-    return owned
+    hidden = await hidden_history_ids(context)
+    return [job for job in owned if job["id"] not in hidden]
 
 
 @APP.get("/user/api/library")
@@ -503,10 +504,15 @@ async def retry_owner_failed(request: Request, context: UserContext = Depends(re
     failed = await _visible_owner_jobs(context, "failed")
     results = []
     for job in failed:
+        if job.get("status") != "failed":
+            continue  # Cancellation is intentional, never an automatic retry.
         identifier = scoped_core_path(job["id"])
         # Current owner/status is rechecked to prevent stale bulk retries.
         current = own_job(await core_json("GET", "jobs/" + identifier), context.user_id)
-        if current.get("status") not in {"failed", "cancelled"}:
+        if current.get("status") != "failed":
+            continue
+        # A history change made while this request is processing must win.
+        if identifier in await hidden_history_ids(context):
             continue
         response = await core_json("POST", "jobs/" + identifier + "/retry")
         own_job(response, context.user_id)
