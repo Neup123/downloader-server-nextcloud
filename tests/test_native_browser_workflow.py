@@ -36,6 +36,7 @@ def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
     assert source.index("Exercise real native Nextcloud UI in Chromium") < source.index(
         "Verify ExApp can be disabled and unregistered cleanly")
     assert "cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/" in source
+    assert "php occ app:disable firstrunwizard" in source
     assert "python3 tests/native_browser_acceptance.py" in source
     assert "google-chrome --version" in source
     assert "playwright install" not in source
