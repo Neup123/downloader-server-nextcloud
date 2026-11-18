@@ -210,6 +210,10 @@ def check_subtitle_layout(page) -> None:
 
     fixture["subtitle_languages"] = ["en", "fr"]
     source.fill("https://example.org/watch?v=withsubtitles")
+    # Changing the link replaces the detected panel and closes Advanced.
+    # Wait for the second preview response, then open its new details node.
+    expect(dialog.locator("select option[value='fr']")).to_have_count(1, timeout=20_000)
+    advanced.locator("summary").click()
     frame = advanced.locator("fieldset.dl-subtitles-frame")
     expect(frame).to_be_visible(timeout=20_000)
     language = frame.get_by_label("Subtitle language")
