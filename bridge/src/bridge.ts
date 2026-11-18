@@ -607,10 +607,19 @@ function registerProvenanceSidebar() {
             }
             const redownload = node('button', 'Re-download from source', 'dl-primary');
             redownload.type = 'button';
+            let redownloadId: string | null = null;
             redownload.addEventListener('click', async () => {
               redownload.disabled = true;
               try {
-                await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
+                if (!redownloadId) {
+                  if (typeof globalThis.crypto?.randomUUID !== 'function') {
+                    throw new Error('Use a secure browser to queue a re-download.');
+                  }
+                  redownloadId = globalThis.crypto.randomUUID();
+                }
+                await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload',
+                  'POST', {submission_id:redownloadId});
+                redownloadId = null; // A later intentional click is a new download action.
                 notify('Re-download queued to your Nextcloud Files.');
               } catch (error) {
                 notify(error instanceof Error ? error.message : 'Could not re-download source');
