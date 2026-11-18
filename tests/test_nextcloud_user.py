@@ -160,6 +160,18 @@ class UserUnitTests(TestCase):
         job = asyncio.run(job_submission(ctx, {"url": "https://example.test/video", "engine": "yt-dlp",
                                                "folder": "Existing", "overrides": {"format": "best"}}))
         self.assertEqual(job["owner_id"], "alice")
+        stable = "550e8400-e29b-41d4-a716-446655440004"
+        request = asyncio.run(job_submission(ctx, {
+            "url":"https://example.test/video", "folder":"Existing", "submission_id":stable,
+        }))
+        self.assertEqual(request["submission_id"], stable)
+        for bad in ("invalid", "550e8400-e29b-31d4-a716-446655440004", 22):
+            with self.assertRaises(HTTPException) as invalid:
+                asyncio.run(job_submission(ctx, {
+                    "url":"https://example.test/video", "folder":"Existing",
+                    "submission_id":bad,
+                }))
+            self.assertEqual(invalid.exception.status_code,422)
         self.assertEqual(job["delivery"]["username"], "alice")
         self.assertEqual(job["delivery"]["folder"], "Existing")
         self.assertTrue(job["delivery"]["webdav_url"].endswith("/files/alice"))
@@ -520,7 +532,7 @@ class ProvenanceContractTests(TestCase):
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "nextcloud_exapp/main.py").read_text()
         self.assertIn('params={"owner_id": context.user_id, "file_id": file_id}', source)
-        self.assertIn('request_data = {"url": provenance["source_url"]}', source)
+        self.assertIn('request_data = {"url": provenance["source_url"], **action}', source)
         self.assertIn('submitted = await job_submission(context, request_data)', source)
         self.assertIn('await job_submission(', source)
         # Redownload still resolves exclusively from the signed owner's provenance.
