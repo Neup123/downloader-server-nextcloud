@@ -880,7 +880,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     busy=true;refreshSubmit();
     try{
       const created=await api('/jobs','POST',body);
-      notify('Download added to your Nextcloud Files.');
+      notify('Download queued. Check My downloads for progress.');
       queued(created);dialog.close();
     }catch(error){notify('Could not start the download. Please check your connection and try again.');}
     finally{busy=false;refreshSubmit();}
