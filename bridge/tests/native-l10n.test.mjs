@@ -8,6 +8,7 @@ const catalog=JSON.parse(readFileSync(new URL('../l10n/he.json', import.meta.url
 const javascript=readFileSync(new URL('../l10n/he.js', import.meta.url), 'utf8');
 const labels=readFileSync(new URL('../src/download-labels.mjs', import.meta.url), 'utf8');
 const library=readFileSync(new URL('../src/library.ts', import.meta.url), 'utf8');
+const bridge=readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
 
 test('Nextcloud Hebrew JavaScript and PHP catalog forms are identical',()=>{
   let browserCatalog;
@@ -52,6 +53,17 @@ test('shared status labels use native user-language translation when provided',(
     else globalThis.t=previous;
   }
   assert.equal(DOWNLOAD_QUEUED_MESSAGE,'Download queued. Follow progress in Downloads.');
+});
+
+test('RTL-native overlays and badges use logical inline positions',()=>{
+  for(const key of ['.dl-toast','.dl-entry-live-badge','.dl-viewer-trigger','.dl-count']){
+    assert.ok(bridge.includes(key),'Missing native element '+key);
+  }
+  for(const css of ['top:70px;inset-inline-end:16px;', 'top:5px;inset-inline-end:5px;',
+    'top:18px;inset-inline-end:108px;', 'top:6px;inset-inline-start:6px;']){
+    assert.ok(bridge.includes(css),'Expected RTL-aware CSS '+css);
+  }
+  assert.doesNotMatch(bridge,/\.dl-toast\{[^']*right:/);
 });
 
 test('release packaging includes matching catalogs for PHP and JavaScript',t=>{
