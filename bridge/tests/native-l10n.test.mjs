@@ -48,4 +48,7 @@ test('release packaging includes matching catalogs for PHP and JavaScript',()=>{
   const deploy=readFileSync(new URL('../../.github/workflows/appapi-docker-deploy-e2e.yml',import.meta.url),'utf8');
   assert.match(release,/cp -a bridge\/appinfo bridge\/lib bridge\/js bridge\/templates bridge\/l10n/);
   assert.match(deploy,/cp -a bridge\/appinfo bridge\/lib bridge\/js bridge\/templates bridge\/l10n/);
+  const listener=readFileSync(new URL('../lib/Listener/AssetsListener.php',import.meta.url),'utf8');
+  assert.match(listener,/Util::addTranslations\(Application::APP_ID\)/);
+  assert.ok(listener.indexOf('Util::addTranslations')<listener.indexOf('Util::addInitScript'));
 });
