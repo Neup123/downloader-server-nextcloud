@@ -43,6 +43,29 @@ def login(page) -> None:
     # server's normal index.php router for Files, settings and custom apps.
     page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
     assert "/login" not in page.url, "Browser session did not survive the first page navigation"
+    dismiss_initial_welcome(page)
+
+
+
+def dismiss_initial_welcome(page) -> None:
+    """Nextcloud shows a first-login introduction once per disposable user."""
+    welcome = page.get_by_text("A collaboration platform that puts you in control", exact=True)
+    if not welcome.count() or not welcome.is_visible():
+        return
+    selectors = (
+        "button[aria-label='Close']",
+        "button[title='Close']",
+        ".modal-container button.close",
+        ".modal-container .modal__close",
+    )
+    for selector in selectors:
+        item = page.locator(selector)
+        if item.count() and item.first.is_visible():
+            item.first.click()
+            break
+    if welcome.is_visible():
+        page.keyboard.press("Escape")
+    assert not welcome.is_visible(), "First-login welcome dialog blocks native UI click testing"
 
 
 def check_library(page) -> None:
