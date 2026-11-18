@@ -196,6 +196,17 @@ class UserUnitTests(TestCase):
         self.assertEqual(request["engine"], "aria2c")
         self.assertEqual(request["overrides"]["options"], {"max-connection-per-server": "4"})
         self.assertNotIn("seed-time", request["overrides"]["options"])
+        nc.preferences_ex.saved["engine_settings"] = json.dumps({
+            "aria2c": {"options": {
+                "seed-time": "300", "seed-ratio": "0", "check-integrity": "false",
+                "max-connection-per-server": "3",
+            }},
+        })
+        legacy = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c",
+        }))
+        self.assertEqual(legacy["overrides"]["options"], {"max-connection-per-server":"3"})
         # Core's adapter remains the authority for zero seed time;
         # the plugin must not send its own duplicate policy override.
 
