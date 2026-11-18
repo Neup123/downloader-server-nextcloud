@@ -132,15 +132,14 @@ class LinkFirstGatewayTests(TestCase):
 
                 asyncio.run(run())
 
-    def test_aria2_seed_time_is_zero_even_after_user_override(self):
-        job = asyncio.run(job_submission(context(), {
-            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
-            "overrides": {"options": {"seed-time": "500", "seed-ratio": "0"}},
-        }))
-        self.assertEqual(job["engine"], "aria2c")
-        self.assertEqual(job["overrides"]["options"]["seed-time"], "0")
-        # seed-ratio=0 is unlimited, but seed-time=0 disables post-completion seeding.
-        self.assertEqual(job["overrides"]["options"]["seed-ratio"], "0")
+    def test_aria2_managed_policy_overrides_are_rejected_not_silently_rewritten(self):
+        for key in ("seed-time", "seed-ratio", "check-integrity"):
+            with self.subTest(key=key), self.assertRaises(HTTPException) as error:
+                asyncio.run(job_submission(context(), {
+                    "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+                    "overrides": {"options": {key: "999"}},
+                }))
+            self.assertEqual(error.exception.status_code, 422)
 
     def test_media_preserves_webdav_without_aria2_overrides(self):
         job = asyncio.run(job_submission(context(), {
@@ -227,11 +226,11 @@ class LinkFirstGatewayTests(TestCase):
         job = asyncio.run(job_submission(context(), {
             "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
             "engine": "aria2c", "content_type": "torrent",
-            "overrides": {"options": {"select-file": "1,3", "seed-time": "999"}},
+            "overrides": {"options": {"select-file": "1,3"}},
         }))
         self.assertEqual(job["engine"], "aria2c")
         self.assertEqual(job["overrides"]["options"]["select-file"], "1,3")
-        self.assertEqual(job["overrides"]["options"]["seed-time"], "0")
+        self.assertNotIn("seed-time", job["overrides"]["options"])
 
 
 if __name__ == "__main__":
