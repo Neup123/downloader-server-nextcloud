@@ -8,7 +8,7 @@ import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
 
 type Job = {
   id: string; url: string; status: string; owner_id?: string; engine?: string;
@@ -143,7 +143,7 @@ function registerActions() {
           await api('/jobs', 'POST', {
             url: original, content_type: contentTypeFromMime(context.nodes[0].mime),
           });
-          notify('Download submitted to your Files.');
+          notify(DOWNLOAD_QUEUED_MESSAGE);
           return true;
         } catch (error) {
           notify(error instanceof Error ? error.message : 'Download failed');
@@ -184,7 +184,7 @@ function attachLegacyViewerAction() {
       void api('/jobs', 'POST', {
         url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
       }).then(
-        () => notify('Download submitted to your Files.'),
+        () => notify(DOWNLOAD_QUEUED_MESSAGE),
         error => notify(error instanceof Error ? error.message : 'Download failed'),
       );
     } else {
@@ -611,7 +611,7 @@ function registerProvenanceSidebar() {
               redownload.disabled = true;
               try {
                 await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
-                notify('Re-download queued to your Nextcloud Files.');
+                notify(DOWNLOAD_QUEUED_MESSAGE);
               } catch (error) {
                 notify(error instanceof Error ? error.message : 'Could not re-download source');
               } finally {
