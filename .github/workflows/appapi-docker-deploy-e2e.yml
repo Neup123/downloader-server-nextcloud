@@ -50,7 +50,7 @@ concurrency:
 jobs:
   docker-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -451,7 +451,7 @@ jobs:
 
           with urlopen(signed_request(
               "alice", "/user/api/settings", method="PUT",
-              payload={"destination_folder": "Downloads", "notify_finished": False}
+              payload={"destination_folder": "Downloads", "notify_finished": False, "header_indicator_visibility": "always"}
           ), timeout=30) as response:
               changed = json.load(response)
           assert changed["destination_folder"] == "Downloads"
@@ -468,6 +468,30 @@ jobs:
           print("Signed per-user Nextcloud routes: Alice entitled, Bob denied, personal settings scoped")
 
           PY
+      - name: Exercise real native Nextcloud UI in Chromium (keyboard/mobile/RTL)
+        shell: bash
+        env:
+          BROWSER_ACCEPTANCE_BASE: http://127.0.0.1:8099
+          BROWSER_ACCEPTANCE_ARTIFACTS: browser-evidence
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check playwright==1.57.0
+          python3 -m playwright install --with-deps chromium
+          python3 tests/native_browser_acceptance.py
+
+      - name: Retain sanitized disposable-browser visual evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nextcloud-native-browser-evidence
+          path: browser-evidence/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Verify ExApp can be disabled and unregistered cleanly
+        if: success()
+        shell: bash
+        run: |
           docker exec --user www-data downloader-appapi-nextcloud \
             php occ app_api:app:disable downloader-server-nextcloud
           docker exec --user www-data downloader-appapi-nextcloud \
