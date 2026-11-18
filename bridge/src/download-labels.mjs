@@ -14,7 +14,7 @@
 function t(app, source, replacements = {}) {
   const nextcloud = globalThis.t;
   if (typeof nextcloud === 'function') return nextcloud(app, source, replacements);
-  return source.replace(/\\{(\\w+)\\}/g, (_, name) => String(replacements[name] ?? '{' + name + '}'));
+  return source.replace(/\{(\w+)\}/g, (_, name) => String(replacements[name] ?? '{' + name + '}'));
 }
 
 /** A successful POST only acknowledges the queue, never verified delivery. */
