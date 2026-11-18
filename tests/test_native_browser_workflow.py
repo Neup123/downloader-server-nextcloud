@@ -27,6 +27,8 @@ def test_browser_harness_compiles_and_is_real_playwright():
     assert "02-personal-settings.png" in code
     assert "08-subtitles-unavailable-desktop.png" in code
     assert "09-subtitles-available-desktop.png" in code
+    assert "10-cookie-vault-settings.png" in code
+    assert "Saved site cookies" in code
     assert "Folder actions fell under the field" in code
     assert "No subtitles available." in code
     assert "NEXTCLOUD_APP_PASSWORD" in code
