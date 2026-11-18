@@ -476,7 +476,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check playwright==1.57.0
-          python3 -m playwright install --with-deps chromium
+          google-chrome --version
           python3 tests/native_browser_acceptance.py
 
       - name: Retain sanitized disposable-browser visual evidence
