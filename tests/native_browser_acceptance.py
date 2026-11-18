@@ -39,10 +39,14 @@ def login(page) -> None:
     page.locator("button[type='submit'], input[type='submit']").first.click()
     page.wait_for_url(lambda url: "/login" not in url, timeout=45_000)
     assert "login" not in page.url, "Browser did not authenticate into disposable Nextcloud"
+    # The disposable Docker default has no pretty-URL rewrite rules. Use the
+    # server's normal index.php router for Files, settings and custom apps.
+    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
+    assert "/login" not in page.url, "Browser session did not survive the first page navigation"
 
 
 def check_library(page) -> None:
-    page.goto(BASE + "/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
     root = page.locator("#downloader-library-app")
     expect(root).to_be_visible(timeout=25_000)
     # Real signed ExApp API and delivery fixture already verified a terminal job.
@@ -62,7 +66,7 @@ def check_library(page) -> None:
 
 
 def check_settings(page) -> None:
-    page.goto(BASE + "/settings/user/downloader", wait_until="domcontentloaded")
+    page.goto(BASE + "/index.php/settings/user/downloader", wait_until="domcontentloaded")
     root = page.locator("#downloader-settings-app")
     expect(root).to_be_visible(timeout=30_000)
     expect(root.locator(".downloader-settings-grid")).to_be_visible(timeout=30_000)
@@ -72,7 +76,7 @@ def check_settings(page) -> None:
 
 
 def check_header_and_dialog(page) -> None:
-    page.goto(BASE + "/apps/files/", wait_until="domcontentloaded")
+    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
     header = page.locator("#downloader-topbar-progress")
     expect(header).to_be_attached(timeout=30_000)
     trigger = header.locator("button.dl-trigger")
@@ -105,7 +109,7 @@ def check_header_and_dialog(page) -> None:
 
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
-    page.goto(BASE + "/apps/downloader_bridge/library", wait_until="domcontentloaded")
+    page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
     expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
     page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
     in_viewport(page, "#downloader-library-app h1")
@@ -121,7 +125,7 @@ def check_mobile_rtl_and_theme(page) -> None:
     )
     assert styles, "Dark theme inherited no computed text color"
     capture(page, "06-library-mobile-rtl-dark.png")
-    page.goto(BASE + "/apps/files/", wait_until="domcontentloaded")
+    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
     # The native shared dialog is also operable at a narrow RTL viewport.
     page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
     trigger = page.locator("#downloader-topbar-progress .dl-trigger")
