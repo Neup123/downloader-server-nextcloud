@@ -70,6 +70,13 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
     : kind === 'torrent' ? 'torrent'
     : 'video';
   const payload = {url, engine, content_type: category};
+  if(options.submissionId!==undefined){
+    if(typeof options.submissionId!=='string' ||
+       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(options.submissionId)){
+      throw new Error('Invalid download retry identity.');
+    }
+    payload.submission_id=options.submissionId;
+  }
   if (folder !== null) payload.folder = folder;
   const overrides = {};
   if (format !== null) {
