@@ -225,6 +225,62 @@ def check_subtitle_layout(page) -> None:
     page.unroute("**/user/api/media-preview", preview)
 
 
+def check_torrent_selector(page) -> None:
+    """#170: real magnet file-selection layout and controls, fixture manifest."""
+    import json
+
+    manifest = {"file_count": 3, "files": [
+        {"index": 1, "path": "Album/first.mp3", "name": "first.mp3", "size_bytes": 1048576},
+        {"index": 2, "path": "Album/second.mp3", "name": "second.mp3", "size_bytes": 2097152},
+        {"index": 3, "path": "Cover.jpg", "name": "Cover.jpg", "size_bytes": 1048576},
+    ]}
+
+    def respond(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(manifest))
+
+    page.route("**/user/api/torrent-manifest", respond)
+    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+    expect(trigger).to_be_visible()
+    trigger.click()
+    page.locator("#downloader-header-popover .dl-popover-add").click()
+    dialog = page.locator("dialog.dl-link-dialog")
+    expect(dialog).to_be_visible()
+    source = dialog.get_by_role("textbox", name="Source link")
+    source.fill("magnet:?xt=urn:btih:0123456789012345678901234567890123456789")
+    picker = dialog.locator(".dl-torrent-picker")
+    expect(picker).to_be_visible(timeout=20_000)
+    count = dialog.locator(".dl-torrent-selection .dl-picker-count")
+    expect(count).to_contain_text("3 of 3 files selected")
+    expect(count).to_contain_text("4.0 MiB total")
+
+    root = picker.get_by_role("checkbox", name="Select files in All files")
+    root.uncheck()
+    expect(count).to_contain_text("0 of 3 files selected")
+    root.check()
+    expect(count).to_contain_text("3 of 3 files selected")
+    flat = picker.get_by_role("button", name="Flat list")
+    flat.click()
+    expect(flat).to_have_attribute("aria-pressed", "true")
+    expect(picker.locator(".dl-torrent-file")).to_have_count(3)
+    order = picker.get_by_role("button", name="Order by")
+    order.click()
+    picker.get_by_role("menuitemradio", name="Size").click()
+    expect(picker.get_by_role("menuitemradio", name="Size")).to_have_attribute("aria-checked", "true")
+    capture(page, "11-torrent-selector-desktop.png")
+
+    # The primary action must stay inside the visible dialog at a narrow width.
+    page.set_viewport_size({"width": 390, "height": 844})
+    expect(picker).to_be_visible()
+    in_viewport(page, "dialog.dl-link-dialog")
+    submit = dialog.get_by_role("button", name="Download", exact=True)
+    expect(submit).to_be_visible()
+    in_viewport(page, "dialog.dl-link-dialog button.dl-primary")
+    capture(page, "12-torrent-selector-mobile.png")
+    page.keyboard.press("Escape")
+    page.set_viewport_size({"width": 1360, "height": 900})
+    page.unroute("**/user/api/torrent-manifest", respond)
+
+
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
@@ -270,6 +326,7 @@ def main() -> None:
             check_settings(page)
             check_header_and_dialog(page)
             check_subtitle_layout(page)
+            check_torrent_selector(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")
