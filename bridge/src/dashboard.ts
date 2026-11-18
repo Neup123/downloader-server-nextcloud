@@ -1,5 +1,5 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
 import { filesJobRequest } from './files-dialog-payload.mjs';
 import { classifyPreview } from './link-first-dialog.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
@@ -136,7 +136,7 @@ function renderDashboard(element: HTMLElement) {
       const created = await api<Job>('/jobs', 'POST', filesJobRequest(value, null));
       if (!created || !created.id) throw new Error('The download was not confirmed. Retry from Files.');
       field.value = '';
-      feedback.textContent = 'Download queued. Follow its progress below.';
+      feedback.textContent = DOWNLOAD_QUEUED_MESSAGE;
       window.dispatchEvent(new Event('downloader:job-queued'));
       await refresh();
     } catch (error) {
