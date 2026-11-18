@@ -11,7 +11,7 @@
  * Fallback preserves the English baseline in Node and pre-initialization.
  * Keep calls with literal strings so Nextcloud's extraction tool can find them.
  */
-function t(app, source, replacements = {}) {
+export function t(app, source, replacements = {}) {
   const nextcloud = globalThis.t;
   if (typeof nextcloud === 'function') return nextcloud(app, source, replacements);
   return source.replace(/\{(\w+)\}/g, (_, name) => String(replacements[name] ?? '{' + name + '}'));
