@@ -440,9 +440,9 @@ async def job_submission(
             raise HTTPException(status_code=422, detail="Audio-only choice must submit an audio-only format")
         if not audio_only and (fmt.startswith("bestaudio") or fmt.startswith("worstaudio")):
             raise HTTPException(status_code=422, detail="Video quality must submit a video format")
-    # Signed Nextcloud torrent submissions must never seed after completion.
-    # aria2 documents seed-time=0 as the disable switch. seed-ratio=0 is
-    # NOT a disable switch (it means unlimited seeding), so do not use it.
+    # The Core service owns no-seeding / integrity policy for aria2.
+    # Never append Core-managed options to a signed user override, because
+    # newer Core versions reject ineffective settings instead of ignoring them.
     if engine == "auto" and source.lower().startswith("magnet:"):
         engine = "aria2c"
     chosen = prefs["engine_settings"].get(engine, {})
@@ -452,7 +452,7 @@ async def job_submission(
         request_options = options.get("options", {})
         if not isinstance(saved_options, dict) or not isinstance(request_options, dict):
             raise HTTPException(status_code=422, detail="Invalid aria2 options")
-        overrides["options"] = {**saved_options, **request_options, "seed-time": "0"}
+        overrides["options"] = {**saved_options, **request_options}
     # Replace user-visible cookie filenames with the own user's opaque core key.
     for option in ("cookies_file",):
         if overrides.get(option):
