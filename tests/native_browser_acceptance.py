@@ -137,7 +137,7 @@ def check_mobile_rtl_and_theme(page) -> None:
 
 def main() -> None:
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+        browser = pw.chromium.launch(channel="chrome", headless=True, args=["--no-sandbox"])
         context = browser.new_context(viewport={"width": 1360, "height": 900})
         page = context.new_page()
         page.set_default_timeout(15_000)
