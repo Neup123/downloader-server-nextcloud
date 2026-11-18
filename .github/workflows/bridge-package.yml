@@ -28,23 +28,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Generate reviewed native dependency lock input (temporary PR-only step)
-        working-directory: bridge
-        run: |
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          python3 - <<'PY'
-          import base64
-          from pathlib import Path
-          payload = base64.b64encode(Path('package-lock.json').read_bytes()).decode('ascii')
-          print('BRIDGE_LOCK_BEGIN')
-          for i in range(0,len(payload),1000):
-              print('BRIDGE_LOCK_PART:' + payload[i:i+1000])
-          print('BRIDGE_LOCK_END')
-          PY
       - name: Build supported Nextcloud Files UI integration
         working-directory: bridge
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm test
           npm run build
           test -s js/bridge.js
@@ -59,7 +46,7 @@ jobs:
           cp -a bridge/. "$isolated/bridge/"
           rm -rf "$isolated/bridge/node_modules" "$isolated/bridge/js"
           cd "$isolated/bridge"
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm test
           npm run build
           test -s js/bridge.js
