@@ -538,3 +538,9 @@ test('video and audio default to the same plain Best quality label',()=>{
   assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
   assert.doesNotMatch(dialog,/Best available video|Best available audio/);
 });
+
+test('queue acknowledgement does not claim the file has been delivered',()=>{
+  assert.match(dialog,/Download queued\. Check My downloads for progress\./);
+  assert.doesNotMatch(dialog,/Download added to your Nextcloud Files/);
+  assert.match(dialog,/queued\(created\);dialog\.close\(\)/);
+});
