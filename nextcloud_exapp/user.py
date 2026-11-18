@@ -397,9 +397,17 @@ async def job_submission(
     """Creates a privileged core request; caller-supplied owner/delivery ignored."""
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="Invalid download job")
-    allowed = {"url", "engine", "overrides", "folder", "audio_only", "quality", "content_type"}
+    allowed = {"url", "engine", "overrides", "folder", "audio_only", "quality", "content_type", "submission_id"}
     if set(data) - allowed:
         raise HTTPException(status_code=422, detail="Unsupported job field")
+    # Only owner-authenticated, UUIDv4-shaped keys reach Core.
+    # A key belongs to one browser submission and survives retries of that action.
+    submission_id = data.get("submission_id")
+    if submission_id is not None and (
+        not isinstance(submission_id, str) or
+        re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", submission_id) is None
+    ):
+        raise HTTPException(status_code=422, detail="Invalid submission identity")
     source = data.get("url")
     if not isinstance(source, str) or len(source) > 4096 or len(source) < 8:
         raise HTTPException(status_code=422, detail="Paste a valid source URL")
@@ -509,6 +517,7 @@ async def job_submission(
         "engine": engine,
         "overrides": overrides,
         "owner_id": context.user_id,
+        **({"submission_id": submission_id} if submission_id else {}),
         "delivery": {
             "mode": "webdav",
             "webdav_url": nc_root + "/files/" + quote(context.user_id, safe=""),
