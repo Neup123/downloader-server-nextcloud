@@ -501,6 +501,24 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          # Native PHP controller failures are recorded in Nextcloud's JSON app
+          # log, not in Docker's Apache stdout. Print only exception class and
+          # sanitized message for disposable test requests, never credentials.
+          docker exec downloader-appapi-nextcloud cat /var/www/html/data/nextcloud.log 2>/dev/null \
+            | python3 -c 'import json,sys,re
+for line in sys.stdin:
+    try:
+        item=json.loads(line)
+    except (ValueError,TypeError):
+        continue
+    content=json.dumps(item)
+    if "downloader_bridge" not in content:
+        continue
+    exc=item.get("exception") or {}
+    cls=str(exc.get("Exception") or item.get("level") or "unknown")
+    message=str(exc.get("Message") or item.get("message") or "")
+    message=re.sub(r"https?://[^\\s]+", "[URL]", message)
+    print("NATIVE_PHP_ISSUE",cls,message[:350].replace("\\n"," "))' || true
           docker logs --tail 150 downloader-appapi-dsp 2>&1 || true
           docker logs --tail 150 downloader-appapi-nextcloud 2>&1 || true
           docker logs --tail 100 nc_app_downloader-server-nextcloud 2>&1 || true
