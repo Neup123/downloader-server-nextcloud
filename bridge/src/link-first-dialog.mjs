@@ -1,4 +1,5 @@
 import {filesJobRequest} from './files-dialog-payload.mjs';
+import {DOWNLOAD_QUEUED_MESSAGE} from './download-labels.mjs';
 
 const PAGE = 24;
 const MAX = 100;
@@ -880,7 +881,8 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     busy=true;refreshSubmit();
     try{
       const created=await api('/jobs','POST',body);
-      notify('Download added to your Nextcloud Files.');
+      if (!created || !created.id) throw new Error('Missing queued job confirmation');
+      notify(DOWNLOAD_QUEUED_MESSAGE);
       queued(created);dialog.close();
     }catch(error){notify('Could not start the download. Please check your connection and try again.');}
     finally{busy=false;refreshSubmit();}
