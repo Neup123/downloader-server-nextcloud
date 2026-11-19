@@ -15,7 +15,9 @@ final class AssetsListener implements IEventListener {
         if (!$event instanceof BeforeTemplateRenderedEvent) {
             return;
         }
-        // Registered before Files / Viewer read third-party file action hooks.
+        // The early Files hook needs its native locale catalog registered first.
+        // addInitScript does not substitute for addTranslations.
+        Util::addTranslations(Application::APP_ID);
         Util::addInitScript(Application::APP_ID, 'bridge');
     }
 }

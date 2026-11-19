@@ -1,5 +1,6 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, t } from './download-labels.mjs';
+import { showLinkDialog } from './link-first-dialog.mjs';
 import {isTerminalJobState} from './job-states.generated.mjs';
 
 type Job = {
@@ -59,7 +60,7 @@ const STYLES = `
 #downloader-library-app .library-overflow-list button{width:100%;min-height:30px;padding:5px 9px;border:0;background:transparent;text-align:start;font-size:12px}
 #downloader-library-app .library-overflow-list button:hover{background:var(--color-background-hover,#eee)}
 #downloader-library-app .library-row-actions .library-overflow-list button{min-width:0}
-#downloader-library-app .library-empty{padding:32px 12px;color:var(--color-text-maxcontrast,#666)}
+#downloader-library-app .library-empty{padding:32px 12px;color:var(--color-text-maxcontrast,#666);display:grid;justify-items:start;gap:12px}
 #downloader-library-app .library-more{margin-top:18px}
 .downloader-library-modal[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(560px,calc(100vw - 30px));max-width:calc(100vw - 30px);max-height:calc(100dvh - 30px);padding:22px;overflow:auto;border:1px solid var(--color-border,#bbb);border-radius:14px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
 .downloader-library-modal::backdrop{background:#0008}
@@ -74,34 +75,38 @@ function main() {
   if (!root) return;
   document.head.append(Object.assign(el('style'), {textContent:STYLES}));
   root.replaceChildren();
-  const h = el('h1','My downloads');
-  const description = el('p','Search, review and manage your own downloads. Your downloaded Files stay in Nextcloud.');
+  const h = el('h1',t('downloader_bridge', 'My downloads'));
+  const description = el('p',t('downloader_bridge', 'Search, review and manage your own downloads. Your downloaded Files stay in Nextcloud.'));
   description.className = 'library-help';
   const controls = el('div');controls.className = 'library-controls';
-  const nameLabel = el('label','Search downloads');
+  const nameLabel = el('label',t('downloader_bridge', 'Search downloads'));
   const search = el('input');search.type = 'search';
-  search.placeholder = 'Name or source link';
-  search.setAttribute('aria-label','Search by filename or source link');
+  search.placeholder = t('downloader_bridge', 'Name or source link');
+  search.setAttribute('aria-label',t('downloader_bridge', 'Search by filename or source link'));
   nameLabel.append(search);
-  const stateLabel = el('label','Status');
+  const stateLabel = el('label',t('downloader_bridge', 'Status'));
   const state = el('select');
-  for (const [value,label] of [['all','All downloads'],['active','Active'],['delivered','Delivered'],['failed','Failed or cancelled']]) {
+  for (const [value,label] of [['all',t('downloader_bridge', 'All downloads')],['active',t('downloader_bridge', 'Active')],['delivered',t('downloader_bridge', 'Delivered')],['failed',t('downloader_bridge', 'Failed or cancelled')]]) {
     const option = el('option',label); option.value = value; state.append(option);
   }
   stateLabel.append(state);controls.append(nameLabel,stateLabel);
+  const startDownload = () => showLinkDialog({
+    folder:null,api,notify:(message:string)=>{feedback.textContent=message;},
+    queued:()=>window.dispatchEvent(new CustomEvent('downloader:jobs-updated')),
+  });
   const actions = el('div');actions.className = 'library-actions';
-  const settingsLink = el('a','My settings');
+  const settingsLink = el('a',t('downloader_bridge', 'My settings'));
   settingsLink.href = oc()!.generateUrl('/settings/user/downloader');
   settingsLink.style.cssText = 'display:inline-flex;align-items:center;padding:8px;';
   actions.append(settingsLink);
-  const retryAll = el('button','Retry all failed');
-  const clearAll = el('button','Clear history');
+  const retryAll = el('button',t('downloader_bridge', 'Retry all failed'));
+  const clearAll = el('button',t('downloader_bridge', 'Clear history'));
   actions.append(retryAll,clearAll);
   const feedback = el('p');feedback.className = 'library-message';
   feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
   const list = el('section');list.className = 'library-list';
-  list.setAttribute('aria-label','My downloads');
-  const more = el('button','Show more downloads');more.className = 'library-more';
+  list.setAttribute('aria-label',t('downloader_bridge', 'My downloads'));
+  const more = el('button',t('downloader_bridge', 'Show more downloads'));more.className = 'library-more';
   root.append(h,description,controls,actions,feedback,list,more);
   let generation = 0;
   let offset:number|null = 0;
@@ -118,9 +123,9 @@ function main() {
       dlg.append(el('p',file.filename+(file.verified?' · Verified':' · Awaiting verification')));
     }
     const technical=el('details');
-    technical.append(el('summary','Technical log (advanced)'),el('pre',job.log_text||'No log output.'));
+    technical.append(el('summary',t('downloader_bridge', 'Technical log (advanced)')),el('pre',job.log_text||t('downloader_bridge', 'No log output.')));
     const buttons=el('div');buttons.className='modal-actions';
-    const close=el('button','Close');close.type='button';
+    const close=el('button',t('downloader_bridge', 'Close'));close.type='button';
     close.addEventListener('click',()=>dlg.close());
     buttons.append(close);dlg.append(technical,buttons);
     document.body.append(dlg);
@@ -129,17 +134,17 @@ function main() {
   }
   function showConfirmation() {
     const dlg=el('dialog');dlg.className='downloader-library-modal';
-    dlg.append(el('h2','Clear download history'),
-      el('p','Remove finished and failed downloads from your visible history? Files and provenance will remain available.'));
+    dlg.append(el('h2',t('downloader_bridge', 'Clear download history')),
+      el('p',t('downloader_bridge', 'Remove finished and failed downloads from your visible history? Files and provenance will remain available.')));
     const buttons=el('div');buttons.className='modal-actions';
-    const cancel=el('button','Cancel'), confirm=el('button','Clear history');
+    const cancel=el('button',t('downloader_bridge', 'Cancel')), confirm=el('button',t('downloader_bridge', 'Clear history'));
     confirm.className='library-primary';
     cancel.addEventListener('click',()=>dlg.close());
     confirm.addEventListener('click',()=>{dlg.close();void (async()=>{
       try { const result=await api<{hidden:number}>('/jobs/clear-history','POST',{confirm:true});
         feedback.textContent=result.hidden+' history entries hidden. Files were not deleted.';
         await load(true);
-      }catch(e){feedback.textContent=e instanceof Error?e.message:'Could not clear history.';}
+      }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not clear history.');}
     })();});
     buttons.append(cancel,confirm);dlg.append(buttons);
     document.body.append(dlg);
@@ -149,16 +154,16 @@ function main() {
   async function runAction(job:Job,operation:'retry'|'redeliver'|'cancel') {
     try {
       await api('/jobs/'+encodeURIComponent(job.id)+'/'+operation,'POST');
-      feedback.textContent='Download updated.';
+      feedback.textContent=t('downloader_bridge', 'Download updated.');
       await load(true);
-    }catch(e){feedback.textContent=e instanceof Error?e.message:'Could not update download.';}
+    }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not update download.');}
   }
   async function hide(job:Job){
     try {
       await api('/jobs/'+encodeURIComponent(job.id)+'/hide','POST');
-      feedback.textContent='Removed from your history. Files were not deleted.';
+      feedback.textContent=t('downloader_bridge', 'Removed from your history. Files were not deleted.');
       await load(true);
-    }catch(e){feedback.textContent=e instanceof Error?e.message:'Could not remove entry.';}
+    }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not remove entry.');}
   }
   function renderJob(job:Job) {
     const row=el('article');row.className='library-row';row.dataset.jobId=job.id;
@@ -173,14 +178,14 @@ function main() {
     if (!isTerminalJobState(job.status)){
       const bar=el('progress');bar.className='library-progress';bar.max=100;
       bar.value=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
-      bar.setAttribute('aria-label','Download progress');
+      bar.setAttribute('aria-label',t('downloader_bridge', 'Download progress'));
       info.append(bar);
     }
 
     const controls=el('div');controls.className='library-row-actions';
     const overflow=el('details');overflow.className='library-overflow';
     const trigger=el('summary','⋮');
-    trigger.title='More actions';trigger.setAttribute('aria-label','More actions for '+downloadTitle(job));
+    trigger.title=t('downloader_bridge', 'More actions');trigger.setAttribute('aria-label','More actions for '+downloadTitle(job));
     const menu=el('div');menu.className='library-overflow-list';
     function control(label:string,fn:()=>void){
       const button=el('button',label);button.type='button';
@@ -188,14 +193,14 @@ function main() {
       menu.append(button);
     }
     const query=deliveredFilesQuery(job);
-    if(query)control('Open in Files',()=>{
+    if(query)control(t('downloader_bridge', 'Open in Files'),()=>{
       window.location.href=oc()!.generateUrl('/apps/files/files')+query;
     });
     const op=job.status==='completed'?'redeliver':(isTerminalJobState(job.status)?'retry':'cancel');
-    control(op==='redeliver'?'Deliver again':op==='retry'?'Try again':'Cancel download',
+    control(op==='redeliver'?t('downloader_bridge', 'Deliver again'):op==='retry'?t('downloader_bridge', 'Try again'):t('downloader_bridge', 'Cancel download'),
       ()=>{void runAction(job,op);});
-    control('View details',()=>showModal(job));
-    control('Remove from history',()=>{void hide(job);});
+    control(t('downloader_bridge', 'View details'),()=>showModal(job));
+    control(t('downloader_bridge', 'Remove from history'),()=>{void hide(job);});
     overflow.append(trigger,menu);controls.append(overflow);
     row.append(icon,info,controls);
     return row;
@@ -207,7 +212,7 @@ function main() {
     if (offset===null) return;
     const at=offset;
     busy=true;more.disabled=true;
-    feedback.textContent='Loading downloads…';
+    feedback.textContent=t('downloader_bridge', 'Loading downloads…');
     try {
       const params=new URLSearchParams({limit:'50',offset:String(at),state:state.value,q:search.value.trim()});
       const page=await api<Page>('/library?'+params.toString());
@@ -218,10 +223,19 @@ function main() {
       if (reset) list.scrollTop = scroll;
       offset=page.next_offset;
       more.hidden=offset===null;
-      if (!list.children.length && offset===null) list.append(el('p','Nothing here yet. Your downloads will appear here.'));
+      if (!list.children.length && offset===null && at===0 && state.value==='all' && !search.value.trim()) {
+        const empty=el('div');empty.className='library-empty';
+        empty.append(el('p',t('downloader_bridge', 'No downloads yet. Add a link to get started.')));
+        const start=el('button',t('downloader_bridge', 'New download'));start.type='button';start.className='library-primary';
+        start.addEventListener('click',startDownload);
+        empty.append(start);list.append(empty);
+      } else if (!list.children.length && offset===null) {
+        const empty=el('p',t('downloader_bridge', 'No downloads match your search or filter.'));
+        empty.className='library-empty';list.append(empty);
+      }
       feedback.textContent='';
     }catch(e){
-      if(current===generation)feedback.textContent=e instanceof Error?e.message:'Could not load downloads.';
+      if(current===generation)feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not load downloads.');
     }finally{busy=false;more.disabled=false;}
   }
   const selectedJob=new URLSearchParams(window.location.search).get('job');
@@ -229,7 +243,7 @@ function main() {
     // Verified job lookup uses the signed ExApp owner gate; this is not a
     // generic Core UI link or a guessed file path.
     void api<Job>('/jobs/'+encodeURIComponent(selectedJob)).then(showModal).catch(()=>{
-      feedback.textContent='That download is unavailable for this account.';
+      feedback.textContent=t('downloader_bridge', 'That download is unavailable for this account.');
     });
   }
   let searchDebounce:number|undefined;
@@ -246,7 +260,7 @@ function main() {
         const result=await api<{retried:number}>('/jobs/retry-failed','POST');
         feedback.textContent=result.retried+' downloads queued to retry.';
         await load(true);
-      }catch(e){feedback.textContent=e instanceof Error?e.message:'Unable to retry failed downloads.';}
+      }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Unable to retry failed downloads.');}
       finally{retryAll.disabled=false;}
     })();
   });
