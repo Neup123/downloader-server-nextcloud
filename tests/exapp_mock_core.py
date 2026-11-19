@@ -9,7 +9,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 
 # Controlled CI fixture state only, never a production core implementation.
@@ -89,7 +89,9 @@ class Handler(BaseHTTPRequestHandler):
                     "output_files": [{
                         "filename": "dummy.pdf", "size_bytes": 13264,
                         "verified": True,
-                        "path": "http://downloader-appapi-nextcloud/remote.php/dav/files/alice/Downloads/ci-first-use-user-job/dummy.pdf",
+                        "path": ("http://downloader-appapi-nextcloud/remote.php/dav/files/alice/"
+                                 + quote(_TEST_JOB["delivery"]["folder"], safe="/")
+                                 + "/ci-first-use-user-job/dummy.pdf"),
                     }],
                 }
             self.respond(200, {"fixture_completed": True})
@@ -102,7 +104,9 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 16384:
                 raise ValueError("Invalid length")
             data = json.loads(self.rfile.read(size))
-            if data.get("owner_id") != "alice" or data.get("delivery", {}).get("folder") != "Downloads":
+            if (data.get("owner_id") != "alice" or
+                    data.get("delivery", {}).get("folder") not in
+                    {"Downloads", "Downloads/Direct files"}):
                 raise ValueError("Unscoped job")
             if not data.get("delivery", {}).get("app_password"):
                 raise ValueError("Missing WebDAV password")
@@ -117,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
             "url": data["url"], "engine": data.get("engine", "generic"),
             "status": "queued", "progress": {"state": "queued"},
             "output_files": [],
-            "delivery": {"mode": "webdav", "folder": "Downloads"},
+            "delivery": {"mode": "webdav", "folder": data["delivery"]["folder"]},
         }
         with _STATE_LOCK:
             _TEST_JOB = created
