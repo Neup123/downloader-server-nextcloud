@@ -10,6 +10,14 @@
 > historical implementation, not a supported deployment path.
 
 
+## Content routes: one contract
+
+The authoritative content-route category, label, implicit destination subfolder, and accepted link-first source-kind mapping live in `nextcloud_exapp/content-routes.contract.json`. The signed ExApp reads it through `nextcloud_exapp/content_routes.py` and the native Nextcloud plugin UI bundles the same source through `bridge/src/content-routes.mjs`. These are **plugin routing data**, not Core engine or Core UI definitions.
+
+For a new content kind, update this one JSON contract. The native Personal settings fields, link-first submission mapping, and Python destination routes derive from it. `tests/test_content_routes_contract.py` runs the Python and real Node consumers against the same source and verifies the container packages the JSON; `bridge/tests/content-routing-contract.test.mjs` exercises each actual signed submission category. Unknown kinds are rejected instead of silently defaulting.
+
+Explicit folder choices override all implicit routes; changing the default folder updates implicit children but never rewrites explicit overrides. These precedence rules remain in the single signed gateway, with the native plugin presenting their effects.
+
 ## 1. Purpose and boundary
 
 This repository contains only the Nextcloud-specific adaptation of Downloader Server. The core service, web UI, REST API, engine adapters, generic delivery implementation, tests, and engine update automation belong in the core repository:
