@@ -9,6 +9,7 @@ import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
 import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
+import {isTerminalJobState} from './job-states.generated.mjs';
 
 type Job = {
   id: string; url: string; status: string; owner_id?: string; engine?: string;
@@ -20,7 +21,6 @@ type Job = {
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 17v3h16v-3"/></svg>';
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const oc = () => (window as unknown as {OC?: Oc}).OC;
 const root = () => {
   if (!oc()?.generateUrl) throw new Error('Nextcloud routing unavailable');
@@ -427,7 +427,7 @@ function headerProgress(ownerId: string) {
     row.dataset.jobId=job.id;
     const percent=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
     const safePercent=Number.isFinite(percent)?Math.round(percent):0;
-    row.style.setProperty('--dl-row-fill', (TERMINAL.has(job.status)?100:safePercent)+'%');
+    row.style.setProperty('--dl-row-fill', (isTerminalJobState(job.status)?100:safePercent)+'%');
     const thumbnail=node('span',downloadSymbol(job),'dl-thumbnail');
     thumbnail.setAttribute('aria-hidden','true');
     const file=(job.output_files||[]).find(file=>file.verified && file.file_id!==undefined
@@ -448,13 +448,13 @@ function headerProgress(ownerId: string) {
     const subtitle=node('span',downloadBubbleStatus(job),'dl-job-state');
     subtitle.dir='auto';
     info.append(name,subtitle);
-    const pct=node('span',TERMINAL.has(job.status)?'':safePercent+'%','dl-job-pct');
-    if(TERMINAL.has(job.status)){
+    const pct=node('span',isTerminalJobState(job.status)?'':safePercent+'%','dl-job-pct');
+    if(isTerminalJobState(job.status)){
       pct.textContent=job.status==='completed'?'✓':'—';
     }
-    const action=node('button',TERMINAL.has(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
+    const action=node('button',isTerminalJobState(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
     action.type='button';
-    if(TERMINAL.has(job.status)){
+    if(isTerminalJobState(job.status)){
       const operation=job.status==='completed'?'redeliver':'retry';
       action.title=operation==='redeliver'?'Deliver again':'Retry download';
       action.setAttribute('aria-label',action.title);
@@ -511,7 +511,7 @@ function headerProgress(ownerId: string) {
       let displayed=[...running];
       if(displayPrefs.dropdown_content==='all'){
         const known=new Set(displayed.map(job=>job.id));
-        const finished=jobs.filter(job=>TERMINAL.has(job.status)&&!known.has(job.id))
+        const finished=jobs.filter(job=>isTerminalJobState(job.status)&&!known.has(job.id))
           .sort((a,b)=>finishTimestamp(b)-finishTimestamp(a));
         displayed=[...displayed,...finished];
       }
@@ -526,7 +526,7 @@ function headerProgress(ownerId: string) {
         // A short download can finish before the first poll after submission.
         // An explicit queued job ID still gets its one skip/completion toast.
         if(((initialized && old && old!==job.status) || justQueued.has(job.id))
-          && TERMINAL.has(job.status)){
+          && isTerminalJobState(job.status)){
           const skipped=job.output_files?.some(file=>file.skipped===true);
           notify(job.status==='completed'
             ?(skipped
@@ -537,7 +537,7 @@ function headerProgress(ownerId: string) {
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
         lastStatuses.set(job.id,job.status);
-        if(old || TERMINAL.has(job.status))justQueued.delete(job.id);
+        if(old || isTerminalJobState(job.status))justQueued.delete(job.id);
         if(job.status==='completed')void publishDeliveredFiles(job);
       }
       initialized=true;

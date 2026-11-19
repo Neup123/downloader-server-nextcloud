@@ -10,7 +10,7 @@ import unittest
 
 from app.job_states import JobStatus, TERMINAL_STATUSES
 from nextcloud_exapp.user import TERMINAL_STATES
-from scripts.bridge_job_state_contract import OUTPUT, PYTHON_OUTPUT, render, render_python
+from scripts.bridge_job_state_contract import OUTPUT, PYTHON_OUTPUT, JS_OUTPUT, render, render_python, render_javascript
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +20,7 @@ class NativeCoreJobStatusContractTests(unittest.TestCase):
     def test_generated_php_file_is_exact_reflection_of_core(self):
         self.assertEqual(OUTPUT.read_text(encoding="utf-8"), render())
         self.assertEqual(PYTHON_OUTPUT.read_text(encoding="utf-8"), render_python())
+        self.assertEqual(JS_OUTPUT.read_text(encoding="utf-8"), render_javascript())
         self.assertNotIn("from app.", PYTHON_OUTPUT.read_text(encoding="utf-8"))
         subprocess.run(
             [sys.executable, "-m", "scripts.bridge_job_state_contract", "--check"],
@@ -45,10 +46,27 @@ class NativeCoreJobStatusContractTests(unittest.TestCase):
         self.assertEqual(set(TERMINAL_STATES), set(terminal))
         from nextcloud_exapp.job_state_contract import ALL_STATES
         self.assertEqual(ALL_STATES, frozenset(all_states))
-        self.assertEqual(
-            php_result["checks"],
-            [isinstance(sample, str) and sample in TERMINAL_STATES for sample in samples],
+        expected_checks = [isinstance(sample, str) and sample in TERMINAL_STATES
+                           for sample in samples]
+        self.assertEqual(php_result["checks"], expected_checks)
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "Native JS parity requires Node.js")
+        js = (
+            "import {ALL_JOB_STATES,TERMINAL_JOB_STATES,isTerminalJobState,isKnownJobState} "
+            "from './bridge/src/job-states.generated.mjs';"
+            "const samples=JSON.parse(process.argv[1]);"
+            "console.log(JSON.stringify({all:ALL_JOB_STATES,terminal:[...TERMINAL_JOB_STATES],"
+            "checks:samples.map(isTerminalJobState),known:samples.map(isKnownJobState)}));"
         )
+        result = subprocess.run([node, "--input-type=module", "-e", js, json.dumps(samples)],
+                                cwd=ROOT, check=True, capture_output=True, text=True, timeout=15)
+        native = json.loads(result.stdout)
+        self.assertEqual(native["all"], all_states)
+        self.assertEqual(native["terminal"], terminal)
+        self.assertEqual(native["checks"], expected_checks)
+        self.assertEqual(native["known"], [
+            isinstance(item, str) and item in all_states for item in samples
+        ])
 
     def test_exapp_image_packages_only_generated_leaf_and_no_core_source(self):
         dockerfile = (ROOT / "nextcloud_exapp/Dockerfile").read_text()

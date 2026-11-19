@@ -1,6 +1,7 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
+import {isTerminalJobState} from './job-states.generated.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
 type Job = {
   id: string; url: string; status: string; created_at: string;
@@ -11,7 +12,6 @@ type Job = {
 };
 type Dashboard = {register: (id: string, render: (el: HTMLElement) => void) => void};
 const host = window as unknown as {OC?: Oc; OCA?: {Dashboard?: Dashboard}};
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const elem = <K extends keyof HTMLElementTagNameMap>(name: K, text = ''): HTMLElementTagNameMap[K] => {
   const n = document.createElement(name);
   n.textContent = text;
@@ -225,7 +225,7 @@ function renderDashboard(element: HTMLElement) {
     const state = elem('span', downloadStatus(job)); state.className = 'job-card-state';
     state.title = downloadStatus(job);
     info.append(title, state);
-    if (!TERMINAL.has(job.status)) {
+    if (!isTerminalJobState(job.status)) {
       const progress = elem('progress'); progress.className = 'mini-progress';
       progress.max = 100;
       progress.value = Math.max(0, Math.min(100, Number(job.progress?.percent || 0)));
@@ -234,7 +234,7 @@ function renderDashboard(element: HTMLElement) {
     }
     const actions = elem('div'); actions.className = 'job-actions';
     const operation = job.status === 'completed' ? 'redeliver'
-      : TERMINAL.has(job.status) ? 'retry' : 'cancel';
+      : isTerminalJobState(job.status) ? 'retry' : 'cancel';
     const rerun = elem('button', operation === 'redeliver' ? '↻' : operation === 'retry' ? '⟳' : '×');
     rerun.type = 'button';
     rerun.title = operation === 'redeliver' ? 'Deliver again'

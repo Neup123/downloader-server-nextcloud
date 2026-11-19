@@ -1,6 +1,7 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, t } from './download-labels.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
+import {isTerminalJobState} from './job-states.generated.mjs';
 
 type Job = {
   id:string;url:string;status:string;owner_id?:string;engine?:string;
@@ -174,7 +175,7 @@ function main() {
     const status=el('span',downloadStatus(job));status.className='library-status';
     status.title=downloadStatus(job);
     info.append(title,status);
-    if (!['completed','failed','cancelled'].includes(job.status)){
+    if (!isTerminalJobState(job.status)){
       const bar=el('progress');bar.className='library-progress';bar.max=100;
       bar.value=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
       bar.setAttribute('aria-label',t('downloader_bridge', 'Download progress'));
@@ -195,7 +196,7 @@ function main() {
     if(query)control(t('downloader_bridge', 'Open in Files'),()=>{
       window.location.href=oc()!.generateUrl('/apps/files/files')+query;
     });
-    const op=job.status==='completed'?'redeliver':(['failed','cancelled'].includes(job.status)?'retry':'cancel');
+    const op=job.status==='completed'?'redeliver':(isTerminalJobState(job.status)?'retry':'cancel');
     control(op==='redeliver'?t('downloader_bridge', 'Deliver again'):op==='retry'?t('downloader_bridge', 'Try again'):t('downloader_bridge', 'Cancel download'),
       ()=>{void runAction(job,op);});
     control(t('downloader_bridge', 'View details'),()=>showModal(job));
