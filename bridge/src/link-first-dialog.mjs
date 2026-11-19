@@ -239,13 +239,16 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const status=e('p','', 'dl-muted dl-detect-status');
   status.setAttribute('aria-live','polite');
   status.hidden=true;
+  const connectionHelp=e('div','','dl-connection-help');
+  connectionHelp.setAttribute('role','status');
+  connectionHelp.setAttribute('aria-live','polite');
   const details=e('section', '', 'dl-detected');
   details.hidden=true;
   const buttons=e('div','','dl-buttons');
   const download=e('button','Download','dl-primary');
   download.type='submit';
   buttons.append(download);buttons.hidden=true;
-  form.append(line,status,details,buttons);
+  form.append(line,status,connectionHelp,details,buttons);
   dialog.append(form);
   document.body.append(dialog);
   dialog.showModal();
@@ -258,11 +261,37 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let subtitleLanguagesAvailable=false;
   let cbz=null, pageChoice=null, filter=null;
   let observation=null, currentUrl='', busy=false;
-  const settings=api('/settings').catch(()=>({default_video_quality:'best',default_audio_quality:'best'}));
+  let filesConnection='checking';
+  function explainFilesConnection(text){
+    connectionHelp.replaceChildren(e('p',text));
+    const link=e('a','Open Downloader settings');
+    link.href=(typeof window === 'object' && window.OC?.generateUrl
+      ? window.OC.generateUrl('/settings/user/downloader') : '/settings/user/downloader');
+    connectionHelp.append(link);
+  }
+  const settings=api('/settings').then(value=>{
+    if(closed)return value;
+    if(value?.app_password_configured===true){
+      filesConnection='ready';
+      connectionHelp.replaceChildren();
+    }else{
+      filesConnection='missing';
+      explainFilesConnection('Connect your Nextcloud Files in Downloader settings before starting a download.');
+    }
+    refreshSubmit();
+    return value;
+  }).catch(()=>{
+    if(!closed){
+      filesConnection='unavailable';
+      explainFilesConnection('Could not check your Files connection. Open Downloader settings to reconnect or retry.');
+      refreshSubmit();
+    }
+    return {default_video_quality:'best',default_audio_quality:'best'};
+  });
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
-  const available=()=>!busy && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
     if(count && kind!=='torrent')count.textContent=selected.size+' selected';
@@ -884,7 +913,20 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if (!created || !created.id) throw new Error('Missing queued job confirmation');
       notify(DOWNLOAD_QUEUED_MESSAGE);
       queued(created);dialog.close();
-    }catch(error){notify('Could not start the download. Please check your connection and try again.');}
+    }catch(error){
+      const reason=error instanceof Error?error.message:'';
+      if(/app.password|files.connection|credentials.unavailable|not.connected/i.test(reason)){
+        filesConnection='missing';
+        explainFilesConnection('Your Nextcloud Files connection needs attention. Reconnect in Downloader settings.');
+        notify('Connect Files in Downloader settings before retrying.');
+      }else if(/destination.folder|cannot.open.destination|not.writable/i.test(reason)){
+        notify('The destination folder is unavailable. Choose a folder in Downloader settings and retry.');
+      }else if(/401|403|not.authorized|unauthorized/i.test(reason)){
+        notify('Downloader is not available for this account. Ask your Nextcloud administrator.');
+      }else{
+        notify('Could not start the download. Please try again. Your link and selections were kept.');
+      }
+    }
     finally{busy=false;refreshSubmit();}
   });
   return dialog;

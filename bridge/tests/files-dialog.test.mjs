@@ -488,7 +488,7 @@ test('available subtitle languages enable only when checked and not Audio only',
 });
 
 test('direct-file details remain in the box while a verified file has no status message',()=>{
-  assert.match(dialog,/form\.append\(line,status,details,buttons\)/);
+  assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
   assert.match(dialog,/details\.append\(e\('h3','Direct file'\),e\('p','Name: '\+filename\)/);
   assert.match(dialog,/e\('p','Type: '\+fileType\),e\('p','Size: '\+sizeLabel\(bytes\)\)/);
   assert.match(dialog,/message\(result\?'':"We have not confirmed this file/);
@@ -499,7 +499,7 @@ test('direct-file details remain in the box while a verified file has no status 
 test('dialog has no visible title and hides status text unless a problem exists',()=>{
   assert.doesNotMatch(dialog,/Download into my Files|dl-dialog-heading|aria-labelledby/);
   assert.match(dialog,/dialog\.setAttribute\('aria-label','Download link'\)/);
-  assert.match(dialog,/form\.append\(line,status,details,buttons\)/);
+  assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
   assert.match(dialog,/status\.hidden=true/);
   assert.match(dialog,/const message=\(text\)=>\{status\.textContent=text;status\.hidden=!text;\}/);
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
