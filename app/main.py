@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import json
+import hashlib
 import httpx
 import os
 import re
@@ -21,6 +22,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, cast, or_, Text, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters.aria2 import Aria2Rpc
@@ -31,11 +33,12 @@ from app.cookies import encrypt_cookie
 from app.version import product_version
 from app.discovery import PreviewError, inspect_ytdlp
 from app.options_catalog import get_catalog
+from app.engine_registry import ENGINE_SETTING_KEYS
 from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make_engine, make_session_factory, initialize_database, append_log, requeue_job, utcnow
 from app.job_states import JobStatus, TERMINAL_STATUSES, ACTIVE_STATUSES, transition_job
 from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery, verify_delivery_destination
-from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn
-from app.security import SourceResolutionError, UnsafeUrlError, preflight_source_dns, validate_target_url
+from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn, MediaPreviewOut, TorrentManifestOut
+from app.security import SourceResolutionError, UnsafeUrlError, preflight_source_dns, validate_target_url, supported_url_schemes
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
 
 
@@ -101,9 +104,34 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
 
     @app.get("/healthz", tags=["system"])
     def healthz():
+        """Process liveness only; a healthy HTTP process can still lack queue readiness."""
         return {"status": "ok", "service": "downloader-server"}
 
-    @app.post("/api/v1/preview", tags=["jobs"])
+    @app.get("/readyz", tags=["system"])
+    def readyz():
+        """Database query + scheduler heartbeat. Does not probe remote engines or WebDAV."""
+        try:
+            with session_factory() as session:
+                session.execute(select(1)).scalar_one()
+        except Exception:
+            return JSONResponse(status_code=503, content={
+                "status": "degraded", "component": "database",
+            })
+        if worker is None:
+            return JSONResponse(status_code=503, content={
+                "status": "degraded", "component": "scheduler",
+                "reason": "scheduler_disabled",
+            })
+        ready, reason = worker.readiness()
+        if not ready:
+            return JSONResponse(status_code=503, content={
+                "status": "degraded", "component": "scheduler",
+                "reason": reason,
+                "consecutive_failures": worker._scheduler_consecutive_errors,
+            })
+        return {"status": "ready", "service": "downloader-server"}
+
+    @app.post("/api/v1/preview", response_model=MediaPreviewOut, response_model_exclude_unset=True, tags=["jobs"])
     async def preview_media(payload: MediaPreviewIn, _: bool = Depends(authenticate)):
         try:
             url = validate_target_url(payload.url, "yt-dlp", config.allow_private_targets)
@@ -120,7 +148,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         return JSONResponse(status_code=422, content={"detail": detail, "reason_code": code})
 
 
-    @app.post("/api/v1/torrent/manifest", tags=["jobs"])
+    @app.post("/api/v1/torrent/manifest", response_model=TorrentManifestOut, tags=["jobs"])
     async def torrent_manifest(payload: TorrentManifestIn, _: bool = Depends(authenticate)):
         """Inspect magnet metadata or uploaded .torrent bytes without a download job."""
         try:
@@ -188,6 +216,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                 "available": executable is not None and version not in (None, "unknown"),
                 "version": version,
                 "defaults": ENGINE_DEFAULTS[item["name"]],
+                "url_schemes": supported_url_schemes(item["name"]),
             })
         return result
 
@@ -453,14 +482,50 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
 
     @app.post("/api/v1/jobs", status_code=202, response_model=JobOut, tags=["jobs"])
     def submit_job(payload: JobCreate, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        """Idempotent per signed owner action; never expose the private request fingerprint."""
+        request_id = payload.submission_id
+        if request_id is not None and not payload.owner_id:
+            raise HTTPException(status_code=422, detail="A request ID requires a signed job owner")
+        fingerprint = (
+            hashlib.sha256(json.dumps(payload.model_dump(mode="json", exclude_none=True),
+                                      sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+            if request_id else None
+        )
+        def prior_submission() -> Job | None:
+            if request_id is None:
+                return None
+            row = session.scalar(select(Job).where(
+                Job.owner_id == payload.owner_id, Job.submission_id == request_id
+            ))
+            if row is not None and row.submission_fingerprint != fingerprint:
+                raise HTTPException(status_code=409, detail="Submission ID reused with changed request")
+            return row
+        existing = prior_submission()
+        if existing is not None:
+            return job_to_dict(existing)
         job = build_job(payload, session, config)
+        job.submission_id = request_id
+        job.submission_fingerprint = fingerprint
         session.add(job)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            # Another request can commit the same idempotency key concurrently.
+            # Re-read the durable winner instead of creating a second job.
+            if request_id is None:
+                raise
+            existing = prior_submission()
+            if existing is None:
+                raise
+            return job_to_dict(existing)
         session.refresh(job)
         return job_to_dict(job)
 
     @app.post("/api/v1/jobs/batch", status_code=202, response_model=JobBatchOut, tags=["jobs"])
     def submit_batch(payload: JobBatchCreate, _: bool = Depends(authenticate), session: Session = Depends(db_session)):
+        if any(item.submission_id is not None for item in payload.items):
+            raise HTTPException(status_code=422, detail="Idempotency applies to single submissions only")
         jobs = []
         for index, item in enumerate(payload.items):
             try:
@@ -481,7 +546,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         _: bool = Depends(authenticate), session: Session = Depends(db_session),
         limit: int = 50, status: str | None = None, owner_id: str | None = None,
         state: str = "all", q: str | None = None, offset: int = 0,
-        standalone_only: bool = False,
+        standalone_only: bool = False, submission_id: str | None = None,
     ):
         if not 0 <= offset <= 10000 or not 1 <= limit <= 200:
             raise HTTPException(status_code=422, detail="Limit must be 1–200 and offset 0–10000")
@@ -495,11 +560,17 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         if state == "active":
             query = query.where(Job.status.not_in(tuple(TERMINAL_STATUSES)))
         elif state == "delivered":
-            query = query.where(Job.status == "completed")
+            query = query.where(Job.status.in_((JobStatus.COMPLETED, JobStatus.SKIPPED)))
         elif state == "failed":
             query = query.where(Job.status.in_((JobStatus.FAILED, JobStatus.CANCELLED)))
         if owner_id is not None:
             query = query.where(Job.owner_id == owner_id)
+        if submission_id is not None:
+            if owner_id is None or not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", submission_id
+            ):
+                raise HTTPException(status_code=422, detail="Submission lookup requires valid owner and request ID")
+            query = query.where(Job.submission_id == submission_id)
         if standalone_only:
             query = query.where(Job.owner_id.is_(None))
         if q is not None:
@@ -520,7 +591,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
     def retry_all_failed(_: bool = Depends(authenticate), session: Session = Depends(db_session)):
         """Retry failed standalone jobs only; never alter Nextcloud-owned jobs."""
         query = select(Job).where(
-            Job.owner_id.is_(None), Job.status.in_(("failed", "cancelled"))
+            Job.owner_id.is_(None), Job.status == JobStatus.FAILED
         ).order_by(Job.created_at.desc()).limit(1001)
         failed = session.scalars(query).all()
         if len(failed) > 1000:
@@ -556,7 +627,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         if not owner_id or len(owner_id) > 255 or not file_id.isdecimal() or len(file_id) > 32:
             raise HTTPException(status_code=422, detail="Invalid file identity")
         jobs = session.scalars(
-            select(Job).where(Job.owner_id == owner_id, Job.status == "completed")
+            select(Job).where(Job.owner_id == owner_id, Job.status.in_((JobStatus.COMPLETED, JobStatus.SKIPPED)))
             .order_by(Job.created_at.desc())
         ).all()
         for job in jobs:
@@ -661,8 +732,8 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         job = session.get(Job, job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
-        if job.status != "completed":
-            raise HTTPException(status_code=409, detail="Only completed jobs can be re-delivered")
+        if job.status not in {JobStatus.COMPLETED, JobStatus.SKIPPED}:
+            raise HTTPException(status_code=409, detail="Only completed or skipped jobs can be re-delivered")
 
         # The durable manifest proves the engine finished successfully and
         # that the original files have not changed since that success.
@@ -771,11 +842,12 @@ def _require_engine(engine_name: str) -> None:
 def validate_engine_settings(engine: str, values: dict, partial: bool = False) -> dict:
     if not isinstance(values, dict):
         raise ValueError("Engine settings must be an object")
+    if engine not in ENGINE_SETTING_KEYS:
+        raise ValueError("Unsupported engine")
+    unknown = set(values) - ENGINE_SETTING_KEYS[engine]
+    if unknown:
+        raise ValueError(f"Unknown {engine} setting(s): {', '.join(sorted(unknown))}")
     if engine == "yt-dlp":
-        allowed = {"format", "subtitles_lang", "write_subtitles", "embed_subtitles", "extra_args", "cookies_file", "allow_playlist", "playlist_items"}
-        unknown = set(values) - allowed
-        if unknown:
-            raise ValueError(f"Unknown yt-dlp setting(s): {', '.join(sorted(unknown))}")
         result = {}
         for key, value in values.items():
             if key in {"format", "subtitles_lang", "cookies_file"}:
@@ -803,35 +875,19 @@ def validate_engine_settings(engine: str, values: dict, partial: bool = False) -
         validated = effective_settings(ENGINE_DEFAULTS["get-sauce"], values)
         return {key: validated[key] for key in values}
     if engine == "svtplay-dl":
-        allowed = {"resolution", "quality", "subtitles", "all_subtitles", "all_episodes", "output_format"}
-        unknown = set(values) - allowed
-        if unknown:
-            raise ValueError(f"Unknown svtplay-dl setting(s): {', '.join(sorted(unknown))}")
         from app.adapters.svtplay import effective_settings
         validated = effective_settings(ENGINE_DEFAULTS["svtplay-dl"], values)
         return {key: validated[key] for key in values}
     if engine == "you-get":
-        allowed = {"format", "cookies_file", "no_proxy"}
-        unknown = set(values) - allowed
-        if unknown:
-            raise ValueError(f"Unknown you-get setting(s): {', '.join(sorted(unknown))}")
         from app.adapters.you_get import effective_settings
         validated = effective_settings(ENGINE_DEFAULTS["you-get"], values)
         return {key: validated[key] for key in values}
     if engine == "generic":
-        allowed = {"filename", "follow_redirects", "max_redirects", "retry_count", "user_agent"}
-        unknown = set(values) - allowed
-        if unknown:
-            raise ValueError(f"Unknown generic setting(s): {', '.join(sorted(unknown))}")
         from app.adapters.generic import effective_settings
         defaults = ENGINE_DEFAULTS["generic"]
         validated = effective_settings(defaults, values)
         return {key: validated[key] for key in values}
     if engine == "gallery-dl":
-        allowed = {"options", "cookies_file", "proxy"}
-        unknown = set(values) - allowed
-        if unknown:
-            raise ValueError(f"Unknown gallery-dl setting(s): {', '.join(sorted(unknown))}")
         result = {}
         if "options" in values:
             options = values["options"]
@@ -873,9 +929,6 @@ def validate_engine_settings(engine: str, values: dict, partial: bool = False) -
                 result[key] = value
         return result
     if engine == "aria2c":
-        unknown = set(values) - {"options"}
-        if unknown:
-            raise ValueError(f"Unknown aria2c setting(s): {', '.join(sorted(unknown))}")
         from app.adapters.aria2 import ARIA2_OPTION_ALLOWLIST
         options = values.get("options", {})
         if not isinstance(options, dict):
