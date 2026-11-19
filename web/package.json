@@ -4,7 +4,7 @@
   "version": "0.3.1",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test tests/api-errors.test.mjs tests/api-reference-contract.test.mjs tests/download-options.test.mjs tests/engine-autosave.test.mjs tests/exapp-path.test.mjs tests/first-run.test.mjs tests/i18n.test.mjs tests/personal-autosave.test.mjs tests/rule-order.test.mjs tests/ui-options.test.mjs",
     "build": "tsc -b && vite build"
   },
   "dependencies": {

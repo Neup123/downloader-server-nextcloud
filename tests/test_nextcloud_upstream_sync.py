@@ -44,6 +44,25 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
             content.index("git push origin HEAD:main"),
         )
 
+    def test_nextcloud_web_suite_excludes_imported_standalone_contract_tests(self):
+        # Core's current web tests run against the exact upstream Core worktree;
+        # Nextcloud's historical App.tsx intentionally diverges from Core.
+        import json
+        import shlex
+
+        web = ROOT / "web"
+        package = json.loads((web / "package.json").read_text(encoding="utf-8"))
+        command = shlex.split(package["scripts"]["test"])
+        self.assertEqual(command[:3], ["node", "--experimental-strip-types", "--test"])
+        suite = command[3:]
+        self.assertTrue(suite)
+        self.assertEqual(len(suite), len(set(suite)))
+        self.assertNotIn("tests/*.test.mjs", suite)
+        self.assertNotIn("tests/url-scheme-hint.test.mjs", suite)
+        for name in suite:
+            self.assertTrue(name.startswith("tests/") and name.endswith(".test.mjs"), name)
+            self.assertTrue((web / name).is_file(), name)
+
     def test_accepted_upstream_merge_dispatches_main_appapi_acceptance(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("actions: write", content)
