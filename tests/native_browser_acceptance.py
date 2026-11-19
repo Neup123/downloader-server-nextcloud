@@ -320,6 +320,102 @@ def check_torrent_selector(page) -> None:
     page.unroute("**/user/api/torrent-manifest", respond)
 
 
+
+def fixture_core_transition(action: str) -> None:
+    """Test runner drives only a disposable Docker fixture, never Production."""
+    import subprocess
+    assert action in {"mark-delivering", "complete-after-dav-readback"}
+    script = (
+        "import json,os;from urllib.request import Request,urlopen;"
+        "url='http://127.0.0.1:8080/fixture/" + action + "';"
+        "request=Request(url,method='POST',headers={'X-API-Key':os.environ['MOCK_CORE_TOKEN']});"
+        "response=urlopen(request,timeout=20);assert response.status==200;"
+        "assert next(iter(json.load(response).values())) is True"
+    )
+    subprocess.run(
+        ["docker", "exec", "downloader-test-core", "python", "-c", script],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
+
+
+def verify_disposable_dav_fixture() -> None:
+    """Before simulating completion, re-read actual bytes from Nextcloud DAV."""
+    import base64
+    import hashlib
+    from urllib.request import Request, urlopen
+
+    data = b"%PDF-1.4\\n" + b"Verified disposable Nextcloud fixture\\n"
+    data += b"X" * (13264 - len(data))
+    auth = base64.b64encode(
+        ("alice:" + os.environ["NEXTCLOUD_APP_PASSWORD"]).encode()
+    ).decode()
+    url = BASE + "/remote.php/dav/files/alice/Downloads/ci-first-use-user-job/dummy.pdf"
+    request = Request(url, headers={"Authorization": "Basic " + auth}, method="GET")
+    with urlopen(request, timeout=25) as response:
+        actual = response.read()
+    assert len(actual) == 13264
+    assert hashlib.sha256(actual).digest() == hashlib.sha256(data).digest()
+    assert actual == data
+
+
+def check_real_native_job_journey(page) -> None:
+    """One real UI POST -> signed ExApp -> mock Core state -> native progress.
+
+    The fixture does not actually download remote media. Only preview metadata
+    and Core's transition clock are deterministic; authenticated submission
+    and status polling use the real PHP bridge and ExApp.
+    """
+    import json
+
+    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
+    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+    expect(trigger).to_be_visible(timeout=25_000)
+
+    def preview(route):
+        route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"kind": "direct", "title": "dummy.pdf", "filename": "dummy.pdf",
+                             "mime": "application/pdf", "size": 13264}),
+        )
+
+    page.route("**/user/api/media-preview", preview)
+    try:
+        trigger.click()
+        page.locator("#downloader-header-popover .dl-popover-add").click()
+        dialog = page.locator("dialog.dl-link-dialog")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("textbox", name="Source link").fill("https://example.test/dummy.pdf")
+        download = dialog.get_by_role("button", name="Download", exact=True)
+        expect(download).to_be_enabled(timeout=20_000)
+        with page.expect_response(
+            lambda response: response.url.endswith("/user/api/jobs")
+            and response.request.method == "POST", timeout=45_000
+        ) as accepted:
+            download.click()
+        assert accepted.value.status == 202
+        queued = accepted.value.json()
+        assert queued["id"] == "ci-first-use-user-job"
+        assert queued["status"] == "queued"
+        expect(dialog).to_have_count(0)
+        header = page.locator("#downloader-topbar-progress")
+        expect(header).to_contain_text("Queued", timeout=25_000)
+        capture(page, "14-native-real-job-queued.png")
+
+        fixture_core_transition("mark-delivering")
+        expect(header).to_contain_text("Delivering to your destination", timeout=25_000)
+        capture(page, "15-native-real-job-delivering.png")
+
+        # Core cannot claim verification until the actual owner-scoped DAV
+        # bytes are read back from the disposable Nextcloud server.
+        verify_disposable_dav_fixture()
+        fixture_core_transition("complete-after-dav-readback")
+        expect(header).to_contain_text("Delivered", timeout=25_000)
+        capture(page, "16-native-real-job-completed.png")
+        print("Real Chromium: signed UI submit -> queued -> delivering -> verified DAV completion PASS", flush=True)
+    finally:
+        page.unroute("**/user/api/media-preview", preview)
+
+
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
@@ -366,6 +462,7 @@ def main() -> None:
             check_header_and_dialog(page)
             check_subtitle_layout(page)
             check_torrent_selector(page)
+            check_real_native_job_journey(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")
