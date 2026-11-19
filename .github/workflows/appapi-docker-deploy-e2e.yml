@@ -50,7 +50,7 @@ concurrency:
 jobs:
   docker-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -116,6 +116,13 @@ jobs:
           else:
               raise SystemExit("Disposable Nextcloud did not become ready")
           PY
+
+      - name: Disable disposable Nextcloud first-run tour before native browser acceptance
+        shell: bash
+        run: |
+          # The standard Nextcloud first-login presentation is independent of
+          # Downloader and intercepts keyboard focus in newly created accounts.
+          docker exec --user www-data downloader-appapi-nextcloud php occ app:disable firstrunwizard
 
       - name: Register a real AppAPI Deploy Daemon on disposable Docker
         shell: bash
@@ -190,7 +197,7 @@ jobs:
           set -euo pipefail
           (cd bridge && npm install --no-audit --no-fund && npm test && npm run build)
           install -d bridge-install/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js bridge-install/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/
           docker cp bridge-install/downloader_bridge downloader-appapi-nextcloud:/var/www/html/custom_apps/downloader_bridge
           docker exec --user www-data downloader-appapi-nextcloud php occ app:enable downloader_bridge
           docker exec --user www-data downloader-appapi-nextcloud php occ app:list --output=json \
@@ -451,7 +458,7 @@ jobs:
 
           with urlopen(signed_request(
               "alice", "/user/api/settings", method="PUT",
-              payload={"destination_folder": "Downloads", "notify_finished": False}
+              payload={"destination_folder": "Downloads", "notify_finished": False, "header_indicator_visibility": "always"}
           ), timeout=30) as response:
               changed = json.load(response)
           assert changed["destination_folder"] == "Downloads"
@@ -468,6 +475,30 @@ jobs:
           print("Signed per-user Nextcloud routes: Alice entitled, Bob denied, personal settings scoped")
 
           PY
+      - name: Exercise real native Nextcloud UI in Chromium (keyboard/mobile/RTL)
+        shell: bash
+        env:
+          BROWSER_ACCEPTANCE_BASE: http://127.0.0.1:8099
+          BROWSER_ACCEPTANCE_ARTIFACTS: browser-evidence
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check playwright==1.57.0
+          google-chrome --version
+          python3 tests/native_browser_acceptance.py
+
+      - name: Retain sanitized disposable-browser visual evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nextcloud-native-browser-evidence
+          path: browser-evidence/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Verify ExApp can be disabled and unregistered cleanly
+        if: success()
+        shell: bash
+        run: |
           docker exec --user www-data downloader-appapi-nextcloud \
             php occ app_api:app:disable downloader-server-nextcloud
           docker exec --user www-data downloader-appapi-nextcloud \
@@ -477,6 +508,24 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          # Native PHP controller failures are recorded in Nextcloud's JSON app
+          # log, not in Docker's Apache stdout. Print only exception class and
+          # sanitized message for disposable test requests, never credentials.
+          docker exec downloader-appapi-nextcloud cat /var/www/html/data/nextcloud.log 2>/dev/null \
+            | python3 -c 'import json,sys,re
+          for line in sys.stdin:
+              try:
+                  item=json.loads(line)
+              except (ValueError,TypeError):
+                  continue
+              content=json.dumps(item)
+              if "downloader_bridge" not in content:
+                  continue
+              exc=item.get("exception") or {}
+              cls=str(exc.get("Exception") or item.get("level") or "unknown")
+              message=str(exc.get("Message") or item.get("message") or "")
+              message=re.sub(r"https?://[^\\s]+", "[URL]", message)
+              print("NATIVE_PHP_ISSUE",cls,message[:350].replace("\\n"," "))' || true
           docker logs --tail 150 downloader-appapi-dsp 2>&1 || true
           docker logs --tail 150 downloader-appapi-nextcloud 2>&1 || true
           docker logs --tail 100 nc_app_downloader-server-nextcloud 2>&1 || true
