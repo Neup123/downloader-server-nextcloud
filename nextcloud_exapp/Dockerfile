@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requ
 # small Python leaf module at source review time and checked for parity in CI.
 # Never copy any Core service source into this independently deployed image.
 COPY nextcloud_exapp/*.py /app/nextcloud_exapp/
+COPY nextcloud_exapp/content-routes.contract.json /app/nextcloud_exapp/
 RUN python -c "from nextcloud_exapp.job_state_contract import TERMINAL_STATES; assert TERMINAL_STATES"
 COPY --from=web-build /web/dist/ /app/nextcloud_exapp/dist/
 USER exapp
