@@ -49,7 +49,10 @@
     "Could not remove entry.": "לא ניתן להסיר את הרשומה.",
     "Unable to retry failed downloads.": "לא ניתן לנסות שוב את ההורדות שנכשלו.",
     "Could not clear history.": "לא ניתן לנקות את ההיסטוריה.",
-    "Download progress": "התקדמות ההורדה"
+    "Download progress": "התקדמות ההורדה",
+    "No downloads yet. Add a link to get started.": "עדיין אין הורדות. הוסיפו קישור כדי להתחיל.",
+    "New download": "הורדה חדשה",
+    "No downloads match your search or filter.": "לא נמצאו הורדות שמתאימות לחיפוש או לסינון."
   },
   "pluralForm": "nplurals=2; plural=(n != 1);"
 }

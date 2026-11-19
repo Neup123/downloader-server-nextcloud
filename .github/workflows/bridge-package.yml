@@ -38,7 +38,7 @@ jobs:
       - name: Build supported Nextcloud Files UI integration
         working-directory: bridge
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm test
           npm run build
           test -s js/bridge.js
@@ -53,7 +53,7 @@ jobs:
           cp -a bridge/. "$isolated/bridge/"
           rm -rf "$isolated/bridge/node_modules" "$isolated/bridge/js"
           cd "$isolated/bridge"
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm test
           npm run build
           test -s js/bridge.js

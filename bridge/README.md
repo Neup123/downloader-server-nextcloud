@@ -19,7 +19,8 @@ files is part of the planned provenance upgrade.
 
 ## Building and installing
 
-Run npm install, npm test and npm run build inside this bridge directory.
+Run `npm ci`, `npm test` and `npm run build` inside this bridge directory.
+The committed `package-lock.json` locks the native plugin dependency tree; builds must not regenerate dependencies using `npm install`. The ExApp has separate locked dependencies.
 The Bridge package CI job creates an installable downloader_bridge directory
 under the artifact named downloader-bridge-nc35.
 

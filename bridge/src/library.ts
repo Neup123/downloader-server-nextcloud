@@ -1,5 +1,6 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
 import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, t } from './download-labels.mjs';
+import { showLinkDialog } from './link-first-dialog.mjs';
 
 type Job = {
   id:string;url:string;status:string;owner_id?:string;engine?:string;
@@ -58,7 +59,7 @@ const STYLES = `
 #downloader-library-app .library-overflow-list button{width:100%;min-height:30px;padding:5px 9px;border:0;background:transparent;text-align:start;font-size:12px}
 #downloader-library-app .library-overflow-list button:hover{background:var(--color-background-hover,#eee)}
 #downloader-library-app .library-row-actions .library-overflow-list button{min-width:0}
-#downloader-library-app .library-empty{padding:32px 12px;color:var(--color-text-maxcontrast,#666)}
+#downloader-library-app .library-empty{padding:32px 12px;color:var(--color-text-maxcontrast,#666);display:grid;justify-items:start;gap:12px}
 #downloader-library-app .library-more{margin-top:18px}
 .downloader-library-modal[open]{position:fixed!important;inset:0!important;margin:auto!important;width:min(560px,calc(100vw - 30px));max-width:calc(100vw - 30px);max-height:calc(100dvh - 30px);padding:22px;overflow:auto;border:1px solid var(--color-border,#bbb);border-radius:14px;background:var(--color-main-background,#fff);color:var(--color-main-text,#222)}
 .downloader-library-modal::backdrop{background:#0008}
@@ -88,6 +89,10 @@ function main() {
     const option = el('option',label); option.value = value; state.append(option);
   }
   stateLabel.append(state);controls.append(nameLabel,stateLabel);
+  const startDownload = () => showLinkDialog({
+    folder:null,api,notify:(message:string)=>{feedback.textContent=message;},
+    queued:()=>window.dispatchEvent(new CustomEvent('downloader:jobs-updated')),
+  });
   const actions = el('div');actions.className = 'library-actions';
   const settingsLink = el('a',t('downloader_bridge', 'My settings'));
   settingsLink.href = oc()!.generateUrl('/settings/user/downloader');
@@ -217,7 +222,16 @@ function main() {
       if (reset) list.scrollTop = scroll;
       offset=page.next_offset;
       more.hidden=offset===null;
-      if (!list.children.length && offset===null) list.append(el('p',t('downloader_bridge', 'Nothing here yet. Your downloads will appear here.')));
+      if (!list.children.length && offset===null && at===0 && state.value==='all' && !search.value.trim()) {
+        const empty=el('div');empty.className='library-empty';
+        empty.append(el('p',t('downloader_bridge', 'No downloads yet. Add a link to get started.')));
+        const start=el('button',t('downloader_bridge', 'New download'));start.type='button';start.className='library-primary';
+        start.addEventListener('click',startDownload);
+        empty.append(start);list.append(empty);
+      } else if (!list.children.length && offset===null) {
+        const empty=el('p',t('downloader_bridge', 'No downloads match your search or filter.'));
+        empty.className='library-empty';list.append(empty);
+      }
       feedback.textContent='';
     }catch(e){
       if(current===generation)feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not load downloads.');
