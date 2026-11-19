@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -110,7 +111,7 @@ class UserUnitTests(TestCase):
     def test_all_privileged_exapp_handlers_require_admin_in_backend(self):
         from nextcloud_exapp.main import APP
         protected = {"/", "/api-reference", "/api/v1/{path:path}",
-                     "/admin/api/entitlements"}
+                     "/admin/api/entitlements", "/admin/api/tracker-health"}
         matches = [route for route in APP.routes if getattr(route, "path", None) in protected]
         self.assertEqual({route.path for route in matches}, protected)
         self.assertTrue(all(
@@ -148,7 +149,6 @@ class UserUnitTests(TestCase):
         self.assertEqual(prefs["destination_folder"], "Movies/Clips")
         with self.assertRaises(HTTPException):
             validate_folder("Movies/../other")
-
 
     def test_combined_patch_valid_early_and_invalid_late_is_untouched(self):
         """No field may be saved until all settings, even late ones, validate."""
@@ -264,6 +264,30 @@ class UserUnitTests(TestCase):
                 {"url": "https://example.test/video"}))
             self.assertEqual(payload["delivery"]["webdav_url"],
                 "https://cloud.example.org/remote.php/dav/files/alice")
+
+    def test_nextcloud_never_injects_core_managed_aria2_policy_options(self):
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["dav_app_password"] = "test-secret"
+        request = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c", "overrides": {"options": {"max-connection-per-server": "4"}},
+        }))
+        self.assertEqual(request["engine"], "aria2c")
+        self.assertEqual(request["overrides"]["options"], {"max-connection-per-server": "4"})
+        self.assertNotIn("seed-time", request["overrides"]["options"])
+        nc.preferences_ex.saved["engine_settings"] = json.dumps({
+            "aria2c": {"options": {
+                "seed-time": "300", "seed-ratio": "0", "check-integrity": "false",
+                "max-connection-per-server": "3",
+            }},
+        })
+        legacy = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c",
+        }))
+        self.assertEqual(legacy["overrides"]["options"], {"max-connection-per-server":"3"})
+        # Core's adapter remains the authority for zero seed time;
+        # the plugin must not send its own duplicate policy override.
 
     def test_first_user_download_creates_only_own_default_folder(self):
         nc = FakeNc("alice")
@@ -436,6 +460,78 @@ class TrackingTests(TestCase):
         asyncio.run(run())
 
 
+    def test_tracker_failure_health_is_redacted_rate_limited_and_recovers_after_restart(self):
+        import logging
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "notifications.sqlite"
+                tracker = JobTracker(path)
+                tracker.add("failed-first", "alice")
+                fake = FakeNc("alice")
+                attempted = []
+
+                class BrokenNotifications:
+                    async def create(self, **kwargs):
+                        attempted.append(kwargs)
+                        raise RuntimeError("private credential failure must not enter log or health")
+
+                fake.notifications = BrokenNotifications()
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.LOGGER.warning") as warning:
+                    async def core(job_id):
+                        return {"id": job_id, "owner_id": "alice", "status": "failed"}
+                    for _ in range(4):
+                        await tracker.tick(core)
+                    status = tracker.health()
+                    self.assertEqual(status["status"], "degraded")
+                    self.assertEqual(status["pending_notifications"]["count"], 1)
+                    self.assertIsNotNone(status["pending_notifications"]["oldest_pending_seconds"])
+                    self.assertEqual(status["consecutive_failures"]["notification"], 4)
+                    self.assertEqual(status["consecutive_failures"]["index"], 0)
+                    self.assertEqual(warning.call_count, 1)
+                    self.assertNotIn("private credential", str(warning.call_args))
+                    self.assertNotIn("alice", str(status))
+                    self.assertNotIn("failed-first", str(status))
+                # Restart preserves outstanding rows; notifications remain incomplete.
+                tracker = JobTracker(path)
+                self.assertEqual(tracker.pending(), [("failed-first", "alice")])
+                delivered = []
+                class WorkingNotifications:
+                    async def create(self, **kwargs):
+                        delivered.append(kwargs)
+                fake.notifications = WorkingNotifications()
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.update_index", side_effect=RuntimeError("index offline")):
+                    await tracker.tick(core)
+                    await tracker.tick(core)
+                self.assertEqual(len(delivered), 1, "Indexing failures must not duplicate native notifications")
+                self.assertEqual(tracker.flags("failed-first"), (True, False))
+                self.assertEqual(tracker.health()["consecutive_failures"]["index"], 2)
+                with patch("nextcloud_exapp.tracking.AsyncNextcloudApp", return_value=fake), \
+                     patch("nextcloud_exapp.tracking.update_index", return_value=None), \
+                     patch("nextcloud_exapp.tracking.reconcile_first_verified", return_value=None):
+                    await tracker.tick(core)
+                self.assertEqual(tracker.pending(), [])
+                self.assertEqual(len(delivered), 1)
+                self.assertEqual(tracker.health()["status"], "ready")
+        asyncio.run(scenario())
+
+    def test_tracker_health_is_admin_only(self):
+        from nextcloud_exapp.main import admin_tracker_health
+        tracker = JobTracker(Path(tempfile.mkdtemp()) / "notices.sqlite")
+        try:
+            request = Request({
+                "type": "http", "headers": [], "username": "alice",
+                "app": SimpleNamespace(state=SimpleNamespace(job_tracker=tracker)),
+            })
+            state = asyncio.run(admin_tracker_health(request, UserContext("alice", FakeNc("alice"))))
+            self.assertEqual(state["pending_notifications"]["count"], 0)
+            self.assertEqual(state["status"], "ready")
+        finally:
+            import shutil
+            shutil.rmtree(tracker.path.parent)
+
+
 class ProvenanceContractTests(TestCase):
     def test_provenance_owner_isolation(self):
         from nextcloud_exapp.user import own_job_provenance
@@ -455,3 +551,58 @@ class ProvenanceContractTests(TestCase):
         self.assertIn('await job_submission(', source)
         # Redownload still resolves exclusively from the signed owner's provenance.
         self.assertIn('own_job_provenance(', source)
+
+
+class BulkRetryVisibilityTests(TestCase):
+    def test_bulk_retry_excludes_hidden_and_cancelled_jobs(self):
+        """A removed or deliberately cancelled job must never restart in bulk."""
+        import json
+        from nextcloud_exapp.main import retry_owner_failed
+        from unittest.mock import MagicMock
+
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["hidden_history"] = json.dumps(["22222222-2222-4222-8222-222222222222"])
+        context = UserContext("alice", nc)
+        tracker = MagicMock()
+        request = Request({
+            "type": "http", "headers": [],
+            "app": SimpleNamespace(state=SimpleNamespace(job_tracker=tracker)),
+        })
+        jobs = [
+            {"id": "11111111-1111-4111-8111-111111111111", "owner_id": "alice", "status": "failed"},
+            {"id": "22222222-2222-4222-8222-222222222222", "owner_id": "alice", "status": "failed"},
+            {"id": "33333333-3333-4333-8333-333333333333", "owner_id": "alice", "status": "cancelled"},
+        ]
+        calls = []
+
+        async def mock_core(method, path, **kwargs):
+            calls.append((method, path))
+            if method == "GET" and path == "jobs":
+                return jobs
+            if method == "GET" and path.startswith("jobs/"):
+                return next(row for row in jobs if row["id"] == path.split("/")[1])
+            if method == "POST" and path == "jobs/11111111-1111-4111-8111-111111111111/retry":
+                return {"id": "11111111-1111-4111-8111-111111111111", "owner_id": "alice", "status": "queued"}
+            raise AssertionError((method, path))
+
+        with patch("nextcloud_exapp.main.core_json", side_effect=mock_core):
+            result = asyncio.run(retry_owner_failed(request, context))
+        self.assertEqual(result, {"retried": 1})
+        self.assertEqual([p for method, p in calls if method == "POST"],
+                         ["jobs/11111111-1111-4111-8111-111111111111/retry"])
+        tracker.reset.assert_called_once_with("11111111-1111-4111-8111-111111111111")
+
+    def test_visible_owner_snapshot_excludes_hidden_history(self):
+        import json
+        from nextcloud_exapp.main import _visible_owner_jobs
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["hidden_history"] = json.dumps(["44444444-4444-4444-8444-444444444444"])
+        context = UserContext("alice", nc)
+        async def fake_core(method, path, **kwargs):
+            return [
+                {"id": "44444444-4444-4444-8444-444444444444", "owner_id": "alice", "status": "failed"},
+                {"id": "55555555-5555-4555-8555-555555555555", "owner_id": "alice", "status": "failed"},
+            ]
+        with patch("nextcloud_exapp.main.core_json", side_effect=fake_core):
+            visible = asyncio.run(_visible_owner_jobs(context, "failed"))
+        self.assertEqual([job["id"] for job in visible], ["55555555-5555-4555-8555-555555555555"])

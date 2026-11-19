@@ -1,9 +1,7 @@
 /** Reconcile a failed settings save against a fresh server GET, never a guess. */
 const OWN = Object.prototype.hasOwnProperty;
-const SUBFOLDERS = {
-  video:'Video', audio:'Audio', images:'Images', manga:'Manga',
-  direct:'Direct files', torrent:'Torrents',
-};
+import {CONTENT_ROUTES} from './content-routes.mjs';
+const SUBFOLDERS = Object.fromEntries(CONTENT_ROUTES.map(route=>[route.id,route.subfolder]));
 const canonical = value => {
   if(Array.isArray(value)) return value.map(canonical);
   if(value && typeof value === 'object')

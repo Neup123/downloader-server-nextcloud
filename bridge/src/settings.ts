@@ -1,5 +1,7 @@
 import {renderCookieVault} from './cookie-vault';
 import {reconcileSettingsPatch,mergePendingPatches,overlayPendingSettings} from './settings-reconcile.mjs';
+import {extendFolderResults} from './folder-picker-pages.mjs';
+import { CONTENT_ROUTES } from './content-routes.mjs';
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
@@ -213,14 +215,10 @@ function start() {
     const picker=element('div');picker.className='downloader-picker';picker.hidden=true;
     routes.append(picker);
 
-    const routeSubfolders:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images',manga:'Manga',
-      direct:'Direct files',torrent:'Torrents',
-    };
-    const routeLabels:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images / galleries',
-      manga:'Manga / comics',direct:'Direct files',torrent:'Torrents',
-    };
+    const routeSubfolders:Record<string,string>=Object.fromEntries(
+      CONTENT_ROUTES.map(route=>[route.id,route.subfolder]));
+    const routeLabels:Record<string,string>=Object.fromEntries(
+      CONTENT_ROUTES.map(route=>[route.id,route.label]));
     const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
     const routeFields:Record<string,HTMLInputElement>={};
     function routeRow(id:string,name:string,field:HTMLInputElement,
@@ -256,38 +254,62 @@ function start() {
       }
     }
     let onFolderChosen=(path:string)=>setDefaultFolder(path);
-    async function openFolder(path:string,offset=0){
-      picker.hidden=false;picker.replaceChildren(element('p','Loading folders…'));
+    let pickerGeneration=0;
+    let listedFolders:Folder[]=[];
+    let folderList:HTMLUListElement|null=null;
+    let moreButton:HTMLButtonElement|null=null;
+
+    async function openFolder(path:string,offset=0,append=false){
+      const token=append?pickerGeneration:++pickerGeneration;
+      picker.hidden=false;
+      if(!append){
+        picker.replaceChildren(element('p','Loading folders…'));
+        listedFolders=[];folderList=null;moreButton=null;
+      }else if(moreButton){
+        moreButton.disabled=true;
+        moreButton.textContent='Loading more folders…';
+      }
       try {
         const params=new URLSearchParams({path,offset:String(offset)});
         const page=await api<FolderList>('/folders?'+params);
-        picker.replaceChildren(element('strong','Current folder: /'+page.path));
-        const buttons=element('div');buttons.className='downloader-picker-buttons';
-        const parent=element('button','Parent folder'), choose=element('button','Use this folder');
-        parent.disabled=!page.path;choose.className='primary';
-        parent.addEventListener('click',()=>{
-          void openFolder(page.path.split('/').slice(0,-1).join('/'));
-        });
-        choose.addEventListener('click',()=>{
-          onFolderChosen(page.path);
-          picker.hidden=true;
-        });
-        buttons.append(parent,choose);picker.append(buttons);
-        const folderList=element('ul');
-        for(const entry of page.folders){
+        if(token!==pickerGeneration)return;
+        const previousCount=listedFolders.length;
+        listedFolders=extendFolderResults(listedFolders,page,path,offset,append);
+        if(!append){
+          picker.replaceChildren(element('strong','Current folder: /'+page.path));
+          const buttons=element('div');buttons.className='downloader-picker-buttons';
+          const parent=element('button','Parent folder'), choose=element('button','Use this folder');
+          parent.disabled=!page.path;choose.className='primary';
+          parent.addEventListener('click',()=>{
+            void openFolder(page.path.split('/').slice(0,-1).join('/'));
+          });
+          choose.addEventListener('click',()=>{
+            onFolderChosen(page.path);
+            picker.hidden=true;
+          });
+          buttons.append(parent,choose);picker.append(buttons);
+          folderList=element('ul');picker.append(folderList);
+        }
+        for(const entry of listedFolders.slice(previousCount)){
           const li=element('li');li.append(element('span','📁 '+entry.name));
           const open=element('button','Open');open.type='button';
           open.addEventListener('click',()=>{void openFolder(entry.path);});
-          li.append(open);folderList.append(li);
+          li.append(open);folderList!.append(li);
         }
-        picker.append(folderList);
+        moreButton?.remove();moreButton=null;
         if(page.has_more){
-          const more=element('button','More folders');
-          more.addEventListener('click',()=>{void openFolder(page.path,page.offset+100);});
-          picker.append(more);
+          moreButton=element('button','More folders');
+          moreButton.addEventListener('click',()=>{void openFolder(page.path,page.offset+100,true);});
+          picker.append(moreButton);
         }
       }catch(error){
-        picker.replaceChildren(element('p',error instanceof Error?error.message:'Unable to browse Files.'));
+        if(token!==pickerGeneration)return;
+        if(append && moreButton){
+          moreButton.disabled=false;
+          moreButton.textContent='Retry loading more folders';
+        }else{
+          picker.replaceChildren(element('p',error instanceof Error?error.message:'Unable to browse Files.'));
+        }
       }
     }
     // The default base folder is the first row of this same routing list.

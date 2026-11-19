@@ -9,7 +9,7 @@ test('Actions depend on Nextcloud signed user entitlement', () => {
 });
 test('All download submissions go through per-user ExApp routes', () => {
   assert.match(source, /app_api\/proxy\/downloader-server-nextcloud\/user\/api/);
-  assert.match(source, /api\('\/jobs', 'POST'/);
+  assert.match(source, /api(?:<\{id\?:string\}>)?\('\/jobs', 'POST'/);
   for (const forbidden of ['DOWNLOADER_API_TOKEN', 'APP_API_TOKEN', 'X-API-Key', 'WebDAV PUT', 'fs.writeFile']) {
     assert.ok(!source.includes(forbidden), forbidden);
   }
