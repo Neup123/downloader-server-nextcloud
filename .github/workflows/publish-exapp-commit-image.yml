@@ -15,6 +15,9 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: exapp-commit-image-${{ github.event.workflow_run.head_sha }}
@@ -153,6 +156,16 @@ jobs:
           print("Release manifest checksum and OCI digest provenance recorded")
           PY
 
+      # Authenticate the exact image digest before allowing a versioned release.
+      # In this personal repository, do not request organization artifact storage.
+      - name: Attest verified GHCR image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE_REPO }}
+          subject-digest: ${{ env.PUBLISHED_DIGEST }}
+          push-to-registry: true
+          create-storage-record: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -189,9 +202,9 @@ jobs:
             test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REPO:$version")" = "$SOURCE_SHA"
           fi
           # Package native UI hooks with the versioned ExApp release.
-          (cd bridge && npm install --no-audit --no-fund && npm test && npm run build)
+          (cd bridge && npm ci --no-audit --no-fund && npm test && npm run build)
           mkdir -p bundle/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js bundle/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge/l10n bundle/downloader_bridge/
           cp bridge/README.md bundle/downloader_bridge/
           (cd bundle && zip -q -r ../downloader-bridge-0.5.3.zip downloader_bridge)
           gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
