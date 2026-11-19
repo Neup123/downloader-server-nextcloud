@@ -54,6 +54,28 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)
 
+    def test_publisher_attests_exact_pulled_digest_and_immutable_native_bridge(self):
+        workflow = WORKFLOW.read_text()
+        for required in (
+            "id-token: write",
+            "attestations: write",
+            "artifact-metadata: write",
+            "uses: actions/attest@v4",
+            "subject-name: ${{ env.IMAGE_REPO }}",
+            "subject-digest: ${{ env.PUBLISHED_DIGEST }}",
+            "push-to-registry: true",
+            "create-storage-record: false",
+            "npm ci --no-audit --no-fund && npm test && npm run build",
+            "bridge/templates bridge/l10n bundle/downloader_bridge/",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow)
+        self.assertNotIn("npm install", workflow)
+        self.assertLess(workflow.index('echo "PUBLISHED_DIGEST=$digest"'),
+                        workflow.index("uses: actions/attest@v4"))
+        self.assertLess(workflow.index("uses: actions/attest@v4"),
+                        workflow.index("gh release create"))
+
     def test_synchronized_main_requires_successful_explicit_appapi_gate(self):
         publisher = WORKFLOW.read_text()
         sync = (ROOT / ".github/workflows/bootstrap-upstream.yml").read_text()
