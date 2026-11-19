@@ -31,3 +31,13 @@ test('top-level Library GET is CSRF-exempt while remaining owner-entitled', () =
   assert.match(php, /#\[NoAdminRequired\]\s*#\[NoCSRFRequired\]\s*public function index\(/);
   assert.match(php, /EntitlementPolicy::allows/);
 });
+
+test('empty unfiltered Library provides a new-download action using the shared dialog',()=>{
+  assert.match(source,/import \{ showLinkDialog \} from '\.\/link-first-dialog\.mjs'/);
+  assert.match(source,/const startDownload = \(\) => showLinkDialog\(/);
+  assert.match(source,/New download/);
+  assert.match(source,/start\.addEventListener\('click',startDownload\)/);
+  assert.match(source,/state\.value==='all' && !search\.value\.trim\(\)/);
+  assert.match(source,/No downloads match your search or filter/);
+  assert.match(source,/downloader:jobs-updated/);
+});

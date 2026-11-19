@@ -1,7 +1,7 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
-import { filesJobRequest } from './files-dialog-payload.mjs';
-import { classifyPreview } from './link-first-dialog.mjs';
+import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
+import { showLinkDialog } from './link-first-dialog.mjs';
+import {isTerminalJobState} from './job-states.generated.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
 type Job = {
   id: string; url: string; status: string; created_at: string;
@@ -12,7 +12,6 @@ type Job = {
 };
 type Dashboard = {register: (id: string, render: (el: HTMLElement) => void) => void};
 const host = window as unknown as {OC?: Oc; OCA?: {Dashboard?: Dashboard}};
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const elem = <K extends keyof HTMLElementTagNameMap>(name: K, text = ''): HTMLElementTagNameMap[K] => {
   const n = document.createElement(name);
   n.textContent = text;
@@ -93,62 +92,30 @@ function renderDashboard(element: HTMLElement) {
   submit.style.cssText = 'padding:9px 12px;min-height:44px;cursor:pointer';
   const feedback = elem('p'); feedback.setAttribute('role', 'status');
   feedback.style.cssText = 'margin:0;font-size:12px';
-  const isTorrent = (value: string) => classifyPreview(value, null) === 'torrent';
-  const torrentNotice = 'Torrent downloads are not available yet because their files cannot be reviewed. No download will start.';
-  field.addEventListener('input', () => {
-    const torrent = isTorrent(field.value.trim());
-    submit.disabled = torrent;
-    feedback.textContent = torrent ? torrentNotice : '';
-  });
   label.append(field); quick.append(label, submit, feedback);
   const list = elem('div');
   list.className = 'job-list';
   area.append(quick, history, list);
-  quick.addEventListener('submit', async event => {
+  // The Dashboard is just another entrypoint into the content-aware,
+  // signed link-first workflow. It must never submit directly to /jobs.
+  submit.textContent = 'Review download';
+  quick.addEventListener('submit', event => {
     event.preventDefault();
-    let value = field.value.trim();
-    // Enter may submit even when the button is disabled.
-    if (isTorrent(value)) {
-      submit.disabled = true;
-      feedback.textContent = torrentNotice;
+    const source = field.value.trim();
+    if (!source) {
+      feedback.textContent = 'Paste a link to check it before downloading.';
+      field.focus();
       return;
     }
-    try {
-      const parsed = new URL(value);
-      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname ||
-          parsed.username || parsed.password) {
-        throw new Error('Enter a public HTTP or HTTPS link without embedded credentials.');
-      }
-      value = parsed.href;
-    } catch (error) {
-      feedback.textContent = error instanceof Error ? error.message : 'Enter a complete HTTP or HTTPS link.';
-      return;
-    }
-    submit.disabled = true; feedback.textContent = 'Submitting download…';
-    try {
-      // Use the same owner-scoped payload and ExApp submission path as the
-      // working native Files dialog. A null folder retains the signed user's
-      // own default, including first-use /Downloads creation.
-      const files = await api<{app_password_configured:boolean}>('/settings');
-      if (!files.app_password_configured) {
-        throw new Error("Your Files aren't connected yet. Connect Files in Downloader settings, then retry.");
-      }
-      const created = await api<Job>('/jobs', 'POST', filesJobRequest(value, null));
-      if (!created || !created.id) throw new Error('The download was not confirmed. Retry from Files.');
-      field.value = '';
-      feedback.textContent = DOWNLOAD_QUEUED_MESSAGE;
-      window.dispatchEvent(new Event('downloader:job-queued'));
-      await refresh();
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : '';
-      feedback.textContent = /credentials unavailable|app password|reconnect files/i.test(reason)
-        ? 'Your Files connection needs attention. Open Downloader settings, reconnect Files, and try again.'
-        : /destination folder|cannot open destination/i.test(reason)
-          ? 'Your download folder is unavailable. Choose a folder in Downloader settings and retry.'
-          : /401|403|not authorized|unauthorized/i.test(reason)
-            ? 'Downloader is not available for this account. Ask your Nextcloud administrator.'
-            : reason || 'Could not start download. Try again from Files.';
-    } finally { submit.disabled = false; }
+    showLinkDialog({
+      folder: null, suggested: source, api,
+      notify: (message: string) => {feedback.textContent = message;},
+      queued: () => {
+        field.value = '';
+        window.dispatchEvent(new Event('downloader:job-queued'));
+        void refresh();
+      },
+    });
   });
   // Nextcloud gives .panel a fixed card height. Bound its content flex child to
   // the space below the card header; clipping only this child is insufficient
@@ -258,7 +225,7 @@ function renderDashboard(element: HTMLElement) {
     const state = elem('span', downloadStatus(job)); state.className = 'job-card-state';
     state.title = downloadStatus(job);
     info.append(title, state);
-    if (!TERMINAL.has(job.status)) {
+    if (!isTerminalJobState(job.status)) {
       const progress = elem('progress'); progress.className = 'mini-progress';
       progress.max = 100;
       progress.value = Math.max(0, Math.min(100, Number(job.progress?.percent || 0)));
@@ -267,7 +234,7 @@ function renderDashboard(element: HTMLElement) {
     }
     const actions = elem('div'); actions.className = 'job-actions';
     const operation = job.status === 'completed' ? 'redeliver'
-      : TERMINAL.has(job.status) ? 'retry' : 'cancel';
+      : isTerminalJobState(job.status) ? 'retry' : 'cancel';
     const rerun = elem('button', operation === 'redeliver' ? '↻' : operation === 'retry' ? '⟳' : '×');
     rerun.type = 'button';
     rerun.title = operation === 'redeliver' ? 'Deliver again'

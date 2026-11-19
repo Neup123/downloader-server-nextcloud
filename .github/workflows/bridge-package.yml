@@ -25,6 +25,13 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Verify full-checkout native translation packaging
+        run: |
+          python3 - <<'PY'
+          import runpy
+          checks = runpy.run_path("tests/test_bridge_l10n_package_contract.py")
+          checks["test_native_l10n_catalogs_enter_both_install_paths"]()
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -84,7 +91,7 @@ jobs:
       - name: Create installable native Nextcloud app
         run: |
           mkdir -p package/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates package/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge/l10n package/downloader_bridge/
           cp bridge/README.md package/downloader_bridge/
           cd package
           zip -q -r ../downloader-bridge-0.5.3.zip downloader_bridge

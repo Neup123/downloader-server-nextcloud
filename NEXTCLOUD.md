@@ -10,6 +10,14 @@
 > historical implementation, not a supported deployment path.
 
 
+## Notification and indexing operations
+
+- The server-side JobTracker persists pending notification and search-index work in its AppAPI persistent SQLite storage. Its SQLite schema includes a creation timestamp with an additive migration; historical rows begin age tracking at migration time.
+- Nextcloud administrators can query `GET /admin/api/tracker-health` through the signed AppAPI path. It returns only aggregate pending counts, oldest pending age in seconds, separate consecutive Core/notification/index/monitor failures, and a `ready`/`degraded` indicator after three consecutive failures in any stage. The endpoint is not available to ordinary users and never returns job identifiers, usernames, URLs, paths, or raw exception messages.
+- The tracker emits rate-limited, redacted server log warnings containing only failure stage, count and exception type. A successful stage clears that stage's failure count; a later failed indexing pass does not repeat a notification already durably marked as sent.
+- A green tracker signal does not prove successful delivery of media files. Pending age can include legitimate long-running jobs; only repeated observed errors mark the tracker `degraded`. Restart resets in-memory consecutive-error counters but **preserves pending SQLite rows**, so persistent failures become visible again after polling resumes.
+- Recovery: inspect stage and age counters, repair the corresponding Nextcloud/SQLite service, allow the tracker to retry, and confirm counts decrease. Do not manually mark notifications or index rows complete if their side effects were not verified.
+
 ## Content routes: one contract
 
 The authoritative content-route category, label, implicit destination subfolder, and accepted link-first source-kind mapping live in `bridge/src/content-routes.contract.json`. The signed ExApp reads it through `nextcloud_exapp/content_routes.py` and the native Nextcloud plugin UI bundles the same source through `bridge/src/content-routes.mjs`. These are **plugin routing data**, not Core engine or Core UI definitions.

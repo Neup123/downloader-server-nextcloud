@@ -1,7 +1,9 @@
 
 ## Native Nextcloud-only product
 
-All Downloader user interfaces are hosted by Nextcloud itself: Files actions, Dashboard widget, the native [Library](bridge/README.md), and Nextcloud Personal settings. Do not embed, redirect to, or link users to the standalone Core website. The service origin and API token are configured once in administrator-controlled AppAPI deployment settings and never entered by a regular user.
+**UI ownership:** This repository implements only the **Nextcloud plugin UI**: Files actions, the Dashboard widget, native [Library](bridge/README.md) integration, and plugin settings. It does not own or implement a second standalone downloader web application. The standalone downloader UI belongs exclusively to [Media-Downloader-server](https://github.com/Neup123/Media-Downloader-server) and is maintained there. Do not embed, copy, redirect to, or link users to the standalone Core website.
+
+The Nextcloud plugin may render native controls to submit jobs and display status, but all engines, job execution, routing, and delivery remain Core responsibilities. Its generated job-status and preview contracts are **data-contract consumers**, not a shared or duplicated UI. The service origin and API token are configured once in administrator-controlled AppAPI deployment settings and never entered by a regular user.
 
 # Downloader Server — Nextcloud Adaptation
 

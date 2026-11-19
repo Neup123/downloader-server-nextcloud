@@ -10,7 +10,9 @@ const dashboard = readFileSync(new URL('../src/dashboard.ts', import.meta.url), 
 test('one submitted-queue message across dialog, Dashboard, Viewer and Files', () => {
   assert.equal(DOWNLOAD_QUEUED_MESSAGE, 'Download queued. Follow progress in Downloads.');
   assert.match(dialog, /notify\(DOWNLOAD_QUEUED_MESSAGE\)/);
-  assert.match(dashboard, /feedback\.textContent = DOWNLOAD_QUEUED_MESSAGE/);
+  // Dashboard now opens the same reviewed dialog; that dialog owns the queued message.
+  assert.match(dashboard, /showLinkDialog\(\{/);
+  assert.match(dashboard, /queued: \(\) =>/);
   assert.match(bridge, /notify\(DOWNLOAD_QUEUED_MESSAGE\)/);
   for (const source of [dialog, dashboard, bridge]) {
     assert.doesNotMatch(source, /Download added to your Nextcloud Files/);
@@ -29,7 +31,7 @@ test('API success is not delivery; only confirmed job creation produces queued t
 });
 
 test('Files-ready completion is a separate verified terminal notification', () => {
-  assert.match(bridge, /&& TERMINAL\.has\(job\.status\)/);
+  assert.match(bridge, /&& isTerminalJobState\(job\.status\)/);
   assert.match(bridge, /job\.status==='completed'/);
   assert.match(bridge, /Download complete\. Open it in Nextcloud Files\./);
   assert.match(bridge, /Download skipped: a file already exists in Nextcloud Files/);
