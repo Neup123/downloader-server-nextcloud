@@ -44,6 +44,10 @@ class ReadOnlyMergePreviewTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for content in (live, preview):
             self.assertLess(
+                content.index("python3 -m scripts.bridge_job_state_contract\n"),
+                content.index("python3 -m scripts.bridge_job_state_contract --check"),
+            )
+            self.assertLess(
                 content.index("python3 -m scripts.bridge_job_state_contract --check"),
                 content.index("python3 scripts/run_downstream_acceptance.py"),
             )
