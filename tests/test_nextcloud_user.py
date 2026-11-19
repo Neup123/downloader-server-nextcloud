@@ -376,3 +376,58 @@ class ProvenanceContractTests(TestCase):
         self.assertIn('await job_submission(', source)
         # Redownload still resolves exclusively from the signed owner's provenance.
         self.assertIn('own_job_provenance(', source)
+
+
+class BulkRetryVisibilityTests(TestCase):
+    def test_bulk_retry_excludes_hidden_and_cancelled_jobs(self):
+        """A removed or deliberately cancelled job must never restart in bulk."""
+        import json
+        from nextcloud_exapp.main import retry_owner_failed
+        from unittest.mock import MagicMock
+
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["hidden_history"] = json.dumps(["22222222-2222-4222-8222-222222222222"])
+        context = UserContext("alice", nc)
+        tracker = MagicMock()
+        request = Request({
+            "type": "http", "headers": [],
+            "app": SimpleNamespace(state=SimpleNamespace(job_tracker=tracker)),
+        })
+        jobs = [
+            {"id": "11111111-1111-4111-8111-111111111111", "owner_id": "alice", "status": "failed"},
+            {"id": "22222222-2222-4222-8222-222222222222", "owner_id": "alice", "status": "failed"},
+            {"id": "33333333-3333-4333-8333-333333333333", "owner_id": "alice", "status": "cancelled"},
+        ]
+        calls = []
+
+        async def mock_core(method, path, **kwargs):
+            calls.append((method, path))
+            if method == "GET" and path == "jobs":
+                return jobs
+            if method == "GET" and path.startswith("jobs/"):
+                return next(row for row in jobs if row["id"] == path.split("/")[1])
+            if method == "POST" and path == "jobs/11111111-1111-4111-8111-111111111111/retry":
+                return {"id": "11111111-1111-4111-8111-111111111111", "owner_id": "alice", "status": "queued"}
+            raise AssertionError((method, path))
+
+        with patch("nextcloud_exapp.main.core_json", side_effect=mock_core):
+            result = asyncio.run(retry_owner_failed(request, context))
+        self.assertEqual(result, {"retried": 1})
+        self.assertEqual([p for method, p in calls if method == "POST"],
+                         ["jobs/11111111-1111-4111-8111-111111111111/retry"])
+        tracker.reset.assert_called_once_with("11111111-1111-4111-8111-111111111111")
+
+    def test_visible_owner_snapshot_excludes_hidden_history(self):
+        import json
+        from nextcloud_exapp.main import _visible_owner_jobs
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["hidden_history"] = json.dumps(["44444444-4444-4444-8444-444444444444"])
+        context = UserContext("alice", nc)
+        async def fake_core(method, path, **kwargs):
+            return [
+                {"id": "44444444-4444-4444-8444-444444444444", "owner_id": "alice", "status": "failed"},
+                {"id": "55555555-5555-4555-8555-555555555555", "owner_id": "alice", "status": "failed"},
+            ]
+        with patch("nextcloud_exapp.main.core_json", side_effect=fake_core):
+            visible = asyncio.run(_visible_owner_jobs(context, "failed"))
+        self.assertEqual([job["id"] for job in visible], ["55555555-5555-4555-8555-555555555555"])
