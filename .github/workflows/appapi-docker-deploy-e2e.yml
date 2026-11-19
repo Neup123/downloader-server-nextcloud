@@ -197,7 +197,7 @@ jobs:
           set -euo pipefail
           (cd bridge && npm ci --no-audit --no-fund && npm test && npm run build)
           install -d bridge-install/downloader_bridge
-          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/
+          cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge/l10n bridge-install/downloader_bridge/
           docker cp bridge-install/downloader_bridge downloader-appapi-nextcloud:/var/www/html/custom_apps/downloader_bridge
           docker exec --user www-data downloader-appapi-nextcloud php occ app:enable downloader_bridge
           docker exec --user www-data downloader-appapi-nextcloud php occ app:list --output=json \

@@ -6,8 +6,20 @@
  * output_files?:Array<{filename:string,path?:string,verified?:boolean,file_id?:string|number,size_bytes?:number}>}} Job
  */
 
+/**
+ * Nextcloud's globally supplied t() is used for registered app translations.
+ * Fallback preserves the English baseline in Node and pre-initialization.
+ * Keep calls with literal strings so Nextcloud's extraction tool can find them.
+ */
+export function t(app, source, replacements = {}) {
+  const nextcloud = globalThis.t;
+  if (typeof nextcloud === 'function') return nextcloud(app, source, replacements);
+  return source.replace(/\{(\w+)\}/g, (_, name) => String(replacements[name] ?? '{' + name + '}'));
+}
+
 /** A successful POST only acknowledges the queue, never verified delivery. */
-export const DOWNLOAD_QUEUED_MESSAGE = 'Download queued. Follow progress in Downloads.';
+export const DOWNLOAD_QUEUED_MESSAGE =
+  t('downloader_bridge', 'Download queued. Follow progress in Downloads.');
 
 /** @param {Job} job */
 export function downloadTitle(job) {
@@ -16,9 +28,9 @@ export function downloadTitle(job) {
   try {
     const url = new URL(job.url);
     const last = decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) || '');
-    return last || url.hostname || 'Download';
+    return last || url.hostname || t('downloader_bridge', 'Download');
   } catch {
-    return 'Download';
+    return t('downloader_bridge', 'Download');
   }
 }
 
@@ -47,25 +59,28 @@ export function downloadStatus(job) {
   const percent = Number.isFinite(percentage) ? Math.max(0, Math.min(100, percentage)) : null;
   if (job.status === 'completed') {
     return job.output_files?.length && job.output_files.every(f => f.verified)
-      ? 'Delivered ✓ Verified' : 'Completed — checking delivery';
+      ? t('downloader_bridge', 'Delivered ✓ Verified')
+      : t('downloader_bridge', 'Completed — checking delivery');
   }
-  if (job.status === 'failed') return 'Failed — ' + (job.error || 'Check the log and try again');
-  if (job.status === 'cancelled') return 'Cancelled';
-  if (job.status === 'paused') return 'Paused';
-  if (job.status === 'downloading') return 'Downloading' +
+  if (job.status === 'failed') return t('downloader_bridge', 'Failed — {reason}', {
+    reason: job.error || t('downloader_bridge', 'Check the log and try again'),
+  });
+  if (job.status === 'cancelled') return t('downloader_bridge', 'Cancelled');
+  if (job.status === 'paused') return t('downloader_bridge', 'Paused');
+  if (job.status === 'downloading') return t('downloader_bridge', 'Downloading') +
     (percent === null ? '' : ' ' + percent.toFixed(0) + '%') +
     (Number(job.progress?.speed_bytes_per_second) > 0
       ? ' · ' + downloadAmount(job.progress.speed_bytes_per_second) + '/s' : '');
-  if (job.status === 'delivering') return 'Delivering to your destination';
-  if (job.status === 'queued') return 'Queued';
-  return (job.status || 'Pending').replaceAll('-', ' ');
+  if (job.status === 'delivering') return t('downloader_bridge', 'Delivering to your destination');
+  if (job.status === 'queued') return t('downloader_bridge', 'Queued');
+  return (job.status || t('downloader_bridge', 'Pending')).replaceAll('-', ' ');
 }
 
 /** Bubble has a dedicated percentage beside the pause button. */
 export function downloadBubbleStatus(job) {
   if (job.status !== 'downloading') return downloadStatus(job);
   const speed = Number(job.progress?.speed_bytes_per_second);
-  return 'Downloading' + (Number.isFinite(speed) && speed > 0
+  return t('downloader_bridge', 'Downloading') + (Number.isFinite(speed) && speed > 0
     ? ' · ' + downloadAmount(speed) + '/s' : '');
 }
 
