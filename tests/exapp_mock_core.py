@@ -62,6 +62,19 @@ class Handler(BaseHTTPRequestHandler):
         )):
             self.respond(400, {"detail": "Browser credentials reached core"})
             return
+        if self.path == "/fixture/mark-delivering":
+            # An explicit test-only transition makes the native UI prove that
+            # real signed AppAPI polling observes queued -> delivering.
+            with _STATE_LOCK:
+                if _TEST_JOB is None or _TEST_JOB["status"] != "queued":
+                    self.respond(409, {"detail": "No queued fixture job"})
+                    return
+                _TEST_JOB = {
+                    **_TEST_JOB, "status": "delivering",
+                    "progress": {"state": "delivering", "percent": 85},
+                }
+            self.respond(200, {"fixture_delivering": True})
+            return
         if self.path == "/fixture/complete-after-dav-readback":
             # The runner calls this **only after** uploading into disposable
             # Nextcloud and checking the actual returned bytes and checksum.
