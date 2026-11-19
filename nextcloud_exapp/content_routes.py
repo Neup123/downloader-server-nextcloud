@@ -4,7 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_CONTRACT = Path(__file__).with_name("content-routes.contract.json")
+# The native plugin is buildable in isolation; its JSON is the source artifact.
+# The ExApp Docker build copies the same bytes beside this module for runtime.
+_BUNDLED = Path(__file__).with_name("content-routes.contract.json")
+_SOURCE = Path(__file__).resolve().parents[1] / "bridge/src/content-routes.contract.json"
+_CONTRACT = _BUNDLED if _BUNDLED.is_file() else _SOURCE
 _data = json.loads(_CONTRACT.read_text(encoding="utf-8"))
 _rows = _data["categories"]
 if (not isinstance(_rows, list) or not _rows or
