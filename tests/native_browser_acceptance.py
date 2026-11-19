@@ -132,6 +132,42 @@ def check_settings(page) -> None:
     vault.get_by_role("button", name="Add site cookies").click()
     expect(vault.get_by_placeholder("example.com")).to_be_focused()
     capture(page, "10-cookie-vault-settings.png")
+    # A real signed autosave must survive a fresh page load. Source-pattern
+    # assertions and a mock fetch promise do not establish persistence.
+    failure_notice = root.get_by_label("Notify me if a download fails")
+    expect(failure_notice).to_be_visible()
+    originally_checked = failure_notice.is_checked()
+    with page.expect_response(
+        lambda response: response.url.endswith("/user/api/settings")
+        and response.request.method == "PUT", timeout=30_000
+    ) as saved:
+        if originally_checked:
+            failure_notice.uncheck()
+        else:
+            failure_notice.check()
+    assert saved.value.status == 200, "Native settings autosave was rejected"
+    expect(root.locator(".downloader-save-status")).to_contain_text("Saved", timeout=20_000)
+    page.reload(wait_until="domcontentloaded")
+    root = page.locator("#downloader-settings-app")
+    expect(root).to_be_visible(timeout=30_000)
+    expect(root.get_by_label("Notify me if a download fails")).to_be_checked() if not originally_checked else expect(
+        root.get_by_label("Notify me if a download fails")
+    ).not_to_be_checked()
+    capture(page, "13-personal-settings-persisted.png")
+    # Restore the disposable user's original preference so later browser
+    # journeys do not depend on the test order.
+    restored = root.get_by_label("Notify me if a download fails")
+    with page.expect_response(
+        lambda response: response.url.endswith("/user/api/settings")
+        and response.request.method == "PUT", timeout=30_000
+    ) as restored_save:
+        if originally_checked:
+            restored.check()
+        else:
+            restored.uncheck()
+    assert restored_save.value.status == 200
+    print("Real Chromium: signed autosave persisted across full Nextcloud reload PASS", flush=True)
+
 
 
 def check_header_and_dialog(page) -> None:
