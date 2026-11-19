@@ -443,6 +443,14 @@ def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
             ["docker", "exec", "--user", "www-data", app, "php", "occ", *action],
             check=True, capture_output=True, text=True, timeout=35,
         )
+    # Use the documented real Nextcloud per-user locale setting as well.
+    # That setting is read for signed-in users independently of the global
+    # default/force language; never simulate RTL by editing the DOM.
+    subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang", "he" if hebrew else "en"],
+        check=True, capture_output=True, text=True, timeout=35,
+    )
 
 
 def check_mobile_rtl_and_theme(page) -> None:
