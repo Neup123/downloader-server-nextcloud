@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import contract from '../../nextcloud_exapp/content-routes.contract.json' with {type:'json'};
+import contract from '../src/content-routes.contract.json' with {type:'json'};
 import {
   CONTENT_ROUTES, DEFAULT_FOLDER, SUPPORTED_SOURCE_KINDS,
   SOURCE_KIND_TO_ROUTE, contentCategoryFor,
