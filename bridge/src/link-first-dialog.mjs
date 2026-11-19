@@ -100,6 +100,8 @@ export function previewRows(preview) {
       title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
       subtitle: typeof item.subtitle === 'string' ? item.subtitle.slice(0,200) : '',
       thumbnail: safeThumbnail(item.thumbnail),
+      size_bytes: Number.isSafeInteger(item.size_bytes) && item.size_bytes >= 0 ? item.size_bytes : null,
+      size_estimate_bytes: Number.isSafeInteger(item.size_estimate_bytes) && item.size_estimate_bytes >= 0 ? item.size_estimate_bytes : null,
       duration: typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration >= 0 ? item.duration : null,
       timestamp: typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp : null,
       upload_date: typeof item.upload_date === 'string' && /^\d{8}$/.test(item.upload_date) ? item.upload_date : null,
@@ -131,6 +133,8 @@ export function previewMeta(row) {
     const date=new Date(row.timestamp*1000);
     if(Number.isFinite(date.getTime()))meta.push(date.toISOString().slice(0,10));
   }
+  if(row.size_bytes!==null)meta.push(sizeLabel(row.size_bytes));
+  else if(row.size_estimate_bytes!==null)meta.push('About '+sizeLabel(row.size_estimate_bytes));
   if(row.duration!==null){
     const seconds=Math.round(row.duration);
     const minutes=Math.floor(seconds/60);
@@ -222,6 +226,26 @@ function sizeLabel(value) {
   return (value / (1024 * 1024)).toFixed(1) + ' MiB';
 }
 
+/** Honest count and byte summary for selectable non-torrent media entries. */
+export function previewSelectionSummary(rows, selected) {
+  let count=0, withSize=0, approximate=0, missing=0, bytes=0;
+  for(const row of rows){
+    if(!selected.has(row.index))continue;
+    count++;
+    const exact=Number.isSafeInteger(row.size_bytes) && row.size_bytes>=0;
+    const estimate=!exact && Number.isSafeInteger(row.size_estimate_bytes) && row.size_estimate_bytes>=0;
+    const amount=exact?row.size_bytes:estimate?row.size_estimate_bytes:null;
+    if(amount===null || !Number.isSafeInteger(bytes+amount)){missing++;continue;}
+    bytes+=amount;withSize++;
+    if(estimate)approximate++;
+  }
+  const parts=[count+' of '+rows.length+' selected'];
+  if(!count)return parts[0]+' · 0 B selected';
+  if(withSize)parts.push((approximate?'About ':'')+sizeLabel(bytes)+' for '+withSize+' sized item'+(withSize===1?'':'s'));
+  if(missing)parts.push('size unknown for '+missing+' item'+(missing===1?'':'s'));
+  return parts.join(' · ');
+}
+
 export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const dialog = e('dialog', '', 'dl-dialog dl-link-dialog');
   dialog.setAttribute('aria-modal','true');
@@ -294,7 +318,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const available=()=>!busy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
-    if(count && kind!=='torrent')count.textContent=selected.size+' selected';
+    if(count && kind!=='torrent')count.textContent=previewSelectionSummary(choices,selected);
     download.disabled=!available() || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
     buttons.hidden=kind==='unsupported' || (kind==='torrent' && torrentSource!=='magnet');
   }
