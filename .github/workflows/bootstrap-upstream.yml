@@ -163,6 +163,11 @@ jobs:
           # packaged Nextcloud consumers before any accepted sync/publish.
           # The source enum is tested above in upstream/main; this compares
           # its byte-derived Python/PHP contracts against the merged tree.
+          # Generate only deterministic leaf consumers from the freshly
+          # verified upstream Core enum; then verify and stage exactly those
+          # three source-derived files in the accepted merged tree.
+          python3 -m scripts.bridge_job_state_contract
+          git add -- bridge/lib/JobStateContract.php nextcloud_exapp/job_state_contract.py bridge/src/job-states.generated.mjs
           python3 -m scripts.bridge_job_state_contract --check
           python3 scripts/run_downstream_acceptance.py
 
