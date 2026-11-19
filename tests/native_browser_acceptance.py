@@ -339,23 +339,35 @@ def fixture_core_transition(action: str) -> None:
 
 
 def verify_disposable_dav_fixture() -> None:
-    """Before simulating completion, re-read actual bytes from Nextcloud DAV."""
+    """Create, upload, and re-read bytes at the route selected by the UI."""
     import base64
     import hashlib
     from urllib.request import Request, urlopen
 
     data = b"%PDF-1.4\n" + b"Verified disposable Nextcloud fixture\n"
     data += b"X" * (13264 - len(data))
-    auth = base64.b64encode(
+    authorization = "Basic " + base64.b64encode(
         ("alice:" + os.environ["NEXTCLOUD_APP_PASSWORD"]).encode()
     ).decode()
-    url = BASE + "/remote.php/dav/files/alice/Downloads/ci-first-use-user-job/dummy.pdf"
-    request = Request(url, headers={"Authorization": "Basic " + auth}, method="GET")
-    with urlopen(request, timeout=25) as response:
+    directory = (BASE + "/remote.php/dav/files/alice/Downloads/"
+                 "Direct%20files/ci-first-use-user-job/")
+    with urlopen(Request(
+        directory, headers={"Authorization": authorization}, method="MKCOL"
+    ), timeout=25) as response:
+        assert response.status == 201
+    with urlopen(Request(
+        directory + "dummy.pdf", data=data, method="PUT",
+        headers={"Authorization": authorization, "Content-Type": "application/pdf"},
+    ), timeout=25) as response:
+        assert response.status in (201, 204)
+    with urlopen(Request(
+        directory + "dummy.pdf", headers={"Authorization": authorization}, method="GET"
+    ), timeout=25) as response:
         actual = response.read()
     assert len(actual) == 13264
     assert hashlib.sha256(actual).digest() == hashlib.sha256(data).digest()
     assert actual == data
+
 
 
 def check_real_native_job_journey(page) -> None:
