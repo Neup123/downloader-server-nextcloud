@@ -12,7 +12,7 @@ from nextcloud_exapp.content_routes import (
 from nextcloud_exapp.user import default_destination_routes
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "nextcloud_exapp/content-routes.contract.json"
+SOURCE = ROOT / "bridge/src/content-routes.contract.json"
 
 
 def native_routes():
