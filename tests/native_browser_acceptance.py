@@ -457,17 +457,30 @@ def check_mobile_rtl_and_theme(page) -> None:
         configure_disposable_appearance(dark=False, hebrew=True)
         page.reload(wait_until="domcontentloaded")
         expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
-        direction = page.locator("html").get_attribute("dir")
-        language = page.locator("html").get_attribute("lang") or ""
-        assert direction == "rtl", ("Nextcloud did not apply Hebrew direction", direction)
-        assert language.lower().startswith("he"), ("Nextcloud did not apply Hebrew language", language)
+        appearance = page.evaluate("""() => ({
+            language: document.documentElement.lang,
+            attributeDirection: document.documentElement.getAttribute('dir'),
+            htmlDirection: getComputedStyle(document.documentElement).direction,
+            bodyDirection: getComputedStyle(document.body).direction,
+            appDirection: getComputedStyle(document.querySelector('#downloader-library-app')).direction,
+        })""")
+        assert appearance["language"].lower().startswith("he"), (
+            "Nextcloud did not apply Hebrew language", appearance
+        )
+        assert "rtl" in {appearance["attributeDirection"], appearance["htmlDirection"],
+                         appearance["bodyDirection"], appearance["appDirection"]}, (
+            "Genuine Hebrew Nextcloud locale did not produce RTL", appearance
+        )
         in_viewport(page, "#downloader-library-app h1")
         capture(page, "05-library-mobile-rtl.png")
 
         configure_disposable_appearance(dark=True, hebrew=True)
         page.reload(wait_until="domcontentloaded")
         expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
-        assert page.locator("html").get_attribute("dir") == "rtl"
+        computed_direction = page.locator("#downloader-library-app").evaluate(
+            "(element) => getComputedStyle(element).direction"
+        )
+        assert computed_direction == "rtl", "Dark theme lost genuine Hebrew RTL in Library"
         theme_class = page.locator("html").get_attribute("class") or ""
         body_class = page.locator("body").get_attribute("class") or ""
         assert "theme--dark" in theme_class or "theme--dark" in body_class, (
