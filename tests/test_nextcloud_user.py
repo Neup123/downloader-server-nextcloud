@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -185,6 +186,30 @@ class UserUnitTests(TestCase):
                 {"url": "https://example.test/video"}))
             self.assertEqual(payload["delivery"]["webdav_url"],
                 "https://cloud.example.org/remote.php/dav/files/alice")
+
+    def test_nextcloud_never_injects_core_managed_aria2_policy_options(self):
+        nc = FakeNc("alice")
+        nc.preferences_ex.saved["dav_app_password"] = "test-secret"
+        request = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c", "overrides": {"options": {"max-connection-per-server": "4"}},
+        }))
+        self.assertEqual(request["engine"], "aria2c")
+        self.assertEqual(request["overrides"]["options"], {"max-connection-per-server": "4"})
+        self.assertNotIn("seed-time", request["overrides"]["options"])
+        nc.preferences_ex.saved["engine_settings"] = json.dumps({
+            "aria2c": {"options": {
+                "seed-time": "300", "seed-ratio": "0", "check-integrity": "false",
+                "max-connection-per-server": "3",
+            }},
+        })
+        legacy = asyncio.run(job_submission(UserContext("alice", nc), {
+            "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+            "engine": "aria2c",
+        }))
+        self.assertEqual(legacy["overrides"]["options"], {"max-connection-per-server":"3"})
+        # Core's adapter remains the authority for zero seed time;
+        # the plugin must not send its own duplicate policy override.
 
     def test_first_user_download_creates_only_own_default_folder(self):
         nc = FakeNc("alice")
