@@ -31,7 +31,7 @@ test('API success is not delivery; only confirmed job creation produces queued t
 });
 
 test('Files-ready completion is a separate verified terminal notification', () => {
-  assert.match(bridge, /&& TERMINAL\.has\(job\.status\)/);
+  assert.match(bridge, /&& isTerminalJobState\(job\.status\)/);
   assert.match(bridge, /job\.status==='completed'/);
   assert.match(bridge, /Download complete\. Open it in Nextcloud Files\./);
   assert.match(bridge, /Download skipped: a file already exists in Nextcloud Files/);
