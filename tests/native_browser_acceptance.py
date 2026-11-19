@@ -344,7 +344,7 @@ def verify_disposable_dav_fixture() -> None:
     import hashlib
     from urllib.request import Request, urlopen
 
-    data = b"%PDF-1.4\\n" + b"Verified disposable Nextcloud fixture\\n"
+    data = b"%PDF-1.4\n" + b"Verified disposable Nextcloud fixture\n"
     data += b"X" * (13264 - len(data))
     auth = base64.b64encode(
         ("alice:" + os.environ["NEXTCLOUD_APP_PASSWORD"]).encode()
