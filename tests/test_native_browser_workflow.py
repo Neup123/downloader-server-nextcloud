@@ -35,6 +35,24 @@ def test_browser_harness_compiles_and_is_real_playwright():
     assert "Folder actions fell under the field" in code
     assert "No subtitles available." in code
     assert "NEXTCLOUD_APP_PASSWORD" in code
+    # #219: actual signed submit, persisted autosave and platform theme/RTL.
+    for required in (
+        "check_real_native_job_journey(page)",
+        "verify_disposable_dav_fixture()",
+        '"14-native-real-job-queued.png"',
+        '"15-native-real-job-delivering.png"',
+        '"16-native-real-job-completed.png"',
+        '"13-personal-settings-persisted.png"',
+        "configure_disposable_appearance(dark=True, hebrew=True)",
+        '"config:system:set"',
+        '"force_language"',
+        '"enforce_theme"',
+        'response.request.method == "POST"',
+        'response.request.method == "PUT"',
+    ):
+        assert required in code, required
+    assert "document.documentElement.setAttribute('dir', 'rtl')" not in code
+    assert "document.documentElement.style.setProperty" not in code
     assert "MOCK_CORE_TOKEN" not in code and "APP_SECRET" not in code
 
 
