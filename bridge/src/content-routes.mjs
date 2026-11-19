@@ -1,5 +1,5 @@
 /** Shared signed Nextcloud gateway + native plugin route contract. Not a Core UI. */
-import contract from '../../nextcloud_exapp/content-routes.contract.json' with { type: 'json' };
+import contract from './content-routes.contract.json' with { type: 'json' };
 
 export const DEFAULT_FOLDER = contract.default_folder;
 export const CONTENT_ROUTES = Object.freeze(
