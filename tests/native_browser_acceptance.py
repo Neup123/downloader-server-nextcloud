@@ -463,7 +463,11 @@ def check_mobile_rtl_and_theme(page) -> None:
     # setting the DOM dir attribute or fake theme variables in JavaScript.
     try:
         configure_disposable_appearance(dark=False, hebrew=True)
-        page.reload(wait_until="domcontentloaded")
+        # Nextcloud chooses the signed-in user's language when a session is
+        # established. A simple reload can keep the original English locale.
+        page.context.clear_cookies()
+        login(page)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
         expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
         appearance = page.evaluate("""() => ({
             language: document.documentElement.lang,
@@ -483,7 +487,9 @@ def check_mobile_rtl_and_theme(page) -> None:
         capture(page, "05-library-mobile-rtl.png")
 
         configure_disposable_appearance(dark=True, hebrew=True)
-        page.reload(wait_until="domcontentloaded")
+        page.context.clear_cookies()
+        login(page)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
         expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
         computed_direction = page.locator("#downloader-library-app").evaluate(
             "(element) => getComputedStyle(element).direction"
