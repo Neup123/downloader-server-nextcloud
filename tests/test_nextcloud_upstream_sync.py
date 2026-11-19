@@ -26,7 +26,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("git cat-file -e upstream/main:app/job_states.py", content)
         self.assertIn("test -s app/job_states.py", content)
         self.assertIn("python3 -m scripts.bridge_job_state_contract --check", content)
-        generation = content.index("python3 -m scripts.bridge_job_state_contract\\n")
+        generation = content.index("python3 -m scripts.bridge_job_state_contract\n")
         stage = content.index("git add -- bridge/lib/JobStateContract.php nextcloud_exapp/job_state_contract.py bridge/src/job-states.generated.mjs")
         verified = content.index("python3 -m scripts.bridge_job_state_contract --check")
         downstream = content.index("python3 scripts/run_downstream_acceptance.py")
