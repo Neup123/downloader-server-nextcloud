@@ -53,7 +53,13 @@ def test_browser_harness_compiles_and_is_real_playwright():
         assert required in code, required
     assert "document.documentElement.setAttribute('dir', 'rtl')" not in code
     assert "document.documentElement.style.setProperty" not in code
-    assert "MOCK_CORE_TOKEN" not in code and "APP_SECRET" not in code
+    # The browser never receives Core/ExApp credentials. The fixture-control
+    # helper obtains its token only inside the isolated Core container via
+    # docker exec, and never prints it or passes it into page.evaluate.
+    assert "APP_SECRET" not in code
+    assert '"docker", "exec", "downloader-test-core"' in code
+    assert "capture_output=True" in code
+    assert "page.evaluate(os.environ" not in code
 
 
 def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
