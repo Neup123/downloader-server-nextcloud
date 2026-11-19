@@ -195,7 +195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd bridge && npm install --no-audit --no-fund && npm test && npm run build)
+          (cd bridge && npm ci --no-audit --no-fund && npm test && npm run build)
           install -d bridge-install/downloader_bridge
           cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/
           docker cp bridge-install/downloader_bridge downloader-appapi-nextcloud:/var/www/html/custom_apps/downloader_bridge
