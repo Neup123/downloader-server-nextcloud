@@ -8,7 +8,8 @@ import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
+import {isTerminalJobState} from './job-states.generated.mjs';
 import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
 
 type Job = {
@@ -21,7 +22,6 @@ type Job = {
 type Oc = {generateUrl: (path: string) => string; requestToken?: string;
   Notification?: {showTemporary?: (message: string) => void}};
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 17v3h16v-3"/></svg>';
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const oc = () => (window as unknown as {OC?: Oc}).OC;
 const root = () => {
   if (!oc()?.generateUrl) throw new Error('Nextcloud routing unavailable');
@@ -68,6 +68,11 @@ function notify(message: string) {
   toast.setAttribute('role', 'status');
   document.body.append(toast);
   window.setTimeout(() => toast.remove(), 5000);
+}
+function announceQueued(created: {id?: string} | null) {
+  if (!created?.id) throw new Error('The download was not confirmed. Try again from Downloads.');
+  notify(DOWNLOAD_QUEUED_MESSAGE);
+  window.dispatchEvent(new CustomEvent('downloader:job-queued', {detail: {id: created.id}}));
 }
 function contentTypeFromMime(mime: string): 'video'|'audio'|'images'|'direct' {
   if(mime.startsWith('video/')) return 'video';
@@ -141,10 +146,10 @@ function registerActions() {
         && sourceIsHttp(attributes.download_source_url) ? attributes.download_source_url : '';
       if (original) {
         try {
-          await api('/jobs', 'POST', {
+          const created = await api<{id?:string}>('/jobs', 'POST', {
             url: original, content_type: contentTypeFromMime(context.nodes[0].mime),
           });
-          notify('Download submitted to your Files.');
+          announceQueued(created);
           return true;
         } catch (error) {
           notify(error instanceof Error ? error.message : 'Download failed');
@@ -182,12 +187,12 @@ function attachLegacyViewerAction() {
     }}}).OCA?.Viewer?.fileInfo;
     const source = current?.download_source_url;
     if (source && sourceIsHttp(source)) {
-      void api('/jobs', 'POST', {
+      void api<{id?:string}>('/jobs', 'POST', {
         url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
       }).then(
-        () => notify('Download submitted to your Files.'),
+        created => announceQueued(created),
         error => notify(error instanceof Error ? error.message : 'Download failed'),
-      );
+      ).catch(error => notify(error instanceof Error ? error.message : 'Download failed'));
     } else {
       void openDialog(null);
     }
@@ -423,7 +428,7 @@ function headerProgress(ownerId: string) {
     row.dataset.jobId=job.id;
     const percent=Math.max(0,Math.min(100,Number(job.progress?.percent||0)));
     const safePercent=Number.isFinite(percent)?Math.round(percent):0;
-    row.style.setProperty('--dl-row-fill', (TERMINAL.has(job.status)?100:safePercent)+'%');
+    row.style.setProperty('--dl-row-fill', (isTerminalJobState(job.status)?100:safePercent)+'%');
     const thumbnail=node('span',downloadSymbol(job),'dl-thumbnail');
     thumbnail.setAttribute('aria-hidden','true');
     const file=(job.output_files||[]).find(file=>file.verified && file.file_id!==undefined
@@ -444,13 +449,13 @@ function headerProgress(ownerId: string) {
     const subtitle=node('span',downloadBubbleStatus(job),'dl-job-state');
     subtitle.dir='auto';
     info.append(name,subtitle);
-    const pct=node('span',TERMINAL.has(job.status)?'':safePercent+'%','dl-job-pct');
-    if(TERMINAL.has(job.status)){
+    const pct=node('span',isTerminalJobState(job.status)?'':safePercent+'%','dl-job-pct');
+    if(isTerminalJobState(job.status)){
       pct.textContent=job.status==='completed'?'✓':'—';
     }
-    const action=node('button',TERMINAL.has(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
+    const action=node('button',isTerminalJobState(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
     action.type='button';
-    if(TERMINAL.has(job.status)){
+    if(isTerminalJobState(job.status)){
       const operation=job.status==='completed'?'redeliver':'retry';
       action.title=operation==='redeliver'?'Deliver again':'Retry download';
       action.setAttribute('aria-label',action.title);
@@ -507,7 +512,7 @@ function headerProgress(ownerId: string) {
       let displayed=[...running];
       if(displayPrefs.dropdown_content==='all'){
         const known=new Set(displayed.map(job=>job.id));
-        const finished=jobs.filter(job=>TERMINAL.has(job.status)&&!known.has(job.id))
+        const finished=jobs.filter(job=>isTerminalJobState(job.status)&&!known.has(job.id))
           .sort((a,b)=>finishTimestamp(b)-finishTimestamp(a));
         displayed=[...displayed,...finished];
       }
@@ -522,7 +527,7 @@ function headerProgress(ownerId: string) {
         // A short download can finish before the first poll after submission.
         // An explicit queued job ID still gets its one skip/completion toast.
         if(((initialized && old && old!==job.status) || justQueued.has(job.id))
-          && TERMINAL.has(job.status)){
+          && isTerminalJobState(job.status)){
           const skipped=job.output_files?.some(file=>file.skipped===true);
           notify(job.status==='completed'
             ?(skipped
@@ -533,7 +538,7 @@ function headerProgress(ownerId: string) {
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
         lastStatuses.set(job.id,job.status);
-        if(old || TERMINAL.has(job.status))justQueued.delete(job.id);
+        if(old || isTerminalJobState(job.status))justQueued.delete(job.id);
         if(job.status==='completed')void publishDeliveredFiles(job);
       }
       initialized=true;
@@ -611,8 +616,8 @@ function registerProvenanceSidebar() {
             redownload.addEventListener('click', async () => {
               redownload.disabled = true;
               try {
-                await api('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
-                notify('Re-download queued to your Nextcloud Files.');
+                const created = await api<{id?:string}>('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
+                announceQueued(created);
               } catch (error) {
                 notify(error instanceof Error ? error.message : 'Could not re-download source');
               } finally {
@@ -670,7 +675,7 @@ function styles() {
     'min-width:0;max-width:100%;margin:8px 0 0;padding:10px 12px 12px;',
     'border:1px solid var(--color-border,#ddd);border-radius:var(--border-radius,6px)}',
     '.dl-advanced-filters legend{padding:0 6px;margin-inline-start:4px;font-size:12px;font-weight:600}',
-    '.dl-toast{position:fixed;z-index:12000;top:70px;right:16px;',
+    '.dl-toast{position:fixed;z-index:12000;top:70px;inset-inline-end:16px;',
     'padding:12px 18px;border-radius:var(--border-radius-large,12px);',
     'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);',
     'border:1px solid var(--color-border,#ddd);box-shadow:0 8px 24px #0003}',
@@ -710,7 +715,7 @@ function styles() {
     'max-height:470px;overflow-y:auto;align-content:start}',
     '.dl-grid-item{position:relative;min-width:0;aspect-ratio:1/1;overflow:hidden;',
     'border:1px solid var(--color-border,#ccc);border-radius:5px;cursor:pointer}',
-    '.dl-grid-item>input{position:absolute;top:6px;left:6px;z-index:2;',
+    '.dl-grid-item>input{position:absolute;top:6px;inset-inline-start:6px;z-index:2;',
     'width:18px;height:18px;accent-color:var(--color-primary,#377bd1)}',
     '.dl-entry-media{position:relative;display:grid;place-items:center;min-width:0;min-height:60px;',
     'width:100%;height:100%;background:var(--color-background-dark,#444);color:var(--color-main-text,#eee)}',
@@ -726,7 +731,7 @@ function styles() {
     '.dl-load-sentinel{grid-column:1/-1;text-align:center;padding:8px;font-size:12px}',
     '.dl-live-badge{display:inline-block;margin-inline-start:7px;color:var(--color-primary,#377bd1);',
     'font-size:11px;font-weight:700;text-transform:uppercase}',
-    '.dl-entry-live-badge{position:absolute;top:5px;right:5px;z-index:2;padding:2px 5px;',
+    '.dl-entry-live-badge{position:absolute;top:5px;inset-inline-end:5px;z-index:2;padding:2px 5px;',
     'border-radius:4px;background:#b91c1c;color:#fff;font-size:10px;font-weight:700}',
     '.dl-torrent-files{display:block;max-height:380px;overflow-y:auto;overflow-x:hidden}',
     '.dl-torrent-folder{box-sizing:border-box;max-width:100%;min-width:0}',
@@ -911,7 +916,7 @@ function styles() {
     'mask:var(--header-menu-icon-mask);-webkit-mask:var(--header-menu-icon-mask)}',
     '.dl-arrow{stroke-width:3}',
     '.dl-frame-progress{stroke-width:2.6;transition:stroke-dashoffset .5s ease}',
-    '.dl-count{position:absolute;top:2px;right:2px;box-sizing:border-box;',
+    '.dl-count{position:absolute;top:2px;inset-inline-end:2px;box-sizing:border-box;',
     'min-width:13px;height:13px;border-radius:9px;',
     'background:var(--color-primary-text,#fff);color:var(--color-primary,#2066ae);',
     'border:0;font-size:9px;font-weight:700;line-height:13px;text-align:center;padding:0 3px}',
@@ -967,7 +972,7 @@ function styles() {
     '.dl-provenance-details{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;font-size:13px}',
     '.dl-provenance-details dt{color:var(--color-text-maxcontrast,#777)}',
     '.dl-provenance-details dd{margin:0;overflow-wrap:anywhere}',
-    '.dl-viewer-trigger{position:absolute;top:18px;right:108px;z-index:10050;',
+    '.dl-viewer-trigger{position:absolute;top:18px;inset-inline-end:108px;z-index:10050;',
     'padding:7px 10px;border-radius:6px;border:1px solid var(--color-border,#ccc);',
     'background:var(--color-main-background,#222);color:var(--color-main-text,#fff);cursor:pointer}',
   ].join('');

@@ -10,14 +10,15 @@ import {classifyPreview} from '../src/link-first-dialog.mjs';
 const dashboard = readFileSync(new URL('../src/dashboard.ts', import.meta.url), 'utf8');
 const bridge = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
 
-test('Dashboard allows opt-in quick download without credentials or changing own Files folder', () => {
+test('Dashboard reviews downloads using shared signed link-first dialog', () => {
   assert.match(dashboard, /Quick download link/);
   assert.match(dashboard, /quick\.addEventListener\('submit'/);
-  assert.match(dashboard, /await api<Job>\('\/jobs', 'POST', filesJobRequest\(value, null\)\)/);
-  assert.doesNotMatch(dashboard, /folder:.*destination|X-API-Key|DOWNLOADER_API_TOKEN/);
-  assert.match(dashboard, /app_password_configured/);
+  assert.match(dashboard, /showLinkDialog\(\{/);
+  assert.match(dashboard, /folder: null, suggested: source, api/);
+  assert.match(dashboard, /Review download/);
+  assert.doesNotMatch(dashboard, /filesJobRequest|X-API-Key|DOWNLOADER_API_TOKEN/);
+  assert.doesNotMatch(dashboard, /api<Job>\('\/jobs', 'POST'/);
   assert.match(dashboard, /downloader:job-queued/);
-  assert.match(dashboard, /submit\.disabled = true/);
   assert.match(dashboard, /role', 'status'/);
   assert.match(dashboard, /\?limit=50/);
   assert.match(dashboard, /max-height:380px;overflow-y:auto/);
@@ -196,15 +197,13 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
   }
 });
 
-test('dashboard blocks magnets and .torrent URLs before submitting any job',()=>{
+test('Dashboard delegates content detection, including magnet and torrent links', () => {
   for (const value of ['magnet:?xt=urn:btih:012345', 'https://example.org/file.torrent?download=1']) {
-    assert.equal(classifyPreview(value,null),'torrent',value);
+    assert.equal(classifyPreview(value, null), 'torrent', value);
   }
-  assert.match(dashboard,/classifyPreview\(value, null\) === 'torrent'/);
-  assert.match(dashboard,/submit.disabled = torrent/);
-  assert.match(dashboard,/if \(isTorrent\(value\)\)/);
-  assert.match(dashboard,/feedback.textContent = torrentNotice/);
-  assert.match(dashboard,/field.type = 'text'/);
-  assert.ok(dashboard.indexOf('if (isTorrent(value))') <
-    dashboard.indexOf("api<Job>('/jobs', 'POST'"));
+  assert.match(dashboard, /showLinkDialog\(\{/);
+  assert.match(dashboard, /suggested: source/);
+  assert.doesNotMatch(dashboard, /isTorrent|torrentNotice/);
+  assert.doesNotMatch(dashboard, /api<Job>\('\/jobs', 'POST'/);
+  assert.match(dashboard, /field.type = 'text'/);
 });

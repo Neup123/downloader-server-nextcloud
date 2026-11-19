@@ -52,4 +52,5 @@ jobs:
             tests/test_native_only_user_surface.py \
             tests/test_native_personal_settings_contract.py \
             tests/test_dialog_quality_contract.py \
-            tests/test_legacy_preset_compatibility.py
+            tests/test_legacy_preset_compatibility.py \
+            tests/test_bridge_l10n_package_contract.py

@@ -50,7 +50,7 @@ async function detectedDialog(link, preview) {
     });
     // The detection starts immediately for a supplied link.
     await new Promise(resolve => setImmediate(resolve));
-    const [, status, details, buttons]=dialog.children[0].children;
+    const [, status, connectionHelp, details, buttons]=dialog.children[0].children;
     return {status, details, buttons};
   } finally {
     globalThis.document=previous;
