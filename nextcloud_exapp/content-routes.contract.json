@@ -1,0 +1,56 @@
+{
+  "default_folder": "Downloads",
+  "categories": [
+    {
+      "id": "video",
+      "label": "Video",
+      "subfolder": "Video",
+      "source_kinds": [
+        "auto",
+        "video",
+        "playlist",
+        "channel"
+      ]
+    },
+    {
+      "id": "audio",
+      "label": "Audio",
+      "subfolder": "Audio",
+      "source_kinds": [
+        "audio"
+      ]
+    },
+    {
+      "id": "images",
+      "label": "Images / galleries",
+      "subfolder": "Images",
+      "source_kinds": [
+        "gallery"
+      ]
+    },
+    {
+      "id": "manga",
+      "label": "Manga / comics",
+      "subfolder": "Manga",
+      "source_kinds": [
+        "manga"
+      ]
+    },
+    {
+      "id": "direct",
+      "label": "Direct files",
+      "subfolder": "Direct files",
+      "source_kinds": [
+        "direct"
+      ]
+    },
+    {
+      "id": "torrent",
+      "label": "Torrents",
+      "subfolder": "Torrents",
+      "source_kinds": [
+        "torrent"
+      ]
+    }
+  ]
+}
