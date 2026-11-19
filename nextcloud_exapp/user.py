@@ -21,17 +21,7 @@ from nc_py_api import NextcloudException
 from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.job_state_contract import TERMINAL_STATES
-
-DEFAULT_FOLDER = "Downloads"
-# Broad user-facing categories; these are NOT engine names or URL heuristics.
-ROUTE_SUBFOLDERS = {
-    "video": "Video",
-    "audio": "Audio",
-    "images": "Images",
-    "manga": "Manga",
-    "direct": "Direct files",
-    "torrent": "Torrents",
-}
+from nextcloud_exapp.content_routes import DEFAULT_FOLDER, ROUTE_SUBFOLDERS
 
 
 def default_destination_routes(folder: str) -> dict[str, str]:
