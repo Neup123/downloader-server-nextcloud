@@ -62,8 +62,8 @@ test('default Files folder is the first row of one compact routing group',()=>{
   assert.ok(routing.indexOf("routeRow('downloader-route-default'")
     <routing.indexOf('for(const [kind,subfolder] of Object.entries(routeSubfolders))'));
   assert.match(routing,/routeRow\('downloader-route-default','Default Files folder',folder/);
-  assert.match(routing,/video:'Video',audio:'Audio',images:'Images',manga:'Manga'/);
-  assert.match(routing,/direct:'Direct files',torrent:'Torrents'/);
+  assert.match(routing,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.subfolder\]\)/);
+  assert.match(routing,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.label\]\)/);
   assert.match(js,/downloader-settings-card\.downloader-routing-card\{grid-column:1\/-1;justify-self:start;width:max-content/);
   assert.match(js,/downloader-routing-list\{display:grid;grid-template-columns:max-content max-content max-content/);
 });

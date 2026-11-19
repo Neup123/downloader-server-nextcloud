@@ -1,3 +1,5 @@
+import { contentCategoryFor, SUPPORTED_SOURCE_KINDS } from './content-routes.mjs';
+
 /**
  * One signed Nextcloud submission. The content class comes from Core's
  * extractor preview, not a named preset or a browser-selected engine.
@@ -50,7 +52,7 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
     throw new Error('Unsupported audio/video quality.');
   }
   const kind = options.kind || 'auto';
-  if (!['auto','video','audio','playlist','channel','gallery','manga','direct','torrent'].includes(kind)) {
+  if (!SUPPORTED_SOURCE_KINDS.includes(kind)) {
     throw new Error('Unsupported content type.');
   }
   if (kind === 'manga' && options.cbz !== false) {
@@ -63,12 +65,7 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
   const container = options.container || 'original';
   const format = ['direct','torrent'].includes(kind) ? null : selectedMediaFormat(quality, audioOnly, container);
   const engine = kind === 'torrent' ? 'aria2c' : kind === 'direct' ? 'generic' : media || format ? 'yt-dlp' : 'auto';
-  const category = kind === 'audio' || audioOnly ? 'audio'
-    : kind === 'direct' ? 'direct'
-    : kind === 'gallery' ? 'images'
-    : kind === 'manga' ? 'manga'
-    : kind === 'torrent' ? 'torrent'
-    : 'video';
+  const category = contentCategoryFor(kind, audioOnly);
   const payload = {url, engine, content_type: category};
   if (folder !== null) payload.folder = folder;
   const overrides = {};

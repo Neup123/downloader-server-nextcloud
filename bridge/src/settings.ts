@@ -1,5 +1,6 @@
 import {renderCookieVault} from './cookie-vault';
 import {extendFolderResults} from './folder-picker-pages.mjs';
+import { CONTENT_ROUTES } from './content-routes.mjs';
 /** Native Nextcloud Personal settings. Server binds all preferences to signed user. */
 type Personal = {
   destination_folder:string;app_password_configured:boolean;
@@ -174,14 +175,10 @@ function start() {
     const picker=element('div');picker.className='downloader-picker';picker.hidden=true;
     routes.append(picker);
 
-    const routeSubfolders:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images',manga:'Manga',
-      direct:'Direct files',torrent:'Torrents',
-    };
-    const routeLabels:Record<string,string>={
-      video:'Video',audio:'Audio',images:'Images / galleries',
-      manga:'Manga / comics',direct:'Direct files',torrent:'Torrents',
-    };
+    const routeSubfolders:Record<string,string>=Object.fromEntries(
+      CONTENT_ROUTES.map(route=>[route.id,route.subfolder]));
+    const routeLabels:Record<string,string>=Object.fromEntries(
+      CONTENT_ROUTES.map(route=>[route.id,route.label]));
     const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
     const routeFields:Record<string,HTMLInputElement>={};
     function routeRow(id:string,name:string,field:HTMLInputElement,
