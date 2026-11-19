@@ -451,6 +451,32 @@ def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
          "user:setting", "alice", "core", "lang", "he" if hebrew else "en"],
         check=True, capture_output=True, text=True, timeout=35,
     )
+    value = subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang"],
+        check=True, capture_output=True, text=True, timeout=35,
+    ).stdout.strip()
+    assert value == ("he" if hebrew else "en"), (
+        "Nextcloud did not persist the requested user language", value
+    )
+    # The disposable Apache PHP process can cache system config across
+    # requests; reload the same temporary container and preserve its volume.
+    import time
+    from urllib.request import urlopen
+    subprocess.run(
+        ["docker", "restart", app],
+        check=True, capture_output=True, text=True, timeout=65,
+    )
+    for attempt in range(40):
+        try:
+            with urlopen(BASE + "/status.php", timeout=3) as response:
+                if response.status == 200:
+                    break
+        except Exception:
+            pass
+        time.sleep(1)
+    else:
+        raise AssertionError("Disposable Nextcloud did not restart after appearance update")
 
 
 def check_mobile_rtl_and_theme(page) -> None:
@@ -475,6 +501,8 @@ def check_mobile_rtl_and_theme(page) -> None:
             htmlDirection: getComputedStyle(document.documentElement).direction,
             bodyDirection: getComputedStyle(document.body).direction,
             appDirection: getComputedStyle(document.querySelector('#downloader-library-app')).direction,
+            nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+            nextcloudLocale: window.OC?.getLocale?.() ?? null,
         })""")
         assert appearance["language"].lower().startswith("he"), (
             "Nextcloud did not apply Hebrew language", appearance
