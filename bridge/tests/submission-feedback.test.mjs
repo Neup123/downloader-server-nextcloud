@@ -10,7 +10,9 @@ const dashboard = readFileSync(new URL('../src/dashboard.ts', import.meta.url), 
 test('one submitted-queue message across dialog, Dashboard, Viewer and Files', () => {
   assert.equal(DOWNLOAD_QUEUED_MESSAGE, 'Download queued. Follow progress in Downloads.');
   assert.match(dialog, /notify\(DOWNLOAD_QUEUED_MESSAGE\)/);
-  assert.match(dashboard, /feedback\.textContent = DOWNLOAD_QUEUED_MESSAGE/);
+  // Dashboard now opens the same reviewed dialog; that dialog owns the queued message.
+  assert.match(dashboard, /showLinkDialog\(\{/);
+  assert.match(dashboard, /queued: \(\) =>/);
   assert.match(bridge, /notify\(DOWNLOAD_QUEUED_MESSAGE\)/);
   for (const source of [dialog, dashboard, bridge]) {
     assert.doesNotMatch(source, /Download added to your Nextcloud Files/);
