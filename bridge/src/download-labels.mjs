@@ -6,6 +6,9 @@
  * output_files?:Array<{filename:string,path?:string,verified?:boolean,file_id?:string|number,size_bytes?:number}>}} Job
  */
 
+/** A successful POST only acknowledges the queue, never verified delivery. */
+export const DOWNLOAD_QUEUED_MESSAGE = 'Download queued. Follow progress in Downloads.';
+
 /** @param {Job} job */
 export function downloadTitle(job) {
   const output = job.output_files?.[0]?.filename;
