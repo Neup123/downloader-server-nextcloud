@@ -28,6 +28,7 @@ def test_every_bridge_packaging_gate_uses_npm_ci_without_bootstrap_or_mutable_in
     workflows = (
         ROOT / ".github/workflows/bridge-package.yml",
         ROOT / ".github/workflows/appapi-docker-deploy-e2e.yml",
+        ROOT / ".github/workflows/publish-exapp-commit-image.yml",
     )
     for workflow in workflows:
         text = workflow.read_text(encoding="utf-8")
