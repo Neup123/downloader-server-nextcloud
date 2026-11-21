@@ -132,6 +132,42 @@ def check_settings(page) -> None:
     vault.get_by_role("button", name="Add site cookies").click()
     expect(vault.get_by_placeholder("example.com")).to_be_focused()
     capture(page, "10-cookie-vault-settings.png")
+    # A real signed autosave must survive a fresh page load. Source-pattern
+    # assertions and a mock fetch promise do not establish persistence.
+    failure_notice = root.get_by_label("Notify me if a download fails")
+    expect(failure_notice).to_be_visible()
+    originally_checked = failure_notice.is_checked()
+    with page.expect_response(
+        lambda response: response.url.endswith("/user/api/settings")
+        and response.request.method == "PUT", timeout=30_000
+    ) as saved:
+        if originally_checked:
+            failure_notice.uncheck()
+        else:
+            failure_notice.check()
+    assert saved.value.status == 200, "Native settings autosave was rejected"
+    expect(root.locator(".downloader-save-status")).to_contain_text("Saved", timeout=20_000)
+    page.reload(wait_until="domcontentloaded")
+    root = page.locator("#downloader-settings-app")
+    expect(root).to_be_visible(timeout=30_000)
+    expect(root.get_by_label("Notify me if a download fails")).to_be_checked() if not originally_checked else expect(
+        root.get_by_label("Notify me if a download fails")
+    ).not_to_be_checked()
+    capture(page, "13-personal-settings-persisted.png")
+    # Restore the disposable user's original preference so later browser
+    # journeys do not depend on the test order.
+    restored = root.get_by_label("Notify me if a download fails")
+    with page.expect_response(
+        lambda response: response.url.endswith("/user/api/settings")
+        and response.request.method == "PUT", timeout=30_000
+    ) as restored_save:
+        if originally_checked:
+            restored.check()
+        else:
+            restored.uncheck()
+    assert restored_save.value.status == 200
+    print("Real Chromium: signed autosave persisted across full Nextcloud reload PASS", flush=True)
+
 
 
 def check_header_and_dialog(page) -> None:
@@ -284,37 +320,234 @@ def check_torrent_selector(page) -> None:
     page.unroute("**/user/api/torrent-manifest", respond)
 
 
+
+def fixture_core_transition(action: str) -> None:
+    """Test runner drives only a disposable Docker fixture, never Production."""
+    import subprocess
+    assert action in {"mark-delivering", "complete-after-dav-readback"}
+    script = (
+        "import json,os;from urllib.request import Request,urlopen;"
+        "url='http://127.0.0.1:8080/fixture/" + action + "';"
+        "request=Request(url,method='POST',headers={'X-API-Key':os.environ['MOCK_CORE_TOKEN']});"
+        "response=urlopen(request,timeout=20);assert response.status==200;"
+        "assert next(iter(json.load(response).values())) is True"
+    )
+    subprocess.run(
+        ["docker", "exec", "downloader-test-core", "python", "-c", script],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
+
+
+def verify_disposable_dav_fixture() -> None:
+    """Create, upload, and re-read bytes at the route selected by the UI."""
+    import base64
+    import hashlib
+    from urllib.request import Request, urlopen
+
+    data = b"%PDF-1.4\n" + b"Verified disposable Nextcloud fixture\n"
+    data += b"X" * (13264 - len(data))
+    authorization = "Basic " + base64.b64encode(
+        ("alice:" + os.environ["NEXTCLOUD_APP_PASSWORD"]).encode()
+    ).decode()
+    directory = (BASE + "/remote.php/dav/files/alice/Downloads/"
+                 "Direct%20files/ci-first-use-user-job/")
+    with urlopen(Request(
+        directory, headers={"Authorization": authorization}, method="MKCOL"
+    ), timeout=25) as response:
+        assert response.status == 201
+    with urlopen(Request(
+        directory + "dummy.pdf", data=data, method="PUT",
+        headers={"Authorization": authorization, "Content-Type": "application/pdf"},
+    ), timeout=25) as response:
+        assert response.status in (201, 204)
+    with urlopen(Request(
+        directory + "dummy.pdf", headers={"Authorization": authorization}, method="GET"
+    ), timeout=25) as response:
+        actual = response.read()
+    assert len(actual) == 13264
+    assert hashlib.sha256(actual).digest() == hashlib.sha256(data).digest()
+    assert actual == data
+
+
+
+def check_real_native_job_journey(page) -> None:
+    """One real UI POST -> signed ExApp -> mock Core state -> native progress.
+
+    The fixture does not actually download remote media. Only preview metadata
+    and Core's transition clock are deterministic; authenticated submission
+    and status polling use the real PHP bridge and ExApp.
+    """
+    import json
+
+    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
+    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+    expect(trigger).to_be_visible(timeout=25_000)
+
+    def preview(route):
+        route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"kind": "direct", "title": "dummy.pdf", "filename": "dummy.pdf",
+                             "mime": "application/pdf", "size": 13264}),
+        )
+
+    page.route("**/user/api/media-preview", preview)
+    try:
+        trigger.click()
+        page.locator("#downloader-header-popover .dl-popover-add").click()
+        dialog = page.locator("dialog.dl-link-dialog")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("textbox", name="Source link").fill("https://example.test/dummy.pdf")
+        download = dialog.get_by_role("button", name="Download", exact=True)
+        expect(download).to_be_enabled(timeout=20_000)
+        with page.expect_response(
+            lambda response: response.url.endswith("/user/api/jobs")
+            and response.request.method == "POST", timeout=45_000
+        ) as accepted:
+            download.click()
+        assert accepted.value.status == 202
+        queued = accepted.value.json()
+        assert queued["id"] == "ci-first-use-user-job"
+        assert queued["status"] == "queued"
+        expect(dialog).to_have_count(0)
+        header = page.locator("#downloader-topbar-progress")
+        expect(header).to_contain_text("Queued", timeout=25_000)
+        capture(page, "14-native-real-job-queued.png")
+
+        fixture_core_transition("mark-delivering")
+        expect(header).to_contain_text("Delivering to your destination", timeout=25_000)
+        capture(page, "15-native-real-job-delivering.png")
+
+        # Core cannot claim verification until the actual owner-scoped DAV
+        # bytes are read back from the disposable Nextcloud server.
+        verify_disposable_dav_fixture()
+        fixture_core_transition("complete-after-dav-readback")
+        expect(header).to_contain_text("Delivered", timeout=25_000)
+        capture(page, "16-native-real-job-completed.png")
+        print("Real Chromium: signed UI submit -> queued -> delivering -> verified DAV completion PASS", flush=True)
+    finally:
+        page.unroute("**/user/api/media-preview", preview)
+
+
+def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
+    """Use Nextcloud 35's supported server settings, not synthetic CSS/dir."""
+    import subprocess
+
+    app = "downloader-appapi-nextcloud"
+    settings = (("enforce_theme", "dark" if dark else None),
+                ("force_language", "he" if hebrew else None))
+    for name, value in settings:
+        action = ["config:system:set", name, "--value=" + value] if value else [
+            "config:system:delete", name
+        ]
+        subprocess.run(
+            ["docker", "exec", "--user", "www-data", app, "php", "occ", *action],
+            check=True, capture_output=True, text=True, timeout=35,
+        )
+    # Use the documented real Nextcloud per-user locale setting as well.
+    # That setting is read for signed-in users independently of the global
+    # default/force language; never simulate RTL by editing the DOM.
+    subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang", "he" if hebrew else "en"],
+        check=True, capture_output=True, text=True, timeout=35,
+    )
+    value = subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang"],
+        check=True, capture_output=True, text=True, timeout=35,
+    ).stdout.strip()
+    assert value == ("he" if hebrew else "en"), (
+        "Nextcloud did not persist the requested user language", value
+    )
+    # The disposable Apache PHP process can cache system config across
+    # requests; reload the same temporary container and preserve its volume.
+    import time
+    from urllib.request import urlopen
+    subprocess.run(
+        ["docker", "restart", app],
+        check=True, capture_output=True, text=True, timeout=65,
+    )
+    for attempt in range(40):
+        try:
+            with urlopen(BASE + "/status.php", timeout=3) as response:
+                if response.status == 200:
+                    break
+        except Exception:
+            pass
+        time.sleep(1)
+    else:
+        raise AssertionError("Disposable Nextcloud did not restart after appearance update")
+
+
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
-    assert response and response.status < 400, f"Native Library HTTP {response.status if response else 'no response'}"
+    assert response and response.status < 400, "Native Library did not open"
     expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
-    page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
-    in_viewport(page, "#downloader-library-app h1")
-    capture(page, "05-library-mobile-rtl.png")
-    # Test actual inherited CSS variables after switching the page to dark.
-    page.evaluate("""() => {
-      document.documentElement.classList.add('theme--dark');
-      document.documentElement.style.setProperty('--color-main-background', '#171717');
-      document.documentElement.style.setProperty('--color-main-text', '#f4f4f4');
-    }""")
-    styles = page.locator("#downloader-library-app").evaluate(
-        "(el) => getComputedStyle(el).color"
-    )
-    assert styles, "Dark theme inherited no computed text color"
-    capture(page, "06-library-mobile-rtl-dark.png")
-    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
-    # The native shared dialog is also operable at a narrow RTL viewport.
-    page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
-    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
-    expect(trigger).to_be_visible(timeout=25_000)
-    trigger.click()
-    page.locator("#downloader-header-popover .dl-popover-add").click()
-    expect(page.locator("dialog.dl-link-dialog")).to_be_visible()
-    in_viewport(page, "dialog.dl-link-dialog")
-    in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
-    capture(page, "07-link-dialog-mobile-rtl.png")
-    page.keyboard.press("Escape")
+
+    # Switch through real Nextcloud config and a full page load rather than
+    # setting the DOM dir attribute or fake theme variables in JavaScript.
+    try:
+        configure_disposable_appearance(dark=False, hebrew=True)
+        # Nextcloud chooses the signed-in user's language when a session is
+        # established. A simple reload can keep the original English locale.
+        page.context.clear_cookies()
+        login(page)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+        expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
+        appearance = page.evaluate("""() => ({
+            language: document.documentElement.lang,
+            attributeDirection: document.documentElement.getAttribute('dir'),
+            htmlDirection: getComputedStyle(document.documentElement).direction,
+            bodyDirection: getComputedStyle(document.body).direction,
+            appDirection: getComputedStyle(document.querySelector('#downloader-library-app')).direction,
+            nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+            nextcloudLocale: window.OC?.getLocale?.() ?? null,
+        })""")
+        assert appearance["language"].lower().startswith("he"), (
+            "Nextcloud did not apply Hebrew language", appearance
+        )
+        assert "rtl" in {appearance["attributeDirection"], appearance["htmlDirection"],
+                         appearance["bodyDirection"], appearance["appDirection"]}, (
+            "Genuine Hebrew Nextcloud locale did not produce RTL", appearance
+        )
+        in_viewport(page, "#downloader-library-app h1")
+        capture(page, "05-library-mobile-rtl.png")
+
+        configure_disposable_appearance(dark=True, hebrew=True)
+        page.context.clear_cookies()
+        login(page)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+        expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
+        computed_direction = page.locator("#downloader-library-app").evaluate(
+            "(element) => getComputedStyle(element).direction"
+        )
+        assert computed_direction == "rtl", "Dark theme lost genuine Hebrew RTL in Library"
+        theme_class = page.locator("html").get_attribute("class") or ""
+        body_class = page.locator("body").get_attribute("class") or ""
+        assert "theme--dark" in theme_class or "theme--dark" in body_class, (
+            "Nextcloud did not apply its enforced dark theme", theme_class, body_class
+        )
+        contrast = page.locator("#downloader-library-app").evaluate(
+            "(element) => getComputedStyle(element).color"
+        )
+        assert contrast, "Native Library has no text color in Nextcloud dark mode"
+        capture(page, "06-library-mobile-rtl-dark.png")
+
+        page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
+        trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+        expect(trigger).to_be_visible(timeout=25_000)
+        trigger.click()
+        page.locator("#downloader-header-popover .dl-popover-add").click()
+        expect(page.locator("dialog.dl-link-dialog")).to_be_visible()
+        in_viewport(page, "dialog.dl-link-dialog")
+        in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
+        capture(page, "07-link-dialog-mobile-rtl.png")
+        page.keyboard.press("Escape")
+        print("Real Nextcloud 35 Hebrew RTL and dark theme config across pages PASS", flush=True)
+    finally:
+        configure_disposable_appearance(dark=False, hebrew=False)
+
 
 
 def main() -> None:
@@ -330,6 +563,7 @@ def main() -> None:
             check_header_and_dialog(page)
             check_subtitle_layout(page)
             check_torrent_selector(page)
+            check_real_native_job_journey(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")
