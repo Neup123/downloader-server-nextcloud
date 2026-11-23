@@ -461,6 +461,34 @@ def check_mobile_rtl_and_theme(page) -> None:
     page.keyboard.press("Escape")
 
 
+
+def check_real_nextcloud_hebrew_locale(page) -> None:
+    """Explore platform-managed Hebrew in a real Nextcloud response.
+
+    forceLanguage=he is a supported Nextcloud request-local override.
+    It is NOT equivalent to a persisted per-user preference; assert actual
+    shell language and CSS direction rather than changing the DOM.
+    """
+    from urllib.parse import urlencode
+
+    url = BASE + "/index.php/apps/downloader_bridge/library?" + urlencode({"forceLanguage": "he"})
+    response = page.goto(url, wait_until="domcontentloaded")
+    assert response and response.status < 400, "Language-override request was rejected"
+    expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
+    actual = page.evaluate("""() => ({
+        htmlLanguage: document.documentElement.lang,
+        htmlDirection: getComputedStyle(document.documentElement).direction,
+        libraryDirection: getComputedStyle(document.querySelector('#downloader-library-app')).direction,
+        nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+    })""")
+    assert actual["htmlLanguage"].lower().startswith("he") and (
+        actual["htmlDirection"] == "rtl" and actual["libraryDirection"] == "rtl"
+    ), ("Platform Hebrew locale not activated for forceLanguage request", actual)
+    capture(page, "17-real-platform-hebrew-rtl.png")
+    print("Real Nextcloud Hebrew platform language/RTL override PASS", flush=True)
+
+
+
 def main() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel="chrome", headless=True, args=["--no-sandbox"])
@@ -476,6 +504,7 @@ def main() -> None:
             check_torrent_selector(page)
             check_real_native_job_journey(page)
             check_mobile_rtl_and_theme(page)
+            check_real_nextcloud_hebrew_locale(page)
         except Exception:
             capture(page, "failure-last-page.png")
             raise
