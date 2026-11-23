@@ -464,7 +464,7 @@ def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
         # Nextcloud validates a requested language against its installed
         # JSON catalog, not just against the force_language config value.
         # Report only presence, never dump environment or config values.
-        for catalog in ("core", "lib"):
+        for catalog in ("core", "lib", "apps/files"):
             check = subprocess.run(
                 ["docker", "exec", app, "sh", "-c",
                  "test -f /var/www/html/" + catalog + "/l10n/he.json"],
