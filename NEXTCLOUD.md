@@ -10,6 +10,15 @@
 > historical implementation, not a supported deployment path.
 
 
+## Durable signed submission recovery
+
+- Each native Nextcloud plugin download action generates a UUIDv4 identity. The same action reuses that identity after an ambiguous network failure; changing the link/options or beginning a new action receives a new identity. This is a **plugin request contract**, not a second download UI.
+- The signed ExApp persists an owner-scoped intent *before* calling Core. A failed local intent write fails the request before any Core side effect. Core's owner-scoped unique `submission_id` identifies the one accepted job across repeated POSTs and concurrent retries. A reused ID with different payload is rejected, not replayed.
+- Once Core accepts the job, a local tracker write failure must **not** turn the response into a false failure. Pending intent recovery uses an admin-token Core lookup scoped by both owner and submission ID, restores the durable notification/indexing row, then clears the intent. The periodic reconciliation survives ExApp restarts.
+- For a process interruption after Core acceptance, the reconciler discovers the existing Core job without POSTing another download. Unresolved intents are visible by count and age in the admin-only tracker health endpoint.
+- **Deployment dependency:** the Core changes from Media-Downloader-server PR #208 must be accepted and deployed before this ExApp change. Without the Core idempotency/lookup contract, this release must not be enabled. Older browser clients remain backward compatible, but a client lacking a stable UUID cannot guarantee network-retry deduplication if its response is lost; upgrade the plugin bridge alongside the ExApp.
+- Acceptance includes a real disposable Core/ExApp handshake, injected SQLite-lock failure before and after Core acceptance, restart while an intent is pending, two requests with the same ID, and a deliberate fresh action with a new ID.
+
 ## Notification and indexing operations
 
 - The server-side JobTracker persists pending notification and search-index work in its AppAPI persistent SQLite storage. Its SQLite schema includes a creation timestamp with an additive migration; historical rows begin age tracking at migration time.
