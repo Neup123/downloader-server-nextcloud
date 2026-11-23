@@ -428,37 +428,183 @@ def check_real_native_job_journey(page) -> None:
         page.unroute("**/user/api/media-preview", preview)
 
 
+def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
+    """Use Nextcloud 35's supported server settings, not synthetic CSS/dir."""
+    import subprocess
+
+    app = "downloader-appapi-nextcloud"
+    settings = (("enforce_theme", "dark" if dark else None),
+                ("force_language", "ar" if arabic else None))
+    for name, value in settings:
+        action = ["config:system:set", name, "--value=" + value] if value else [
+            "config:system:delete", name
+        ]
+        subprocess.run(
+            ["docker", "exec", "--user", "www-data", app, "php", "occ", *action],
+            check=True, capture_output=True, text=True, timeout=35,
+        )
+    # Read only the non-secret effective language setting. Nextcloud may
+    # load additional *.config.php files that override config.php; the
+    # normal CLI write succeeding is not evidence that the effective value
+    # reaches the web app. Do not dump system config or other credentials.
+    system_language = subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "config:system:get", "force_language"],
+        check=False, capture_output=True, text=True, timeout=35,
+    )
+    effective = system_language.stdout.strip() if system_language.returncode == 0 else None
+    print("Nextcloud effective force_language: "
+          + ("ar" if effective == "ar" else "missing-or-unexpected"), flush=True)
+    assert effective == ("ar" if arabic else None), (
+        "Effective system language diverged from the test configuration",
+        "expected Arabic" if arabic else "expected unforced default",
+        "ar" if effective == "ar" else "missing-or-unexpected",
+    )
+    if arabic:
+        # Nextcloud validates a requested language against its installed
+        # JSON catalog, not just against the force_language config value.
+        # Report only presence, never dump environment or config values.
+        for catalog in ("core", "lib"):
+            check = subprocess.run(
+                ["docker", "exec", app, "sh", "-c",
+                 "test -f /var/www/html/" + catalog + "/l10n/he.json"],
+                check=False, capture_output=True, text=True, timeout=35,
+            )
+            print("Nextcloud " + catalog + " Arabic catalog: "
+                  + ("present" if check.returncode == 0 else "missing"),
+                  flush=True)
+    # Use the documented real Nextcloud per-user locale setting as well.
+    # That setting is read for signed-in users independently of the global
+    # default/force language; never simulate RTL by editing the DOM.
+    subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang", "ar" if arabic else "en"],
+        check=True, capture_output=True, text=True, timeout=35,
+    )
+    value = subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "user:setting", "alice", "core", "lang"],
+        check=True, capture_output=True, text=True, timeout=35,
+    ).stdout.strip()
+    assert value == ("ar" if arabic else "en"), (
+        "Nextcloud did not persist the requested user language", value
+    )
+    # The disposable Apache PHP process can cache system config across
+    # requests; reload the same temporary container and preserve its volume.
+    import time
+    from urllib.request import urlopen
+    subprocess.run(
+        ["docker", "restart", app],
+        check=True, capture_output=True, text=True, timeout=65,
+    )
+    for attempt in range(40):
+        try:
+            with urlopen(BASE + "/status.php", timeout=3) as response:
+                if response.status == 200:
+                    break
+        except Exception:
+            pass
+        time.sleep(1)
+    else:
+        raise AssertionError("Disposable Nextcloud did not restart after appearance update")
+
+
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
-    assert response and response.status < 400, f"Native Library HTTP {response.status if response else 'no response'}"
+    assert response and response.status < 400, "Native Library did not open"
     expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
-    page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
-    in_viewport(page, "#downloader-library-app h1")
-    capture(page, "05-library-mobile-rtl.png")
-    # Test actual inherited CSS variables after switching the page to dark.
-    page.evaluate("""() => {
-      document.documentElement.classList.add('theme--dark');
-      document.documentElement.style.setProperty('--color-main-background', '#171717');
-      document.documentElement.style.setProperty('--color-main-text', '#f4f4f4');
-    }""")
-    styles = page.locator("#downloader-library-app").evaluate(
-        "(el) => getComputedStyle(el).color"
-    )
-    assert styles, "Dark theme inherited no computed text color"
-    capture(page, "06-library-mobile-rtl-dark.png")
-    page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
-    # The native shared dialog is also operable at a narrow RTL viewport.
-    page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
-    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
-    expect(trigger).to_be_visible(timeout=25_000)
-    trigger.click()
-    page.locator("#downloader-header-popover .dl-popover-add").click()
-    expect(page.locator("dialog.dl-link-dialog")).to_be_visible()
-    in_viewport(page, "dialog.dl-link-dialog")
-    in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
-    capture(page, "07-link-dialog-mobile-rtl.png")
-    page.keyboard.press("Escape")
+
+    # Switch through real Nextcloud config and a full page load rather than
+    # setting the DOM dir attribute or fake theme variables in JavaScript.
+    try:
+        configure_disposable_appearance(dark=False, arabic=True)
+        # Nextcloud chooses the signed-in user's language when a session is
+        # established. A simple reload can keep the original English locale.
+        page.context.clear_cookies()
+        login(page)
+        # Determine whether Nextcloud itself, before Downloader Bridge's
+        # Library loads, has activated the stored Arabic preference.
+        platform_locale = page.evaluate("""() => ({
+            htmlLanguage: document.documentElement.lang,
+            htmlDirection: getComputedStyle(document.documentElement).direction,
+            nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+        })""")
+        print("Stock Nextcloud Files locale after actual Arabic configuration: "
+              + str(platform_locale), flush=True)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+        expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
+        appearance = page.evaluate("""() => ({
+            language: document.documentElement.lang,
+            attributeDirection: document.documentElement.getAttribute('dir'),
+            htmlDirection: getComputedStyle(document.documentElement).direction,
+            bodyDirection: getComputedStyle(document.body).direction,
+            appDirection: getComputedStyle(document.querySelector('#downloader-library-app')).direction,
+            nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+            nextcloudLocale: window.OC?.getLocale?.() ?? null,
+        })""")
+        assert appearance["language"].lower().startswith("ar"), (
+            "Nextcloud did not apply Arabic language", appearance
+        )
+        assert "rtl" in {appearance["attributeDirection"], appearance["htmlDirection"],
+                         appearance["bodyDirection"], appearance["appDirection"]}, (
+            "Genuine Arabic Nextcloud locale did not produce RTL", appearance
+        )
+        in_viewport(page, "#downloader-library-app h1")
+        # Nextcloud 35 currently exposes the theme via its computed CSS
+        # variables rather than a guaranteed theme--dark HTML class.
+        # Capture the real light value before toggling the server setting.
+        theme_js = """() => ['html','body','#body-user','#content','#downloader-library-app'].map(selector => {
+            const el=document.querySelector(selector);
+            if(!el)return [selector, null];
+            const style=getComputedStyle(el);
+            const before=getComputedStyle(el,'::before');
+            return [selector, [style.backgroundColor,style.backgroundImage,style.color,
+                style.getPropertyValue('--color-primary-element').trim(),
+                style.getPropertyValue('--color-main-text').trim(),
+                before.backgroundColor,before.backgroundImage]];
+        })"""
+        light_theme = page.evaluate(theme_js)
+        capture(page, "05-library-mobile-rtl.png")
+
+        configure_disposable_appearance(dark=True, arabic=True)
+        page.context.clear_cookies()
+        login(page)
+        page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
+        expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
+        computed_direction = page.locator("#downloader-library-app").evaluate(
+            "(element) => getComputedStyle(element).direction"
+        )
+        assert computed_direction == "rtl", "Dark theme lost genuine Arabic RTL in Library"
+        dark_theme = page.evaluate(theme_js)
+        changes = [(a[0],a[1],b[1]) for a,b in zip(light_theme,dark_theme)
+                   if a[1] is not None and b[1] is not None and a[1] != b[1]]
+        assert changes, (
+            "No real computed Nextcloud background, foreground or accent style changed",
+            light_theme, dark_theme,
+        )
+        print("Nextcloud real light-to-dark computed style transition: "
+              + ", ".join(item[0] for item in changes), flush=True)
+        contrast = page.locator("#downloader-library-app").evaluate(
+            "(element) => getComputedStyle(element).color"
+        )
+        assert contrast, "Native Library has no text color in Nextcloud dark mode"
+        capture(page, "06-library-mobile-rtl-dark.png")
+
+        page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
+        trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+        expect(trigger).to_be_visible(timeout=25_000)
+        trigger.click()
+        page.locator("#downloader-header-popover .dl-popover-add").click()
+        expect(page.locator("dialog.dl-link-dialog")).to_be_visible()
+        in_viewport(page, "dialog.dl-link-dialog")
+        in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
+        capture(page, "07-link-dialog-mobile-rtl.png")
+        page.keyboard.press("Escape")
+        print("Real Nextcloud 35 Arabic RTL and dark theme config across pages PASS", flush=True)
+    finally:
+        configure_disposable_appearance(dark=False, arabic=False)
+
 
 
 def main() -> None:
