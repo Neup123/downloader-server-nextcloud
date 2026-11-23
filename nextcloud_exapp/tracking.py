@@ -75,7 +75,7 @@ class JobTracker:
         storage = os.environ.get("APP_PERSISTENT_STORAGE")
         location = Path(storage) if storage else Path(os.environ.get("XDG_STATE_HOME", "/tmp")) / "downloader-exapp"
         self.path = path or (Path(selected) if selected else location / "download-notifications.sqlite")
-        self._errors: dict[str, int] = {stage: 0 for stage in ("core", "notification", "index", "monitor")}
+        self._errors: dict[str, int] = {stage: 0 for stage in ("core", "notification", "index", "monitor", "intent")}
         self._last_warning: dict[str, float] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
@@ -95,9 +95,56 @@ class JobTracker:
             # Existing jobs did not record enqueue age. Begin measuring from
             # migration rather than falsely reporting multi-year pending age.
             db.execute("UPDATE jobs SET created_at = ? WHERE created_at = 0", (time.time(),))
+            db.execute("""CREATE TABLE IF NOT EXISTS submission_intents (
+                submission_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )""")
 
     def _connect(self):
         return sqlite3.connect(str(self.path), timeout=20.0)
+
+    def begin_submission(self, request_id: str, owner_id: str) -> None:
+        """Durably record the key BEFORE contacting Core, or fail before side effects."""
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO submission_intents (submission_id, owner_id, created_at)"
+                " VALUES (?, ?, ?)",
+                (request_id, owner_id, time.time()),
+            )
+            row = db.execute(
+                "SELECT owner_id FROM submission_intents WHERE submission_id = ?", (request_id,),
+            ).fetchone()
+            if row is None or row[0] != owner_id:
+                raise ValueError("Request identity already belongs to another owner")
+
+    def pending_intents(self) -> list[tuple[str, str]]:
+        with self._connect() as db:
+            return list(db.execute(
+                "SELECT submission_id, owner_id FROM submission_intents ORDER BY created_at LIMIT 100"
+            ))
+
+    def finish_submission(self, request_id: str, owner_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM submission_intents WHERE submission_id = ? AND owner_id = ?",
+                (request_id, owner_id),
+            )
+
+    async def reconcile_intents(self, core_find) -> None:
+        """Repair a crash between Core acceptance and local tracker insertion."""
+        for request_id, owner_id in self.pending_intents():
+            try:
+                found = await core_find(owner_id, request_id)
+                if found is None:
+                    continue
+                if not isinstance(found, dict) or found.get("owner_id") != owner_id or not isinstance(found.get("id"), str):
+                    raise ValueError("Core owner-scoped lookup returned invalid ownership")
+                self.add(found["id"], owner_id)
+                self.finish_submission(request_id, owner_id)
+                self._record_success("intent")
+            except Exception as error:
+                self._record_failure("intent", error)
 
     def add(self, job_id: str, owner_id: str) -> None:
         with self._connect() as db:
@@ -151,6 +198,9 @@ class JobTracker:
             indexed = db.execute(
                 "SELECT COUNT(*), MIN(created_at) FROM jobs WHERE index_synced = 0"
             ).fetchone()
+            intents = db.execute(
+                "SELECT COUNT(*), MIN(created_at) FROM submission_intents"
+            ).fetchone()
         now = time.time()
         def summary(row):
             count, oldest = row
@@ -163,6 +213,7 @@ class JobTracker:
             "status": "degraded" if any(count >= TRACKER_FAILURE_THRESHOLD for count in errors.values()) else "ready",
             "pending_notifications": summary(notified),
             "pending_search_index": summary(indexed),
+            "unreconciled_submissions": summary(intents),
             "consecutive_failures": errors,
             "failure_threshold": TRACKER_FAILURE_THRESHOLD,
         }
@@ -214,9 +265,11 @@ class JobTracker:
                 self._record_failure(stage, error)
                 continue
 
-    async def monitor(self, core_get: CoreGet, seconds: float = 8.0) -> None:
+    async def monitor(self, core_get: CoreGet, seconds: float = 8.0, core_find=None) -> None:
         while True:
             try:
+                if core_find is not None:
+                    await self.reconcile_intents(core_find)
                 await self.tick(core_get)
                 self._record_success("monitor")
             except asyncio.CancelledError:

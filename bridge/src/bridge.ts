@@ -614,11 +614,20 @@ function registerProvenanceSidebar() {
             }
             const redownload = node('button', 'Re-download from source', 'dl-primary');
             redownload.type = 'button';
+            let redownloadId: string | null = null;
             redownload.addEventListener('click', async () => {
               redownload.disabled = true;
               try {
-                const created = await api<{id?:string}>('/provenance/' + encodeURIComponent(record.file_id) + '/redownload', 'POST');
+                if (!redownloadId) {
+                  if (typeof globalThis.crypto?.randomUUID !== 'function')
+                    throw new Error('Use a secure browser to queue a re-download.');
+                  redownloadId = globalThis.crypto.randomUUID();
+                }
+                const created = await api<{id?:string}>('/provenance/' +
+                  encodeURIComponent(record.file_id) + '/redownload', 'POST',
+                  {submission_id: redownloadId});
                 announceQueued(created);
+                redownloadId = null; // A new click after confirmed acceptance is a new action.
               } catch (error) {
                 notify(error instanceof Error ? error.message : 'Could not re-download source');
               } finally {
