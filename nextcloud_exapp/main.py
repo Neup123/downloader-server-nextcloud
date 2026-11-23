@@ -88,7 +88,18 @@ async def lifespan(app: FastAPI):
     async def fetch_for_notifications(identifier: str) -> dict:
         return await core_json("GET", "jobs/" + identifier)
 
-    task = asyncio.create_task(tracker.monitor(fetch_for_notifications), name="downloader-notifications")
+    async def find_by_submission(owner_id: str, submission_id: str) -> dict | None:
+        rows = await core_json("GET", "jobs", params={
+            "owner_id": owner_id, "submission_id": submission_id, "limit": 1,
+        })
+        if not isinstance(rows, list) or len(rows) > 1:
+            raise ValueError("Invalid Core idempotency lookup response")
+        return rows[0] if rows else None
+
+    task = asyncio.create_task(
+        tracker.monitor(fetch_for_notifications, core_find=find_by_submission),
+        name="downloader-notifications",
+    )
     try:
         yield
     finally:
@@ -391,16 +402,15 @@ async def user_redownload_source(file_id: str, request: Request,
                         params={"owner_id": context.user_id, "file_id": file_id}),
         context.user_id,
     )
-    request_data = {"url": provenance["source_url"]}
-    submitted = await job_submission(context, request_data)
-    job = await core_json("POST", "jobs", payload=submitted)
-    own_job(job, context.user_id)
-    request.app.state.job_tracker.add(job["id"], context.user_id)
     try:
-        await update_index(context.nc, context.user_id, [job])
-    except Exception:
-        pass
-    return job
+        action = await request.json()
+    except ValueError:
+        action = {}
+    if not isinstance(action, dict) or set(action) - {"submission_id"}:
+        raise HTTPException(status_code=422, detail="Invalid re-download request")
+    request_data = {"url": provenance["source_url"], **action}
+    submitted = await job_submission(context, request_data)
+    return await _queue_and_track(request, context, submitted)
 
 
 async def hidden_history_ids(context: UserContext) -> set[str]:
@@ -575,19 +585,48 @@ async def attach_owner_cookie(context: UserContext, payload: dict) -> None:
         overrides["cookies_file"] = max(choices)[1]
 
 
+async def _queue_and_track(request: Request, context: UserContext, payload: dict) -> dict:
+    """Prepare local intent before Core; always return accepted job after Core commit."""
+    from uuid import uuid4
+    # Older clients may omit an ID; assign one for crash recovery. Modern
+    # clients must reuse their own UUID across transport retries.
+    request_id = payload.setdefault("submission_id", str(uuid4()))
+    tracker = request.app.state.job_tracker
+    try:
+        tracker.begin_submission(request_id, context.user_id)
+    except Exception as error:
+        tracker._record_failure("intent", error)
+        raise HTTPException(
+            status_code=503,
+            detail="Downloads are temporarily unavailable. No new download was started; retry.",
+        ) from error
+    # If this call raises, Core may already have committed; the durable intent
+    # remains for background reconciliation and the same key can be retried.
+    job = await core_json("POST", "jobs", payload=payload)
+    own_job(job, context.user_id)
+    try:
+        tracker.add(job["id"], context.user_id)
+        tracker.finish_submission(request_id, context.user_id)
+        tracker._record_success("intent")
+    except Exception as error:
+        # The Core job has already been accepted. Returning 5xx here would
+        # induce a duplicate; the durable intent and monitor will repair it.
+        tracker._record_failure("intent", error)
+    try:
+        await update_index(context.nc, context.user_id, [job])
+    except Exception:
+        # The tracker remains durable and retries indexing, independent
+        # of the download submission acknowledgement.
+        pass
+    return job
+
+
 @APP.post("/user/api/jobs", status_code=202)
 async def user_submit(request: Request, context: UserContext = Depends(require_user)):
     data = await request.json()
     request_body = await job_submission(context, data)
     await attach_owner_cookie(context, request_body)
-    job = await core_json("POST", "jobs", payload=request_body)
-    own_job(job, context.user_id)
-    request.app.state.job_tracker.add(job["id"], context.user_id)
-    try:
-        await update_index(context.nc, context.user_id, [job])
-    except Exception:
-        pass
-    return job
+    return await _queue_and_track(request, context, request_body)
 
 
 @APP.get("/user/api/jobs/{job_id}")
