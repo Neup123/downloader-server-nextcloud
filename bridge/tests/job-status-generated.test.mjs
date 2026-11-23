@@ -17,7 +17,7 @@ test('known/terminal module rejects unrecognized statuses and non-string inputs'
     assert.equal(isKnownJobState(status),true);
     assert.equal(isTerminalJobState(status),TERMINAL_JOB_STATES.has(status));
   }
-  for(const unknown of [null,0,{},'COMPLETED','',undefined,'skipped']){
+  for(const unknown of [null,0,{},'COMPLETED','',undefined,'__never_a_real_job_state__']){
     assert.equal(isKnownJobState(unknown),false);
     assert.equal(isTerminalJobState(unknown),false);
   }
