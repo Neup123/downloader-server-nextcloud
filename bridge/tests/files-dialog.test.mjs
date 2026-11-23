@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {SKIPPED_DETAIL} from '../src/download-labels.mjs';
 import {filesJobRequest, selectedMediaFormat, playlistIndices} from '../src/files-dialog-payload.mjs';
 import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows, previewMeta,
   appendPreviewPage, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes,
@@ -127,8 +128,9 @@ test('detected dialog categories are server-routed; a Files context still carrie
 
 test('skip outcome produces native toast and never claims delivered Files verification',()=>{
   assert.match(source,/file\.skipped===true/);
-  assert.match(source,/Download skipped: a file already exists in Nextcloud Files/);
-  assert.match(source,/The existing file was kept/);
+  assert.match(source,/SKIPPED_DETAIL/);
+  assert.match(SKIPPED_DETAIL,/Download skipped: a file already exists in Nextcloud Files/);
+  assert.match(SKIPPED_DETAIL,/The existing file was kept/);
 });
 
 test('dialog passes created job ID to header and supports a skip toast even for fast jobs',()=>{
@@ -138,7 +140,8 @@ test('dialog passes created job ID to header and supports a skip toast even for 
   assert.match(bridgeSource,/new CustomEvent\('downloader:job-queued'/);
   assert.match(bridgeSource,/const justQueued = new Set<string>\(\)/);
   assert.match(bridgeSource,/justQueued.has\(job.id\)/);
-  assert.match(bridgeSource,/Download skipped: a file already exists/);
+  assert.match(bridgeSource,/SKIPPED_DETAIL/);
+  assert.match(SKIPPED_DETAIL,/Download skipped: a file already exists/);
   assert.match(bridgeSource,/justQueued.delete\(job.id\)/);
 });
 
