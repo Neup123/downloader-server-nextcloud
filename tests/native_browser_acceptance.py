@@ -554,11 +554,17 @@ def check_mobile_rtl_and_theme(page) -> None:
         # Nextcloud 35 currently exposes the theme via its computed CSS
         # variables rather than a guaranteed theme--dark HTML class.
         # Capture the real light value before toggling the server setting.
-        background_js = """() => (
-            getComputedStyle(document.documentElement).getPropertyValue('--color-main-background').trim()
-            || getComputedStyle(document.body).getPropertyValue('--color-main-background').trim()
-        )"""
-        light_background = page.evaluate(background_js)
+        theme_js = """() => ['html','body','#body-user','#content','#downloader-library-app'].map(selector => {
+            const el=document.querySelector(selector);
+            if(!el)return [selector, null];
+            const style=getComputedStyle(el);
+            const before=getComputedStyle(el,'::before');
+            return [selector, [style.backgroundColor,style.backgroundImage,style.color,
+                style.getPropertyValue('--color-primary-element').trim(),
+                style.getPropertyValue('--color-main-text').trim(),
+                before.backgroundColor,before.backgroundImage]];
+        })"""
+        light_theme = page.evaluate(theme_js)
         capture(page, "05-library-mobile-rtl.png")
 
         configure_disposable_appearance(dark=True, arabic=True)
@@ -570,12 +576,15 @@ def check_mobile_rtl_and_theme(page) -> None:
             "(element) => getComputedStyle(element).direction"
         )
         assert computed_direction == "rtl", "Dark theme lost genuine Arabic RTL in Library"
-        dark_background = page.evaluate(background_js)
-        assert light_background and dark_background and light_background != dark_background, (
-            "Nextcloud's computed background did not change between light and enforced dark themes",
-            light_background, dark_background,
+        dark_theme = page.evaluate(theme_js)
+        changes = [(a[0],a[1],b[1]) for a,b in zip(light_theme,dark_theme)
+                   if a[1] is not None and b[1] is not None and a[1] != b[1]]
+        assert changes, (
+            "No real computed Nextcloud background, foreground or accent style changed",
+            light_theme, dark_theme,
         )
-        print("Nextcloud theme variable changed from light to dark on full login", flush=True)
+        print("Nextcloud real light-to-dark computed style transition: "
+              + ", ".join(item[0] for item in changes), flush=True)
         contrast = page.locator("#downloader-library-app").evaluate(
             "(element) => getComputedStyle(element).color"
         )
