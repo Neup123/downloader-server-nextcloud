@@ -35,6 +35,23 @@ def test_browser_harness_compiles_and_is_real_playwright():
     assert "Folder actions fell under the field" in code
     assert "No subtitles available." in code
     assert "NEXTCLOUD_APP_PASSWORD" in code
+    for required in (
+        "check_real_native_job_journey(page)",
+        "verify_disposable_dav_fixture()",
+        '"14-native-real-job-queued.png"',
+        '"15-native-real-job-delivering.png"',
+        '"16-native-real-job-completed.png"',
+        '"13-personal-settings-persisted.png"',
+        'response.request.method == "POST"',
+        'response.request.method == "PUT"',
+    ):
+        assert required in code, required
+    # The browser never receives the Core fixture token: only a restricted
+    # docker exec helper consumes the credential inside its own container.
+    assert "APP_SECRET" not in code
+    assert '"docker", "exec", "downloader-test-core"' in code
+    assert "capture_output=True" in code
+    assert "page.evaluate(os.environ" not in code
     assert "MOCK_CORE_TOKEN" not in code and "APP_SECRET" not in code
 
 
