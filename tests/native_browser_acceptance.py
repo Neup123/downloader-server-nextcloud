@@ -493,6 +493,15 @@ def check_mobile_rtl_and_theme(page) -> None:
         # established. A simple reload can keep the original English locale.
         page.context.clear_cookies()
         login(page)
+        # Determine whether Nextcloud itself, before Downloader Bridge's
+        # Library loads, has activated the stored Hebrew preference.
+        platform_locale = page.evaluate("""() => ({
+            htmlLanguage: document.documentElement.lang,
+            htmlDirection: getComputedStyle(document.documentElement).direction,
+            nextcloudLanguage: window.OC?.getLanguage?.() ?? null,
+        })""")
+        print("Stock Nextcloud Files locale after actual Hebrew configuration: "
+              + str(platform_locale), flush=True)
         page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
         expect(page.locator("#downloader-library-app .library-list")).to_be_visible(timeout=25_000)
         appearance = page.evaluate("""() => ({
