@@ -1,5 +1,5 @@
 /** Native Nextcloud Library view; API always uses signed AppAPI identity. */
-import { downloadTitle, downloadStatus, deliveredFilesQuery, downloadSymbol, t } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, downloadStatusDetail, deliveredFilesQuery, downloadSymbol, t } from './download-labels.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import {isTerminalJobState} from './job-states.generated.mjs';
 import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
@@ -118,10 +118,10 @@ function main() {
     const heading = el('h2',downloadTitle(job));heading.id='library-job-title';
     dlg.setAttribute('aria-labelledby',heading.id);
     const source=el('p','Source: '+job.url);source.style.overflowWrap='anywhere';
-    dlg.append(heading,el('p',downloadStatus(job)),source);
+    dlg.append(heading,el('p',downloadStatusDetail(job)),source);
     if (job.error) dlg.append(el('p',job.error));
     for (const file of job.output_files||[]) {
-      dlg.append(el('p',file.filename+(file.verified?' · Verified':' · Awaiting verification')));
+      dlg.append(el('p',file.filename+(file.verified?' · Verified':file.skipped?' · Skipped':' · Awaiting verification')));
     }
     const technical=el('details');
     technical.append(el('summary',t('downloader_bridge', 'Technical log (advanced)')),el('pre',job.log_text||t('downloader_bridge', 'No log output.')));
@@ -174,7 +174,7 @@ function main() {
     title.title=downloadTitle(job);
     title.addEventListener('click',()=>showModal(job));
     const status=el('span',downloadStatus(job));status.className='library-status';
-    status.title=downloadStatus(job);
+    status.title=downloadStatusDetail(job);
     info.append(title,status);
     if (!isTerminalJobState(job.status)){
       const bar=el('progress');bar.className='library-progress';bar.max=100;
@@ -197,7 +197,7 @@ function main() {
     if(query)control(t('downloader_bridge', 'Open in Files'),()=>{
       window.location.href=oc()!.generateUrl('/apps/files/files')+query;
     });
-    const op=job.status==='completed'?'redeliver':(isTerminalJobState(job.status)?'retry':'cancel');
+    const op=['completed','skipped'].includes(job.status)?'redeliver':(isTerminalJobState(job.status)?'retry':'cancel');
     control(op==='redeliver'?t('downloader_bridge', 'Deliver again'):op==='retry'?t('downloader_bridge', 'Try again'):t('downloader_bridge', 'Cancel download'),
       ()=>{void runAction(job,op);});
     control(t('downloader_bridge', 'View details'),()=>showModal(job));

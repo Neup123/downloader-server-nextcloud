@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {DOWNLOAD_QUEUED_MESSAGE} from '../src/download-labels.mjs';
+import {DOWNLOAD_QUEUED_MESSAGE, SKIPPED_DETAIL} from '../src/download-labels.mjs';
 
 const dialog = readFileSync(new URL('../src/link-first-dialog.mjs', import.meta.url), 'utf8');
 const bridge = readFileSync(new URL('../src/bridge.ts', import.meta.url), 'utf8');
@@ -34,6 +34,7 @@ test('Files-ready completion is a separate verified terminal notification', () =
   assert.match(bridge, /&& isTerminalJobState\(job\.status\)/);
   assert.match(bridge, /job\.status==='completed'/);
   assert.match(bridge, /Download complete\. Open it in Nextcloud Files\./);
-  assert.match(bridge, /Download skipped: a file already exists in Nextcloud Files/);
+  assert.match(bridge, /SKIPPED_DETAIL/);
+  assert.match(SKIPPED_DETAIL, /Download skipped: a file already exists in Nextcloud Files/);
   assert.doesNotMatch(DOWNLOAD_QUEUED_MESSAGE, /saved|completed|delivered|added to Files/i);
 });
