@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiErrorMessage } from './api-errors';
 import { exappRoot } from './exapp-path';
+import type { MediaPreviewOut } from './preview-contract.generated';
 
 type Engine = 'yt-dlp' | 'aria2c' | 'gallery-dl' | 'generic' | 'you-get' | 'svtplay-dl' | 'get-sauce';
 type EngineSelection = 'auto' | Engine;
@@ -15,11 +16,7 @@ type YtSettings = {
   format: string; subtitles_lang: string; write_subtitles: boolean; embed_subtitles: boolean;
   extra_args: string[]; cookies_file?: string; allow_playlist: boolean; playlist_items: string;
 };
-type MediaPreview = {
-  title: string; kind: 'video' | 'playlist'; entry_count: number;
-  entries: { index: number; title: string; id: string; duration: number | null }[];
-  formats: { format_id: string; ext: string; resolution: string; filesize: number | null }[];
-};
+type MediaPreview = MediaPreviewOut;
 type AriaSettings = { options: Record<string, string> };
 type GallerySettings = { options: Record<string, string>; cookies_file?: string; proxy?: string };
 type GenericSettings = { filename: string; follow_redirects: boolean; max_redirects: number; retry_count: number; user_agent: string };

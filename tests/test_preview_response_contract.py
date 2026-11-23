@@ -21,6 +21,8 @@ def test_generated_ui_type_matches_pydantic_models_and_replaces_parallel_hand_ty
     component = (ROOT / "web/src/App.tsx").read_text(encoding="utf-8")
     assert "type MediaPreview = MediaPreviewOut" in component
     assert "type MediaPreview = {" not in component
+    assert "import type { MediaPreviewOut } from './preview-contract.generated'" in component
+    assert "export interface TorrentManifestOut" in OUTPUT.read_text(encoding="utf-8")
 
 
 def test_pydantic_preview_contract_accepts_nulls_and_nested_entries():
