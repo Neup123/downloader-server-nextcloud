@@ -460,6 +460,19 @@ def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
         "expected Hebrew" if hebrew else "expected unforced default",
         "he" if effective == "he" else "missing-or-unexpected",
     )
+    if hebrew:
+        # Nextcloud validates a requested language against its installed
+        # JSON catalog, not just against the force_language config value.
+        # Report only presence, never dump environment or config values.
+        for catalog in ("core", "lib"):
+            check = subprocess.run(
+                ["docker", "exec", app, "sh", "-c",
+                 "test -f /var/www/html/" + catalog + "/l10n/he.json"],
+                check=False, capture_output=True, text=True, timeout=35,
+            )
+            print("Nextcloud " + catalog + " Hebrew catalog: "
+                  + ("present" if check.returncode == 0 else "missing"),
+                  flush=True)
     # Use the documented real Nextcloud per-user locale setting as well.
     # That setting is read for signed-in users independently of the global
     # default/force language; never simulate RTL by editing the DOM.
