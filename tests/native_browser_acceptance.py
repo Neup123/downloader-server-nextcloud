@@ -551,6 +551,14 @@ def check_mobile_rtl_and_theme(page) -> None:
             "Genuine Arabic Nextcloud locale did not produce RTL", appearance
         )
         in_viewport(page, "#downloader-library-app h1")
+        # Nextcloud 35 currently exposes the theme via its computed CSS
+        # variables rather than a guaranteed theme--dark HTML class.
+        # Capture the real light value before toggling the server setting.
+        background_js = """() => (
+            getComputedStyle(document.documentElement).getPropertyValue('--color-main-background').trim()
+            || getComputedStyle(document.body).getPropertyValue('--color-main-background').trim()
+        )"""
+        light_background = page.evaluate(background_js)
         capture(page, "05-library-mobile-rtl.png")
 
         configure_disposable_appearance(dark=True, arabic=True)
@@ -562,11 +570,12 @@ def check_mobile_rtl_and_theme(page) -> None:
             "(element) => getComputedStyle(element).direction"
         )
         assert computed_direction == "rtl", "Dark theme lost genuine Arabic RTL in Library"
-        theme_class = page.locator("html").get_attribute("class") or ""
-        body_class = page.locator("body").get_attribute("class") or ""
-        assert "theme--dark" in theme_class or "theme--dark" in body_class, (
-            "Nextcloud did not apply its enforced dark theme", theme_class, body_class
+        dark_background = page.evaluate(background_js)
+        assert light_background and dark_background and light_background != dark_background, (
+            "Nextcloud's computed background did not change between light and enforced dark themes",
+            light_background, dark_background,
         )
+        print("Nextcloud theme variable changed from light to dark on full login", flush=True)
         contrast = page.locator("#downloader-library-app").evaluate(
             "(element) => getComputedStyle(element).color"
         )
