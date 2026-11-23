@@ -3,6 +3,7 @@ OC.L10N.register("downloader_bridge", {
   "Download queued. Follow progress in Downloads.": "ההורדה נוספה לתור. אפשר לעקוב אחר ההתקדמות בהורדות.",
   "Delivered ✓ Verified": "נמסר ✓ אומת",
   "Completed — checking delivery": "ההורדה הושלמה — המסירה נבדקת",
+  "Skipped": "דולגה",
   "Failed — {reason}": "ההורדה נכשלה — {reason}",
   "Check the log and try again": "בדקו את היומן ונסו שוב",
   "Cancelled": "בוטל",
