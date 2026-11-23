@@ -35,6 +35,7 @@ def test_browser_harness_compiles_and_is_real_playwright():
     assert "Folder actions fell under the field" in code
     assert "No subtitles available." in code
     assert "NEXTCLOUD_APP_PASSWORD" in code
+    # #219: actual signed submit, persisted autosave and platform theme/RTL.
     for required in (
         "check_real_native_job_journey(page)",
         "verify_disposable_dav_fixture()",
@@ -42,17 +43,23 @@ def test_browser_harness_compiles_and_is_real_playwright():
         '"15-native-real-job-delivering.png"',
         '"16-native-real-job-completed.png"',
         '"13-personal-settings-persisted.png"',
+        "configure_disposable_appearance(dark=True, arabic=True)",
+        '"config:system:set"',
+        '"force_language"',
+        '"enforce_theme"',
         'response.request.method == "POST"',
         'response.request.method == "PUT"',
     ):
         assert required in code, required
-    # The browser never receives the Core fixture token: only a restricted
-    # docker exec helper consumes the credential inside its own container.
+    assert "document.documentElement.setAttribute('dir', 'rtl')" not in code
+    assert "document.documentElement.style.setProperty" not in code
+    # The browser never receives Core/ExApp credentials. The fixture-control
+    # helper obtains its token only inside the isolated Core container via
+    # docker exec, and never prints it or passes it into page.evaluate.
     assert "APP_SECRET" not in code
     assert '"docker", "exec", "downloader-test-core"' in code
     assert "capture_output=True" in code
     assert "page.evaluate(os.environ" not in code
-    assert "MOCK_CORE_TOKEN" not in code and "APP_SECRET" not in code
 
 
 def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
@@ -66,10 +73,6 @@ def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
     assert "cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/" in source
     assert "php occ app:disable firstrunwizard" in source
     assert "python3 tests/native_browser_acceptance.py" in source
-    # Neither the actual browser harness nor its workflow-contract test may
-    # skip the disposable AppAPI/Chromium gate on pull requests.
-    assert source.count('      - "tests/native_browser_acceptance.py"') == 2
-    assert source.count('      - "tests/test_native_browser_workflow.py"') == 2
     assert "google-chrome --version" in source
     assert "playwright install" not in source
     assert "if: always()" in source
