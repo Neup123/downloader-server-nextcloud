@@ -443,6 +443,23 @@ def configure_disposable_appearance(*, dark: bool, hebrew: bool) -> None:
             ["docker", "exec", "--user", "www-data", app, "php", "occ", *action],
             check=True, capture_output=True, text=True, timeout=35,
         )
+    # Read only the non-secret effective language setting. Nextcloud may
+    # load additional *.config.php files that override config.php; the
+    # normal CLI write succeeding is not evidence that the effective value
+    # reaches the web app. Do not dump system config or other credentials.
+    system_language = subprocess.run(
+        ["docker", "exec", "--user", "www-data", app, "php", "occ",
+         "config:system:get", "force_language"],
+        check=False, capture_output=True, text=True, timeout=35,
+    )
+    effective = system_language.stdout.strip() if system_language.returncode == 0 else None
+    print("Nextcloud effective force_language: "
+          + ("he" if effective == "he" else "missing-or-unexpected"), flush=True)
+    assert effective == ("he" if hebrew else None), (
+        "Effective system language diverged from the test configuration",
+        "expected Hebrew" if hebrew else "expected unforced default",
+        "he" if effective == "he" else "missing-or-unexpected",
+    )
     # Use the documented real Nextcloud per-user locale setting as well.
     # That setting is read for signed-in users independently of the global
     # default/force language; never simulate RTL by editing the DOM.
