@@ -66,6 +66,10 @@ def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
     assert "cp -a bridge/appinfo bridge/lib bridge/js bridge/templates bridge-install/downloader_bridge/" in source
     assert "php occ app:disable firstrunwizard" in source
     assert "python3 tests/native_browser_acceptance.py" in source
+    # Neither the actual browser harness nor its workflow-contract test may
+    # skip the disposable AppAPI/Chromium gate on pull requests.
+    assert source.count('      - "tests/native_browser_acceptance.py"') == 2
+    assert source.count('      - "tests/test_native_browser_workflow.py"') == 2
     assert "google-chrome --version" in source
     assert "playwright install" not in source
     assert "if: always()" in source
