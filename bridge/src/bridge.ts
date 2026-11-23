@@ -8,7 +8,7 @@ import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadBubbleStatus, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, downloadStatusDetail, SKIPPED_DETAIL, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
 import {isTerminalJobState} from './job-states.generated.mjs';
 import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
 
@@ -448,6 +448,7 @@ function headerProgress(ownerId: string) {
     name.dir='auto';
     const subtitle=node('span',downloadBubbleStatus(job),'dl-job-state');
     subtitle.dir='auto';
+    subtitle.title=downloadStatusDetail(job);
     info.append(name,subtitle);
     const pct=node('span',isTerminalJobState(job.status)?'':safePercent+'%','dl-job-pct');
     if(isTerminalJobState(job.status)){
@@ -456,7 +457,7 @@ function headerProgress(ownerId: string) {
     const action=node('button',isTerminalJobState(job.status)?'↻':job.status==='paused'?'▶':'Ⅱ','dl-job-pause');
     action.type='button';
     if(isTerminalJobState(job.status)){
-      const operation=job.status==='completed'?'redeliver':'retry';
+      const operation=['completed','skipped'].includes(job.status)?'redeliver':'retry';
       action.title=operation==='redeliver'?'Deliver again':'Retry download';
       action.setAttribute('aria-label',action.title);
       action.addEventListener('click',()=>{
@@ -529,9 +530,9 @@ function headerProgress(ownerId: string) {
         if(((initialized && old && old!==job.status) || justQueued.has(job.id))
           && isTerminalJobState(job.status)){
           const skipped=job.output_files?.some(file=>file.skipped===true);
-          notify(job.status==='completed'
-            ?(skipped
-              ?'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.'
+          notify(job.status==='completed' || job.status==='skipped'
+            ?(skipped || job.status==='skipped'
+              ?SKIPPED_DETAIL
               :'Download complete. Open it in Nextcloud Files.')
             :job.status==='failed'?'Download failed. Open Downloads for details.'
              :'Download cancelled.');
@@ -539,7 +540,7 @@ function headerProgress(ownerId: string) {
         }
         lastStatuses.set(job.id,job.status);
         if(old || isTerminalJobState(job.status))justQueued.delete(job.id);
-        if(job.status==='completed')void publishDeliveredFiles(job);
+        if(['completed','skipped'].includes(job.status))void publishDeliveredFiles(job);
       }
       initialized=true;
     }catch {
