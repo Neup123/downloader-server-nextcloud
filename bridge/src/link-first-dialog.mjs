@@ -847,6 +847,15 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         if(token===generation)busy=false;
       }
       if(token!==generation||closed||currentUrl!==inspectedUrl)return;
+      // A filename-looking URL may still point to an ordinary HTML page.
+      // Do not offer a download if HEAD actually identifies web content.
+      if(['text/html','application/xhtml+xml'].includes(metadata?.mime)){
+        kind='unsupported';
+        details.append(e('h3','Not a direct file'));
+        message('This address returns a web page, not a downloadable file.');
+        refreshSubmit();
+        return;
+      }
       let filename='Unknown filename', fileType='Unverified direct file', bytes=null;
       try {filename=decodeURIComponent(new URL(inspectedUrl).pathname.split('/').pop()||'Unknown filename');}
       catch { /* filename remains unknown */ }
