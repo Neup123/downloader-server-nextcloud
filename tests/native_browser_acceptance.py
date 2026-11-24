@@ -373,30 +373,43 @@ def verify_disposable_dav_fixture() -> None:
 def check_real_native_job_journey(page) -> None:
     """One real UI POST -> signed ExApp -> mock Core state -> native progress.
 
-    The fixture does not actually download remote media. Only preview metadata
-    and Core's transition clock are deterministic; authenticated submission
-    and status polling use the real PHP bridge and ExApp.
+    The fixture does not actually download remote media or perform a HEAD.
+    Metadata, submission and status polling traverse the real installed
+    Nextcloud AppAPI and ExApp, reaching a deterministic mock Core.
     """
-    import json
 
     page.goto(BASE + "/index.php/apps/files/", wait_until="domcontentloaded")
     trigger = page.locator("#downloader-topbar-progress .dl-trigger")
     expect(trigger).to_be_visible(timeout=25_000)
 
-    def preview(route):
-        route.fulfill(
-            status=200, content_type="application/json",
-            body=json.dumps({"kind": "direct", "title": "dummy.pdf", "filename": "dummy.pdf",
-                             "mime": "application/pdf", "size": 13264}),
-        )
+    def metadata_response(response):
+        return response.url.endswith("/user/api/direct-metadata") and response.request.method == "POST"
 
-    page.route("**/user/api/media-preview", preview)
     try:
         trigger.click()
         page.locator("#downloader-header-popover .dl-popover-add").click()
         dialog = page.locator("dialog.dl-link-dialog")
         expect(dialog).to_be_visible()
-        dialog.get_by_role("textbox", name="Source link").fill("https://example.test/dummy.pdf")
+        source = dialog.get_by_role("textbox", name="Source link")
+        # No Playwright route interception: the actual signed ExApp proxy
+        # must forward both requests with its server-only Core API key.
+        with page.expect_response(metadata_response, timeout=30_000) as denied_file:
+            source.fill("https://example.test/not-a-file.pdf")
+        assert denied_file.value.status == 200
+        expect(dialog.get_by_text("Not a direct file", exact=True)).to_be_visible()
+        expect(dialog.get_by_role("button", name="Download", exact=True)).to_be_hidden()
+        with page.expect_response(metadata_response, timeout=30_000) as verified_file:
+            source.fill("https://example.test/dummy.pdf")
+        assert verified_file.value.status == 200
+        assert verified_file.value.json() == {
+            "filename": "dummy.pdf", "mime": "application/pdf", "size": 13264,
+        }
+        expect(dialog.get_by_text("Name: dummy.pdf", exact=True)).to_be_visible()
+        expect(dialog.get_by_text("Type: application/pdf", exact=True)).to_be_visible()
+        expect(dialog.get_by_text("Size: 13.0 KiB", exact=True)).to_be_visible()
+        expect(dialog.locator(".dl-detect-status")).to_be_hidden()
+        capture(page, "17-signed-direct-metadata.png")
+        print("Real Chromium: signed direct metadata route and HTML rejection PASS", flush=True)
         download = dialog.get_by_role("button", name="Download", exact=True)
         expect(download).to_be_enabled(timeout=20_000)
         with page.expect_response(
@@ -425,7 +438,8 @@ def check_real_native_job_journey(page) -> None:
         capture(page, "16-native-real-job-completed.png")
         print("Real Chromium: signed UI submit -> queued -> delivering -> verified DAV completion PASS", flush=True)
     finally:
-        page.unroute("**/user/api/media-preview", preview)
+        if page.locator("dialog.dl-link-dialog").count():
+            page.keyboard.press("Escape")
 
 
 def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
