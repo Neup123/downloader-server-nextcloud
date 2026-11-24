@@ -541,3 +541,14 @@ test('video and audio default to the same plain Best quality label',()=>{
   assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
   assert.doesNotMatch(dialog,/Best available video|Best available audio/);
 });
+
+
+test('direct-file detection uses a signed HEAD probe and never invents file metadata',()=>{
+  assert.match(dialog,/if\(looksLikeDirectFile\(value\)\)\{/);
+  assert.match(dialog,/metadata=await api\('\/direct-metadata','POST',\{url:inspectedUrl\}\)/);
+  assert.match(dialog,/Number\.isSafeInteger\(metadata\?\.size\)/);
+  assert.match(dialog,/typeof metadata\?\.mime==='string'/);
+  assert.match(dialog,/token!==generation\|\|closed\|\|currentUrl!==inspectedUrl/);
+  assert.match(dialog,/We have not confirmed this file's type or size/);
+  assert.doesNotMatch(dialog,/fetch\(inspectedUrl/);
+});
