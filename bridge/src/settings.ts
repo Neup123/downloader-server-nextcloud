@@ -78,11 +78,11 @@ const CSS=`
 #downloader-settings-app .downloader-vault-warning{font-size:13px}
 #downloader-settings-app .downloader-vault-sites{display:flex;flex-direction:column;min-height:72px;max-height:240px;overflow-y:auto;border:1px solid var(--color-border,#ccc);border-radius:8px}
 #downloader-settings-app .downloader-vault-sites>p{padding:12px;margin:0}
-#downloader-settings-app .downloader-vault-site{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:42px;padding:8px 12px;border:0;border-bottom:1px solid var(--color-border,#ccc);border-radius:0;text-align:left;background:var(--color-main-background,transparent);color:var(--color-main-text,inherit);cursor:pointer}
+#downloader-settings-app .downloader-vault-site{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:42px;padding:8px 12px;border:0;border-bottom:1px solid var(--color-border,#ccc);border-radius:0;text-align:start;background:var(--color-main-background,transparent);color:var(--color-main-text,inherit);cursor:pointer}
 #downloader-settings-app .downloader-vault-site:last-child{border-bottom:0}
 #downloader-settings-app .downloader-vault-site.is-selected{background:var(--color-primary-element-light,var(--color-background-hover,var(--color-border,#ccc)))}
 #downloader-settings-app .downloader-vault-site-name{font-weight:600;overflow-wrap:anywhere}
-#downloader-settings-app .downloader-vault-site-status{font-size:13px;text-align:right}
+#downloader-settings-app .downloader-vault-site-status{font-size:13px;text-align:end}
 #downloader-settings-app .downloader-vault-toolbar{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
 #downloader-settings-app .downloader-vault-toolbar-group{display:flex;gap:4px}
 #downloader-settings-app .downloader-vault-action{min-width:32px;min-height:32px;padding:4px 8px}
