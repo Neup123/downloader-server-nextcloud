@@ -25,7 +25,7 @@ test('Talk never guesses a source from ambiguous, invalid, credential-bearing or
 
 test('Native Talk action is registered only after signed entitlement, with confirmation', () => {
   assert.match(bridge, /registerMessageAction/);
-  assert.match(bridge, /label: 'Download linked URL into my Files'/);
+  assert.match(bridge, /label: t\('downloader_bridge', 'Download linked URL into my Files'\)/);
   assert.match(bridge, /suggestTalkSource\(message\?\.message\)/);
   assert.match(bridge, /void openDialog\(null, source\)/);
   assert.ok(bridge.indexOf("await api<{user_id: string; entitled: boolean}>('/me')") < bridge.lastIndexOf('installTalkAction();'));
