@@ -316,7 +316,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
-  const available=()=>!busy && !headBusy && filesConnection='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && !headBusy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
     if(count && kind!=='torrent')count.textContent=previewSelectionSummary(choices,selected);
