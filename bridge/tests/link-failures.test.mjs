@@ -44,7 +44,7 @@ async function detectedDialog(link, preview) {
       folder: null, suggested: link,
       api: path => path === '/settings'
         ? Promise.resolve({default_video_quality:'best', default_audio_quality:'best'})
-        : preview(),
+        : preview(path),
       notify: () => { throw new Error('Unexpected toast'); },
       queued: () => { throw new Error('Unexpected job'); },
     });
@@ -175,6 +175,34 @@ test('verified direct-file result has no status line', async () => {
     () => Promise.resolve({kind:'direct',filename:'book.pdf',mime:'application/pdf',size:128}));
   assert.equal(status.textContent,'');
   assert.equal(status.hidden,true);
+});
+
+test('signed direct HEAD metadata renders actual observed name, MIME and size', async () => {
+  const calls=[];
+  const {status,details,buttons}=await detectedDialog('https://example.org/download.zip',
+    path => {
+      calls.push(path);
+      return Promise.resolve({filename:'verified.zip',mime:'application/zip',size:128});
+    });
+  assert.deepEqual(calls,['/direct-metadata']);
+  assert.equal(status.hidden,true);
+  assert.equal(details.children[1].textContent,'Name: verified.zip');
+  assert.equal(details.children[2].textContent,'Type: application/zip');
+  assert.equal(details.children[3].textContent,'Size: 128 B');
+  assert.equal(buttons.hidden,false);
+});
+
+test('a direct-looking URL serving HTML disables download and shows no fabricated file', async () => {
+  const calls=[];
+  const {status,details,buttons}=await detectedDialog('https://example.org/download.zip',
+    path => {
+      calls.push(path);
+      return Promise.resolve({filename:null,mime:'text/html',size:123});
+    });
+  assert.deepEqual(calls,['/direct-metadata']);
+  assert.equal(status.textContent,'This address returns a web page, not a downloadable file.');
+  assert.equal(details.children[0].textContent,'Not a direct file');
+  assert.equal(buttons.hidden,true);
 });
 
 test('bridge preserves structured preview HTTP status, not a raw Core error message', () => {
