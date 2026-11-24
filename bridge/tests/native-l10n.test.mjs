@@ -82,3 +82,15 @@ test('release packaging includes matching catalogs for PHP and JavaScript',t=>{
   assert.match(listener,/Util::addTranslations\(Application::APP_ID\)/);
   assert.ok(listener.indexOf('Util::addTranslations')<listener.indexOf('Util::addInitScript'));
 });
+
+
+test('Native Files actions, Talk and header use the existing locale catalog',()=>{
+  const header=bridge.slice(0,bridge.indexOf('type Provenance ='));
+  const matches=[...header.matchAll(/t\('downloader_bridge', '([^']+)'/g)];
+  assert.ok(matches.length>=25,'Expected translated actions and header copy');
+  for(const match of matches)assert.equal(typeof catalog.translations[match[1]],'string','Missing native header translation: '+match[1]);
+  for(const key of ['Download into this folder','Download with Downloader','Download linked URL into my Files','Downloads: {count} unfinished','Resume this download','Pause this download','No active downloads.','Download complete. Open it in Nextcloud Files.']){
+    assert.ok(matches.some(match=>match[1]===key),'Missing translated native control: '+key);
+  }
+  assert.match(header,/\{count: running\.length\}/);
+});
