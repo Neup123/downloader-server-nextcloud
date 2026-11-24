@@ -235,3 +235,19 @@ retains the requested **Ⅱ** icon, disabled with an explicit explanation for
 active jobs, rather than making cancellation look like a reversible pause.
 The API must gain true suspend/resume before this action can be enabled.
 No production Nextcloud instance was used for these changes.
+
+## Direct file verification
+
+The link-first dialog calls the authenticated ExApp
+`POST /user/api/direct-metadata` for file-shaped HTTP(S) links and for
+fallbacks classified as direct files. The ExApp delegates to Core's
+`POST /api/v1/direct-metadata` HEAD-only API; the browser never fetches the
+external URL itself. Only safe server-supplied filename, MIME and size
+are displayed as verified; unavailable fields remain marked unknown.
+An actual HTML MIME response disables the direct-file download action.
+
+This feature **requires** a compatible Core release before deploying the
+native Nextcloud UI. It does not prove final WebDAV delivery or change
+Nextcloud permissions, entitlement, egress policy or background engine
+settings. Signed route contract checks alone are not a substitute for
+a disposable AppAPI/Chromium flow and owner visual review.

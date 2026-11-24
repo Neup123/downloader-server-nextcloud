@@ -44,7 +44,7 @@ async function detectedDialog(link, preview) {
       folder: null, suggested: link,
       api: path => path === '/settings'
         ? Promise.resolve({default_video_quality:'best', default_audio_quality:'best'})
-        : preview(),
+        : preview(path),
       notify: () => { throw new Error('Unexpected toast'); },
       queued: () => { throw new Error('Unexpected job'); },
     });
@@ -158,14 +158,15 @@ test('an ambiguous successful preview cannot be relabeled as unsupported or not-
   assert.equal(details.children.length,0);
 });
 
-test('a failed file-shaped link keeps only the direct-file action under the one explanation', async () => {
-  const {status,details}=await detectedDialog('https://example.org/archive.zip',
+test('failed HEAD still shows direct-file form with explicitly unverified metadata', async () => {
+  const {status,details,buttons}=await detectedDialog('https://example.org/archive.zip',
     () => Promise.reject(Object.assign(new Error('RAW_404_SOURCE'),{httpStatus:404})));
-  assert.equal(status.textContent,'Could not check this link. Try again.');
+  assert.equal(status.textContent,"We have not confirmed this file's type or size. Review the filename before downloading.");
   assert.equal(details.hidden,false);
-  assert.equal(details.children.length,1);
-  assert.equal(details.children[0].tagName,'button');
-  assert.equal(details.children[0].textContent,'Try as a direct file');
+  assert.equal(details.children[0].textContent,'Direct file');
+  assert.equal(details.children[1].textContent,'Name: archive.zip');
+  assert.equal(details.children[2].textContent,'Type: Unverified direct file');
+  assert.equal(buttons.hidden,false);
   assert.doesNotMatch(status.textContent,/RAW_404_SOURCE/);
 });
 
@@ -174,6 +175,34 @@ test('verified direct-file result has no status line', async () => {
     () => Promise.resolve({kind:'direct',filename:'book.pdf',mime:'application/pdf',size:128}));
   assert.equal(status.textContent,'');
   assert.equal(status.hidden,true);
+});
+
+test('signed direct HEAD metadata renders actual observed name, MIME and size', async () => {
+  const calls=[];
+  const {status,details,buttons}=await detectedDialog('https://example.org/download.zip',
+    path => {
+      calls.push(path);
+      return Promise.resolve({filename:'verified.zip',mime:'application/zip',size:128});
+    });
+  assert.deepEqual(calls,['/direct-metadata']);
+  assert.equal(status.hidden,true);
+  assert.equal(details.children[1].textContent,'Name: verified.zip');
+  assert.equal(details.children[2].textContent,'Type: application/zip');
+  assert.equal(details.children[3].textContent,'Size: 128 B');
+  assert.equal(buttons.hidden,false);
+});
+
+test('a direct-looking URL serving HTML disables download and shows no fabricated file', async () => {
+  const calls=[];
+  const {status,details,buttons}=await detectedDialog('https://example.org/download.zip',
+    path => {
+      calls.push(path);
+      return Promise.resolve({filename:null,mime:'text/html',size:123});
+    });
+  assert.deepEqual(calls,['/direct-metadata']);
+  assert.equal(status.textContent,'This address returns a web page, not a downloadable file.');
+  assert.equal(details.children[0].textContent,'Not a direct file');
+  assert.equal(buttons.hidden,true);
 });
 
 test('bridge preserves structured preview HTTP status, not a raw Core error message', () => {
