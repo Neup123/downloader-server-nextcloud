@@ -320,8 +320,14 @@ def check_torrent_selector(page) -> None:
         {"index": 3, "path": "Cover.jpg", "name": "Cover.jpg", "size_bytes": 1048576},
     ]}
 
+    fail_manifest = False
+
     def respond(route):
-        route.fulfill(status=200, content_type="application/json", body=json.dumps(manifest))
+        if fail_manifest:
+            route.fulfill(status=422, content_type="application/json",
+                          body=json.dumps({"detail": "Fixture metadata unavailable"}))
+        else:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(manifest))
 
     page.route("**/user/api/torrent-manifest", respond)
     trigger = page.locator("#downloader-topbar-progress .dl-trigger")
@@ -338,11 +344,73 @@ def check_torrent_selector(page) -> None:
     expect(count).to_contain_text("3 of 3 files selected")
     expect(count).to_contain_text("4.0 MiB total")
 
+    # No redundant upload or Advanced disclosure in a magnet journey.
+    expect(dialog.get_by_text("Advanced", exact=True)).to_have_count(0)
+    expect(dialog.get_by_role("button", name="Choose .torrent file…")).to_have_count(0)
+    expect(dialog.locator("input[type=file]")).to_have_count(0)
     root = picker.get_by_role("checkbox", name="Select files in All files")
     root.uncheck()
     expect(count).to_contain_text("0 of 3 files selected")
     root.check()
     expect(count).to_contain_text("3 of 3 files selected")
+    folder = picker.locator("details.dl-torrent-folder").filter(
+        has=page.get_by_role("checkbox", name="Select files in Album", exact=True)
+    ).last
+    heading = folder.locator("summary").first
+    expander = heading.locator(".dl-torrent-expander")
+    # The CSS chevron rotates over 150 ms; check the actual endpoints rather
+    # than sampling computed style on the same frame as the click.
+    chevron = expander.element_handle()
+    assert chevron is not None
+    page.wait_for_function("(el) => new DOMMatrix(getComputedStyle(el).transform).b > 0.70",
+                           arg=chevron)
+    expander.click()
+    expect(folder).not_to_have_attribute("open", "")
+    page.wait_for_function("(el) => new DOMMatrix(getComputedStyle(el).transform).b < -0.70",
+                           arg=chevron)
+    expander.click()
+    expect(folder).to_have_attribute("open", "")
+    page.wait_for_function("(el) => new DOMMatrix(getComputedStyle(el).transform).b > 0.70",
+                           arg=chevron)
+
+    second = picker.locator(".dl-torrent-file").filter(has_text="second.mp3").locator("input")
+    second.uncheck()
+    expect(count).to_contain_text("2 of 3 files selected")
+    assert root.evaluate("(el) => el.indeterminate")
+    name_filter = picker.get_by_role("searchbox", name="Filter by file name")
+    name_filter.fill("first")
+    expect(picker.locator(".dl-torrent-file")).to_have_count(1)
+    expect(root).to_be_checked()
+    album = picker.get_by_role("checkbox", name="Select files in Album", exact=True)
+    expect(album).to_be_checked()
+    album.uncheck()
+    expect(count).to_contain_text("1 of 3 files selected")
+    capture(page, "18-torrent-filtered-scope.png")
+    name_filter.fill("")
+    assert root.evaluate("(el) => el.indeterminate")
+    expect(picker.locator(".dl-torrent-file").filter(has_text="Cover.jpg").locator("input")).to_be_checked()
+    # Latest owner round 4 deliberately treats All files as full-manifest
+    # selection, unlike individual folders, even under a filter.
+    name_filter.fill("first")
+    root.check()
+    expect(count).to_contain_text("3 of 3 files selected")
+    expect(count).to_contain_text("4.0 MiB total")
+    name_filter.fill("")
+    picker.get_by_role("checkbox", name="jpg", exact=True).uncheck()
+    minimum = picker.get_by_placeholder("Min", exact=True)
+    minimum.fill("1.5")
+    path_filter = picker.get_by_role("searchbox", name="Filter by partial path segment")
+    path_filter.fill("Album")
+    expect(picker.locator(".dl-torrent-file")).to_have_count(1)
+    expect(picker.locator(".dl-torrent-file").first).to_contain_text("second.mp3")
+    path_filter.fill("missing")
+    expect(picker.get_by_text("No files match the current filter.", exact=True)).to_be_visible()
+    path_filter.fill("")
+    minimum.fill("")
+    picker.get_by_role("checkbox", name="jpg", exact=True).check()
+    expect(picker.locator(".dl-torrent-file")).to_have_count(3)
+    capture(page, "19-torrent-tree-desktop.png")
+
     flat = picker.get_by_role("button", name="Flat list")
     flat.click()
     expect(flat).to_have_attribute("aria-pressed", "true")
@@ -354,6 +422,10 @@ def check_torrent_selector(page) -> None:
     # hidden-by-default accessibility-tree locator.
     size_option = picker.locator('.dl-torrent-sort-menu [role="menuitemradio"]').filter(has_text="Size")
     expect(size_option).to_have_attribute("aria-checked", "true")
+    order.click()
+    capture(page, "20-torrent-sort-menu.png")
+    picker.get_by_role("menuitemradio", name="Descending (Z–A)").click()
+    expect(picker.locator(".dl-torrent-file").first).to_contain_text("second.mp3")
     capture(page, "11-torrent-selector-desktop.png")
 
     # The primary action must stay inside the visible dialog at a narrow width.
@@ -364,9 +436,17 @@ def check_torrent_selector(page) -> None:
     expect(submit).to_be_visible()
     in_viewport(page, "dialog.dl-link-dialog button.dl-primary")
     capture(page, "12-torrent-selector-mobile.png")
+    fail_manifest = True
+    source.fill("magnet:?xt=urn:btih:1123456789012345678901234567890123456789")
+    expect(dialog.get_by_text("Could not load the torrent file list. Check the magnet link.",
+                              exact=True)).to_be_visible(timeout=20_000)
+    expect(picker).to_have_count(0)
+    expect(submit).to_be_hidden()
+    capture(page, "21-torrent-manifest-failure.png")
     page.keyboard.press("Escape")
     page.set_viewport_size({"width": 1360, "height": 900})
     page.unroute("**/user/api/torrent-manifest", respond)
+    print("Real Chromium: torrent filters, selected sizes, root/folder scope and failure controls PASS", flush=True)
 
 
 
