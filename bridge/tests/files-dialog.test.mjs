@@ -494,7 +494,7 @@ test('direct-file details remain in the box while a verified file has no status 
   assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
   assert.match(dialog,/details\.append\(e\('h3','Direct file'\),e\('p','Name: '\+filename\)/);
   assert.match(dialog,/e\('p','Type: '\+fileType\),e\('p','Size: '\+sizeLabel\(bytes\)\)/);
-  assert.match(dialog,/message\(result\?'':"We have not confirmed this file/);
+  assert.match(dialog,/We have not confirmed this file's type or size/);
   assert.doesNotMatch(dialog,/File details are shown above|File details are shown below/);
 });
 
