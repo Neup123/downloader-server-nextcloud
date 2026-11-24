@@ -90,3 +90,18 @@ def test_cookie_vault_browser_exercises_toolbar_and_signed_writes():
         assert value in section
     assert "page.route(" not in section
     assert 'expect(paste).to_have_value("")' in section
+
+def test_direct_metadata_browser_journey_uses_real_signed_gateway():
+    source = TEST.read_text(encoding="utf-8")
+    journey = source[source.index("def check_real_native_job_journey(page)"):
+                     source.index("def configure_disposable_appearance(")]
+    fixture = (ROOT / "tests/exapp_mock_core.py").read_text(encoding="utf-8")
+    assert "/user/api/direct-metadata" in journey
+    assert "page.expect_response(metadata_response" in journey
+    assert "page.route(" not in journey
+    assert "Type: application/pdf" in journey
+    assert "Size: 13.0 KiB" in journey
+    assert "Not a direct file" in journey
+    assert "17-signed-direct-metadata.png" in journey
+    assert 'self.path == "/api/v1/direct-metadata"' in fixture
+    assert '"mime": "text/html"' in fixture
