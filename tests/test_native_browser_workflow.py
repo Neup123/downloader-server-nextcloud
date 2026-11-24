@@ -93,3 +93,15 @@ def test_direct_metadata_browser_journey_uses_real_signed_gateway():
     assert "17-signed-direct-metadata.png" in journey
     assert 'self.path == "/api/v1/direct-metadata"' in fixture
     assert '"mime": "text/html"' in fixture
+
+
+def test_torrent_browser_covers_latest_owner_filter_scope_and_failure():
+    source = TEST.read_text(encoding="utf-8")
+    section = source[source.index("def check_torrent_selector(page)"):
+                     source.index("def fixture_core_transition(")]
+    for value in ("el.indeterminate", "Filter by file name",
+                  "Filter by partial path segment", "Descending (Z–A)",
+                  "18-torrent-filtered-scope.png", "19-torrent-tree-desktop.png",
+                  "20-torrent-sort-menu.png", "21-torrent-manifest-failure.png",
+                  "No files match the current filter."):
+        assert value in section
