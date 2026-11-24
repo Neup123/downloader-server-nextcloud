@@ -199,6 +199,86 @@ def audited_legacy_candidates(
     ]
 
 
+# Issue #199 audit: these exact historical refs are squash-result snapshots of
+# the adjacent, merged PR in the old native UI stack. Their own original PR
+# head SHAs differ. Never generalize this table to arbitrary closed branches.
+_AUDITED_STACK = {
+    "fix/108-widget-quick-delivery": ("c2c30779f7f15c509c451288262222bb732b1182", 119),
+    "feat/109-compact-dashboard-widget": ("9fa3f8aecadd09975faef0a8049af1531735849c", 120),
+    "fix/110-widget-refresh-state": ("64edc487cc936dc601cd51bf97e4a1fa53ae767f", 121),
+    "feat/111-native-download-library": ("e13f2a3a362a4f0f5d025cad9914bab4c1ecbd3a", 122),
+}
+_LANDING_HEAD = "345771534ff0e11f25e8ad9352060b6b567695ea"
+_LANDING_MERGE = "c548e6555f09dfac659d276cae72be906e04f601"
+_DOCS_REF = "docs/sources-catalog"
+_DOCS_SHA = "00a7cc312c92a5c3489bfd8eb6f3a415fb8550e2"
+
+
+def audited_stack_candidates(
+    repository: str, branches: list[dict], pulls: list[dict], token: str,
+    excluded: set[str],
+) -> list[tuple[str, str]]:
+    """Retire only the five reviewed #199 refs, not arbitrary stacked work."""
+    if repository != "Neup123/downloader-server-nextcloud":
+        return []
+    by_number = {pr.get("number"): pr for pr in pulls}
+    open_refs = {
+        ref.get("ref")
+        for pr in pulls if pr.get("state") == "open"
+        for ref in (pr.get("head") or {}, pr.get("base") or {})
+        if (ref.get("repo") or {}).get("full_name") == repository
+    }
+    landing = by_number.get(135, {})
+    if (
+        not landing.get("merged_at")
+        or landing.get("merge_commit_sha") != _LANDING_MERGE
+        or (landing.get("head") or {}).get("sha") != _LANDING_HEAD
+        or (landing.get("base") or {}).get("ref") != "main"
+    ):
+        return []
+    # The landing squash itself must still be part of the current main history.
+    if get_json(repository, f"compare/{_LANDING_MERGE}...main", token).get("behind_by") != 0:
+        return []
+    output = []
+    for branch in branches:
+        name = branch.get("name")
+        sha = (branch.get("commit") or {}).get("sha")
+        if name in excluded or name in open_refs or branch.get("protected"):
+            continue
+        if name == _DOCS_REF and sha == _DOCS_SHA:
+            # Human audit 2026-11-24: this closed PR's sole catalog was moved
+            # to Core PR #164; all 53 original source URLs and substantive
+            # entries are retained, with corrected requirement descriptions.
+            old = by_number.get(152, {})
+            if (old.get("state") == "closed" and not old.get("merged_at")
+                    and (old.get("head") or {}).get("ref") == name
+                    and (old.get("head") or {}).get("sha") == sha):
+                output.append((name, sha))
+            continue
+        audit = _AUDITED_STACK.get(name)
+        if not audit or sha != audit[0]:
+            continue
+        pr = by_number.get(audit[1], {})
+        head = (pr.get("head") or {}).get("sha")
+        if (
+            not pr.get("merged_at") or pr.get("merge_commit_sha") != sha
+            or (pr.get("base") or {}).get("ref") != name
+            or not isinstance(head, str)
+        ):
+            continue
+        # A squash result is eligible only if its full tree (including modes,
+        # binary blobs, and submodules) matches the original accepted PR head.
+        # The latter must be an ancestor of the actual integrated landing head.
+        candidate_tree = get_json(repository, f"git/commits/{sha}", token).get("tree", {}).get("sha")
+        original_tree = get_json(repository, f"git/commits/{head}", token).get("tree", {}).get("sha")
+        if not candidate_tree or candidate_tree != original_tree:
+            continue
+        comparison = get_json(repository, f"compare/{head}...{_LANDING_HEAD}", token)
+        if comparison.get("behind_by") == 0:
+            output.append((name, sha))
+    return sorted(output)
+
+
 def legacy_port_verified() -> bool:
     """Require current files AND the regression suite in checked-out main."""
     root = Path(__file__).resolve().parents[1]
@@ -218,7 +298,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Delete eligible refs with a SHA lease")
     parser.add_argument("--prune-equivalent", action="store_true", help="Retire ancestor and identical-file branches, never unique work")
-    parser.add_argument("--retire-audited", action="store_true", help="Retire exactly one audited, SHA-locked superseded preflight prototype")
+    parser.add_argument("--retire-audited", action="store_true", help="Retire only reviewed, SHA-locked superseded historical refs")
     args = parser.parse_args()
     repository = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
@@ -234,6 +314,9 @@ def main() -> None:
     if args.retire_audited:
         candidates += audited_legacy_candidates(
             branches, pulls, port_verified=legacy_port_verified(),
+        )
+        candidates += audited_stack_candidates(
+            repository, branches, pulls, token, {name for name, _ in candidates},
         )
     print(f"Reviewed {len(branches)} branches and {len(pulls)} PRs; "
           f"{exact} exact merged heads, {equivalent} content-equivalent heads "
