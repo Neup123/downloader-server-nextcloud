@@ -54,7 +54,7 @@ class AdminEntitlementPrototypeTests(unittest.TestCase):
         self.assertNotIn("sessionStorage", script)
         self.assertIn("saved=clone(selected)", script)
         self.assertIn("Synthetic demonstration", self.source)
-        self.assertIn("No network calls", self.source)
+        self.assertIn("No Nextcloud/Core API calls", self.source)
 
     def test_keyboard_mobile_and_direction_are_explicit(self):
         self.assertIn("min-height:56px", self.source)
