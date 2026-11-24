@@ -94,3 +94,11 @@ test('Native Files actions, Talk and header use the existing locale catalog',()=
   }
   assert.match(header,/\{count: running\.length\}/);
 });
+
+
+test('Cookie vault row labels and status follow the native inline direction',()=>{
+  const settings=readFileSync(new URL('../src/settings.ts',import.meta.url),'utf8');
+  assert.match(settings,/\.downloader-vault-site\{[^}]*text-align:start/);
+  assert.match(settings,/\.downloader-vault-site-status\{[^}]*text-align:end/);
+  assert.doesNotMatch(settings,/\.downloader-vault-site(?:-status)?\{[^}]*text-align:(?:left|right)/);
+});
