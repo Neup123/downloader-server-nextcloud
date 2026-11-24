@@ -41,11 +41,10 @@ class AdminEntitlementPrototypeTests(unittest.TestCase):
                      "save", "discard", "state", "error", "filter", "ids"):
             self.assertIn(name, self.html.ids)
         self.assertIn("type='checkbox'", self.source)
-        self.assertIn("type='search'", self.source)
+        self.assertIn('type="search"', self.source)
         self.assertIn("aria-pressed", self.source)
         self.assertIn("role=\"status\"", self.source)
         self.assertIn("role=\"alert\"", self.source)
-        self.assertIn("headBusy", self.source if False else "headBusy") if False else None
 
     def test_mock_does_not_change_actual_entitlement_or_contact_core(self):
         script = self.source.split("<script>", 1)[-1]
