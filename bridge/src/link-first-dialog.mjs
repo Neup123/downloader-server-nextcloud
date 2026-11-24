@@ -1,5 +1,5 @@
 import {filesJobRequest} from './files-dialog-payload.mjs';
-import {DOWNLOAD_QUEUED_MESSAGE} from './download-labels.mjs';
+import {DOWNLOAD_QUEUED_MESSAGE, t} from './download-labels.mjs';
 
 const PAGE = 24;
 const MAX = 100;
@@ -71,14 +71,14 @@ export function classifyLinkFailure(input, failure = null) {
 }
 export function linkFailureMessage(cause) {
   switch (cause) {
-    case 'malformed': return 'Paste a valid HTTP(S) link or magnet URI.';
+    case 'malformed': return t('downloader_bridge', 'Paste a valid HTTP(S) link or magnet URI.');
     case 'unsupported_domain':
-      return 'This link is not supported. Try a direct file link or another media link.';
+      return t('downloader_bridge', 'This link is not supported. Try a direct file link or another media link.');
     case 'item_not_found':
-      return 'This link no longer exists. It may have been deleted or made private.';
+      return t('downloader_bridge', 'This link no longer exists. It may have been deleted or made private.');
     case 'not_media':
-      return 'Nothing downloadable was found at this link. Ordinary web pages cannot be downloaded here.';
-    default: return 'Could not check this link. Try again.';
+      return t('downloader_bridge', 'Nothing downloadable was found at this link. Ordinary web pages cannot be downloaded here.');
+    default: return t('downloader_bridge', 'Could not check this link. Try again.');
   }
 }
 
@@ -251,14 +251,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   dialog.setAttribute('aria-modal','true');
   const form = e('form');
   form.method='dialog';
-  dialog.setAttribute('aria-label','Download link');
+  dialog.setAttribute('aria-label',t('downloader_bridge', 'Download link'));
   const line = e('div', '', 'dl-link-line');
   const url = e('input', '', 'dl-input');
   url.type='text'; url.inputMode='url'; url.autocomplete='url'; url.spellcheck=false;
-  url.placeholder='Paste a link…'; url.value=suggested;
-  url.setAttribute('aria-label','Source link');
+  url.placeholder=t('downloader_bridge', 'Paste a link…'); url.value=suggested;
+  url.setAttribute('aria-label',t('downloader_bridge', 'Source link'));
   const spinner=e('span','', 'dl-detect-spinner');spinner.hidden=true;
-  spinner.setAttribute('role','status');spinner.setAttribute('aria-label','Detecting link content');
+  spinner.setAttribute('role','status');spinner.setAttribute('aria-label',t('downloader_bridge', 'Detecting link content'));
   line.append(url,spinner);
   const status=e('p','', 'dl-muted dl-detect-status');
   status.setAttribute('aria-live','polite');
@@ -269,7 +269,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const details=e('section', '', 'dl-detected');
   details.hidden=true;
   const buttons=e('div','','dl-buttons');
-  const download=e('button','Download','dl-primary');
+  const download=e('button',t('downloader_bridge', 'Download'),'dl-primary');
   download.type='submit';
   buttons.append(download);buttons.hidden=true;
   form.append(line,status,connectionHelp,details,buttons);
@@ -289,7 +289,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let filesConnection='checking';
   function explainFilesConnection(text){
     connectionHelp.replaceChildren(e('p',text));
-    const link=e('a','Open Downloader settings');
+    const link=e('a',t('downloader_bridge', 'Open Downloader settings'));
     link.href=(typeof window === 'object' && window.OC?.generateUrl
       ? window.OC.generateUrl('/settings/user/downloader') : '/settings/user/downloader');
     connectionHelp.append(link);
@@ -301,14 +301,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       connectionHelp.replaceChildren();
     }else{
       filesConnection='missing';
-      explainFilesConnection('Connect your Nextcloud Files in Downloader settings before starting a download.');
+      explainFilesConnection(t('downloader_bridge', 'Connect your Nextcloud Files in Downloader settings before starting a download.'));
     }
     refreshSubmit();
     return value;
   }).catch(()=>{
     if(!closed){
       filesConnection='unavailable';
-      explainFilesConnection('Could not check your Files connection. Open Downloader settings to reconnect or retry.');
+      explainFilesConnection(t('downloader_bridge', 'Could not check your Files connection. Open Downloader settings to reconnect or retry.'));
       refreshSubmit();
     }
     return {default_video_quality:'best',default_audio_quality:'best'};
@@ -418,7 +418,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if(row.subtitle) title.append(e('small',row.subtitle));
       const metadata=previewMeta(row);
       if(metadata)title.append(e('small',metadata));
-      if(row.is_live)media.append(e('span','Live','dl-entry-live-badge'));
+      if(row.is_live)media.append(e('span',t('downloader_bridge', 'Live'),'dl-entry-live-badge'));
       if(type==='playlist'){
         const info=e('span','','dl-entry-details');
         info.append(title);
@@ -460,7 +460,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       drawRows(list,type);
       message('');
     }catch(error){
-      if(token===generation&&!closed)message('Could not load more items. Please try again.');
+      if(token===generation&&!closed)message(t('downloader_bridge', 'Could not load more items. Please try again.'));
     }finally{busy=false;refreshSubmit();}
   }
   function itemPicker(type, advanced) {
@@ -815,10 +815,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(kind==='torrent'){
       const token=generation;
       if(!/^magnet:\?/i.test(currentUrl)){
-        message('Direct .torrent URLs cannot be inspected or submitted.');
+        message(t('downloader_bridge', 'Direct .torrent URLs cannot be inspected or submitted.'));
         return;
       }
-      details.append(e('p','Loading torrent file list…','dl-muted'));
+      details.append(e('p',t('downloader_bridge', 'Loading torrent file list…'),'dl-muted'));
       busy=true;refreshSubmit();
       try{
         const manifest=await api('/torrent-manifest','POST',{url:currentUrl});
@@ -828,7 +828,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }catch(error){
         if(token!==generation||closed)return;
         details.replaceChildren();
-        message('Could not load the torrent file list. Check the magnet link.');
+        message(t('downloader_bridge', 'Could not load the torrent file list. Check the magnet link.'));
       }finally{busy=false;refreshSubmit();}
       return;
     }
@@ -851,34 +851,34 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       // Do not offer a download if HEAD actually identifies web content.
       if(['text/html','application/xhtml+xml'].includes(metadata?.mime)){
         kind='unsupported';
-        details.append(e('h3','Not a direct file'));
-        message('This address returns a web page, not a downloadable file.');
+        details.append(e('h3',t('downloader_bridge', 'Not a direct file')));
+        message(t('downloader_bridge', 'This address returns a web page, not a downloadable file.'));
         refreshSubmit();
         return;
       }
-      let filename='Unknown filename', fileType='Unverified direct file', bytes=null;
-      try {filename=decodeURIComponent(new URL(inspectedUrl).pathname.split('/').pop()||'Unknown filename');}
+      let filename=t('downloader_bridge', 'Unknown filename'), fileType=t('downloader_bridge', 'Unverified direct file'), bytes=null;
+      try {const segment=new URL(inspectedUrl).pathname.split('/').pop();if(segment)filename=decodeURIComponent(segment);}
       catch { /* filename remains unknown */ }
       if(typeof metadata?.filename==='string' && metadata.filename)filename=metadata.filename;
       if(typeof metadata?.mime==='string' && metadata.mime)fileType=metadata.mime;
       if(Number.isSafeInteger(metadata?.size) && metadata.size>=0)bytes=metadata.size;
-      details.append(e('h3','Direct file'),e('p','Name: '+filename),
-        e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
-        e('p','No quality or conversion controls apply.','dl-muted'));
+      details.append(e('h3',t('downloader_bridge', 'Direct file')),e('p',t('downloader_bridge', 'Name: {filename}', {filename})),
+        e('p',t('downloader_bridge', 'Type: {fileType}', {fileType})),e('p',t('downloader_bridge', 'Size: {size}', {size:sizeLabel(bytes)})),
+        e('p',t('downloader_bridge', 'No quality or conversion controls apply.'),'dl-muted'));
       message(metadata && (metadata.filename||metadata.mime||bytes!==null)?'':
-        "We have not confirmed this file's type or size. Review the filename before downloading.");
+        t('downloader_bridge', 'We have not confirmed this file\'s type or size. Review the filename before downloading.'));
       refreshSubmit();return;
     }
     const prefs=await settings;
     if(closed || currentUrl!==url.value.trim())return;
     const headingText={
-      video:'Video',audio:'Audio / music',playlist:'Playlist',
-      channel:'Channel / series',gallery:'Image gallery / album',manga:'Manga / comics',
-    }[kind]||'Media';
+      video:t('downloader_bridge', 'Video'),audio:t('downloader_bridge', 'Audio / music'),playlist:t('downloader_bridge', 'Playlist'),
+      channel:t('downloader_bridge', 'Channel / series'),gallery:t('downloader_bridge', 'Image gallery / album'),manga:t('downloader_bridge', 'Manga / comics'),
+    }[kind]||t('downloader_bridge', 'Media');
     const title=e('h3',headingText+(preview?.title?' · '+preview.title:''));
     details.append(title);
     if(kind==='video' && (preview?.live_status==='is_live'||preview?.is_live===true))
-      title.append(e('span','Live','dl-live-badge'));
+      title.append(e('span',t('downloader_bridge', 'Live'),'dl-live-badge'));
     let advanced;
     if(kind==='audio'){
       const media=mediaControls(prefs,true,false);
@@ -983,14 +983,14 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       const reason=error instanceof Error?error.message:'';
       if(/app.password|files.connection|credentials.unavailable|not.connected/i.test(reason)){
         filesConnection='missing';
-        explainFilesConnection('Your Nextcloud Files connection needs attention. Reconnect in Downloader settings.');
-        notify('Connect Files in Downloader settings before retrying.');
+        explainFilesConnection(t('downloader_bridge', 'Your Nextcloud Files connection needs attention. Reconnect in Downloader settings.'));
+        notify(t('downloader_bridge', 'Connect Files in Downloader settings before retrying.'));
       }else if(/destination.folder|cannot.open.destination|not.writable/i.test(reason)){
-        notify('The destination folder is unavailable. Choose a folder in Downloader settings and retry.');
+        notify(t('downloader_bridge', 'The destination folder is unavailable. Choose a folder in Downloader settings and retry.'));
       }else if(/401|403|not.authorized|unauthorized/i.test(reason)){
-        notify('Downloader is not available for this account. Ask your Nextcloud administrator.');
+        notify(t('downloader_bridge', 'Downloader is not available for this account. Ask your Nextcloud administrator.'));
       }else{
-        notify('Could not start the download. Please try again. Your link and selections were kept.');
+        notify(t('downloader_bridge', 'Could not start the download. Please try again. Your link and selections were kept.'));
       }
     }
     finally{busy=false;refreshSubmit();}

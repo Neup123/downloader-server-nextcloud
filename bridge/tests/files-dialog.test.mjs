@@ -30,7 +30,7 @@ test('link step has no Download control until detection, and signed Core preview
   assert.match(dialog,/buttons\.hidden=true/);
   assert.match(dialog,/max_entries:PAGE/);
   assert.match(dialog,/max_entries:PAGE,offset:next/);
-  assert.match(dialog,/const download=e\('button','Download','dl-primary'\)/);
+  assert.match(dialog,/const download=e\('button',t\('downloader_bridge', 'Download'\),'dl-primary'\)/);
   assert.doesNotMatch(dialog,/e\('button','Confirm'/);
   assert.match(dialog,/await api\('\/jobs','POST',body\)/);
 });
@@ -405,7 +405,7 @@ test('torrent picker is immediately visible without Inspect/upload, and failures
   assert.doesNotMatch(dialog,/dl-torrent-native-file|dl-torrent-upload-row|Choose \.torrent file|inspectUploadedTorrent|torrent_base64/);
   assert.match(dialog,/else details\.append\(torrentPicker\(\)\)/);
   assert.match(dialog,/if\(!manifestFiles\.length\)details\.append\(e\('p','No selectable files were reported/);
-  assert.match(dialog,/details\.replaceChildren\(\);\s*message\('Could not load the torrent file list\. Check the magnet link\.'\)/);
+  assert.match(dialog,/details\.replaceChildren\(\);\s*message\(t\('downloader_bridge', 'Could not load the torrent file list\. Check the magnet link\.'\)\)/);
   assert.doesNotMatch(dialog,/details\.replaceChildren\(torrentPicker\(\)\)/);
   assert.match(dialog,/buttons\.hidden=kind==='unsupported' \|\| \(kind==='torrent' && torrentSource!=='magnet'\)/);
   assert.match(dialog,/if\(!\/\^magnet:/);
@@ -492,25 +492,25 @@ test('available subtitle languages enable only when checked and not Audio only',
 
 test('direct-file details remain in the box while a verified file has no status message',()=>{
   assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
-  assert.match(dialog,/details\.append\(e\('h3','Direct file'\),e\('p','Name: '\+filename\)/);
-  assert.match(dialog,/e\('p','Type: '\+fileType\),e\('p','Size: '\+sizeLabel\(bytes\)\)/);
-  assert.match(dialog,/We have not confirmed this file's type or size/);
+  assert.match(dialog,/details\.append\(e\('h3',t\('downloader_bridge', 'Direct file'\)\),e\('p',t\('downloader_bridge', 'Name: \{filename\}', \{filename\}\)\)/);
+  assert.match(dialog,/e\('p',t\('downloader_bridge', 'Type: \{fileType\}', \{fileType\}\)\),e\('p',t\('downloader_bridge', 'Size: \{size\}', \{size:sizeLabel\(bytes\)\}\)\)/);
+  assert.match(dialog,/We have not confirmed this file\\'s type or size/);
   assert.doesNotMatch(dialog,/File details are shown above|File details are shown below/);
 });
 
 
 test('dialog has no visible title and hides status text unless a problem exists',()=>{
   assert.doesNotMatch(dialog,/Download into my Files|dl-dialog-heading|aria-labelledby/);
-  assert.match(dialog,/dialog\.setAttribute\('aria-label','Download link'\)/);
+  assert.match(dialog,/dialog\.setAttribute\('aria-label',t\('downloader_bridge', 'Download link'\)\)/);
   assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
   assert.match(dialog,/status\.hidden=true/);
   assert.match(dialog,/const message=\(text\)=>\{status\.textContent=text;status\.hidden=!text;\}/);
   assert.doesNotMatch(dialog,/Link checked\. Review your choices|Detecting content type…|Choose items to download|Loading more items…/);
   assert.match(dialog,/spinner\.hidden=false/);
   assert.match(dialog,/message\(linkFailureMessage\(failure\)\)/);
-  assert.match(dialog,/message\('Direct \.torrent URLs cannot be inspected or submitted\.'\)/);
-  assert.match(dialog,/message\('Could not load the torrent file list\. Check the magnet link\.'\)/);
-  assert.match(dialog,/message\('Could not load more items\. Please try again\.'\)/);
+  assert.match(dialog,/message\(t\('downloader_bridge', 'Direct \.torrent URLs cannot be inspected or submitted\.'\)\)/);
+  assert.match(dialog,/message\(t\('downloader_bridge', 'Could not load the torrent file list\. Check the magnet link\.'\)\)/);
+  assert.match(dialog,/message\(t\('downloader_bridge', 'Could not load more items\. Please try again\.'\)\)/);
   assert.match(dialog,/message\(value\?linkFailureMessage\(classifyLinkFailure\(value\)\):''\)/);
 });
 
@@ -549,7 +549,7 @@ test('direct-file detection uses a signed HEAD probe and never invents file meta
   assert.match(dialog,/Number\.isSafeInteger\(metadata\?\.size\)/);
   assert.match(dialog,/typeof metadata\?\.mime==='string'/);
   assert.match(dialog,/token!==generation\|\|closed\|\|currentUrl!==inspectedUrl/);
-  assert.match(dialog,/We have not confirmed this file's type or size/);
+  assert.match(dialog,/We have not confirmed this file\\'s type or size/);
   assert.match(dialog,/\['text\/html','application\/xhtml\+xml'\]\.includes\(metadata\?\.mime\)/);
   assert.match(dialog,/kind='unsupported'/);
   assert.doesNotMatch(dialog,/fetch\(inspectedUrl/);
