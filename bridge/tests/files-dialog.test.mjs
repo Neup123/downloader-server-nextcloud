@@ -550,5 +550,7 @@ test('direct-file detection uses a signed HEAD probe and never invents file meta
   assert.match(dialog,/typeof metadata\?\.mime==='string'/);
   assert.match(dialog,/token!==generation\|\|closed\|\|currentUrl!==inspectedUrl/);
   assert.match(dialog,/We have not confirmed this file's type or size/);
+  assert.match(dialog,/\['text\/html','application\/xhtml\+xml'\]\.includes\(metadata\?\.mime\)/);
+  assert.match(dialog,/kind='unsupported'/);
   assert.doesNotMatch(dialog,/fetch\(inspectedUrl/);
 });
