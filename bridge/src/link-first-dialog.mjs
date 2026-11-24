@@ -284,7 +284,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
   let subtitleLanguagesAvailable=false;
   let cbz=null, pageChoice=null, filter=null;
-  let observation=null, currentUrl='', busy=false;
+  let observation=null, currentUrl='', busy=false, headBusy=false;
   let lastSubmissionPayload=null, lastSubmissionId=null;
   let filesConnection='checking';
   function explainFilesConnection(text){
@@ -316,7 +316,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
-  const available=()=>!busy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && !headBusy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
     if(count && kind!=='torrent')count.textContent=previewSelectionSummary(choices,selected);
@@ -833,16 +833,40 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       return;
     }
     if(kind==='direct'){
+      const token=generation, inspectedUrl=currentUrl;
+      let metadata=null;
+      headBusy=true;refreshSubmit();
+      try{
+        // This is a signed Core HEAD inspection only; the browser never
+        // contacts the source or reads downloaded content directly.
+        metadata=await api('/direct-metadata','POST',{url:inspectedUrl});
+      }catch{
+        // Unsupported HEAD, redirects or blocked targets must not be
+        // presented as verified file metadata.
+      }finally{
+        if(token===generation)headBusy=false;
+      }
+      if(token!==generation||closed||currentUrl!==inspectedUrl)return;
+      // A filename-looking URL may still point to an ordinary HTML page.
+      // Do not offer a download if HEAD actually identifies web content.
+      if(['text/html','application/xhtml+xml'].includes(metadata?.mime)){
+        kind='unsupported';
+        details.append(e('h3','Not a direct file'));
+        message('This address returns a web page, not a downloadable file.');
+        refreshSubmit();
+        return;
+      }
       let filename='Unknown filename', fileType='Unverified direct file', bytes=null;
-      try { filename=decodeURIComponent(new URL(currentUrl).pathname.split('/').pop()||'Unknown filename'); }
+      try {filename=decodeURIComponent(new URL(inspectedUrl).pathname.split('/').pop()||'Unknown filename');}
       catch { /* filename remains unknown */ }
-      if(result && typeof result.filename==='string')filename=result.filename;
-      if(result && typeof result.mime==='string')fileType=result.mime;
-      if(result && Number.isSafeInteger(result.size))bytes=result.size;
+      if(typeof metadata?.filename==='string' && metadata.filename)filename=metadata.filename;
+      if(typeof metadata?.mime==='string' && metadata.mime)fileType=metadata.mime;
+      if(Number.isSafeInteger(metadata?.size) && metadata.size>=0)bytes=metadata.size;
       details.append(e('h3','Direct file'),e('p','Name: '+filename),
         e('p','Type: '+fileType),e('p','Size: '+sizeLabel(bytes)),
         e('p','No quality or conversion controls apply.','dl-muted'));
-      message(result?'':"We have not confirmed this file's type or size. Review the filename before downloading.");
+      message(metadata && (metadata.filename||metadata.mime||bytes!==null)?'':
+        "We have not confirmed this file's type or size. Review the filename before downloading.");
       refreshSubmit();return;
     }
     const prefs=await settings;
@@ -895,6 +919,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(magnet || (()=>{try{return TORRENT.test(new URL(value).pathname)}catch{return false}})()){
       await render('torrent',null);if(token===generation&&!closed)spinner.hidden=true;return;
     }
+    if(looksLikeDirectFile(value)){
+      await render('direct',null);
+      if(token===generation&&!closed)spinner.hidden=true;
+      return;
+    }
     try{
       let result=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
       if(token!==generation||closed)return;
@@ -909,7 +938,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
   }
   function schedule(){
-    clearTimeout(timer);++generation;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
+    clearTimeout(timer);++generation;headBusy=false;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
     kind='unsupported';download.disabled=true;message('');
     timer=setTimeout(()=>{void detect(url.value);},220);
   }

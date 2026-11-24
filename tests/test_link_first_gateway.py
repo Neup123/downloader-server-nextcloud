@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from nextcloud_exapp.main import APP, core_json, user_media_preview, user_torrent_manifest
+from nextcloud_exapp.main import APP, core_json, user_media_preview, user_torrent_manifest, user_direct_metadata
 from nextcloud_exapp.user import UserContext, job_submission
 
 
@@ -130,6 +130,44 @@ class LinkFirstGatewayTests(TestCase):
                         self.assertEqual(rejected.exception.status_code, 422)
                         core.assert_not_awaited()
 
+                asyncio.run(run())
+
+    def test_signed_direct_metadata_route_proxies_only_a_valid_url(self):
+        routes = {route.path: route for route in APP.routes if hasattr(route, "dependant")}
+        endpoint = routes["/user/api/direct-metadata"]
+        self.assertTrue(any(dep.call.__name__ == "require_user" for dep in endpoint.dependant.dependencies))
+        request = Request({"type": "http", "headers": []})
+        request._json = {"url": "https://example.org/file.pdf"}
+
+        async def run():
+            with patch("nextcloud_exapp.main.core_json", new=AsyncMock(
+                return_value={"filename":"example.pdf", "mime":"application/pdf", "size":31},
+            )) as core:
+                observed = await user_direct_metadata(request, context())
+                self.assertEqual(observed["size"], 31)
+                core.assert_awaited_once_with("POST", "direct-metadata", payload={"url":"https://example.org/file.pdf"})
+        asyncio.run(run())
+
+    def test_direct_metadata_rejects_extra_data_and_non_http_before_core(self):
+        for bad in (
+            {}, {"url": 7}, {"url": "http://127.0.0.1"}, {"url": "file:///etc/passwd"},
+            {"url": "https://example.org/file.pdf", "token": "secret"},
+            {"url": "https://example.org/file.pdf", "owner_id": "bob"},
+        ):
+            # The signed route rejects non-HTTP and untrusted shapes. Core
+            # independently owns private-host and DNS validation.
+            if bad.get("url") == "http://127.0.0.1":
+                continue
+            with self.subTest(bad=bad):
+                request = Request({"type": "http", "headers": []})
+                request._json = bad
+
+                async def run():
+                    with patch("nextcloud_exapp.main.core_json", new=AsyncMock()) as core:
+                        with self.assertRaises(HTTPException) as caught:
+                            await user_direct_metadata(request, context())
+                        self.assertEqual(caught.exception.status_code, 422)
+                        core.assert_not_awaited()
                 asyncio.run(run())
 
     def test_aria2_managed_policy_overrides_are_rejected_not_silently_rewritten(self):

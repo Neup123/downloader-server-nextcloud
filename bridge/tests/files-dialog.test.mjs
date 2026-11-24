@@ -494,7 +494,7 @@ test('direct-file details remain in the box while a verified file has no status 
   assert.match(dialog,/form\.append\(line,status,connectionHelp,details,buttons\)/);
   assert.match(dialog,/details\.append\(e\('h3','Direct file'\),e\('p','Name: '\+filename\)/);
   assert.match(dialog,/e\('p','Type: '\+fileType\),e\('p','Size: '\+sizeLabel\(bytes\)\)/);
-  assert.match(dialog,/message\(result\?'':"We have not confirmed this file/);
+  assert.match(dialog,/We have not confirmed this file's type or size/);
   assert.doesNotMatch(dialog,/File details are shown above|File details are shown below/);
 });
 
@@ -540,4 +540,17 @@ test('quality picker is inline and accessible without a visible label; other inp
 test('video and audio default to the same plain Best quality label',()=>{
   assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
   assert.doesNotMatch(dialog,/Best available video|Best available audio/);
+});
+
+
+test('direct-file detection uses a signed HEAD probe and never invents file metadata',()=>{
+  assert.match(dialog,/if\(looksLikeDirectFile\(value\)\)\{/);
+  assert.match(dialog,/metadata=await api\('\/direct-metadata','POST',\{url:inspectedUrl\}\)/);
+  assert.match(dialog,/Number\.isSafeInteger\(metadata\?\.size\)/);
+  assert.match(dialog,/typeof metadata\?\.mime==='string'/);
+  assert.match(dialog,/token!==generation\|\|closed\|\|currentUrl!==inspectedUrl/);
+  assert.match(dialog,/We have not confirmed this file's type or size/);
+  assert.match(dialog,/\['text\/html','application\/xhtml\+xml'\]\.includes\(metadata\?\.mime\)/);
+  assert.match(dialog,/kind='unsupported'/);
+  assert.doesNotMatch(dialog,/fetch\(inspectedUrl/);
 });

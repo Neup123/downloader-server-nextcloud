@@ -350,6 +350,19 @@ async def user_media_preview(request: Request, context: UserContext = Depends(re
     return await core_json("POST", "preview", payload=payload, preview_reason_code=True)
 
 
+@APP.post("/user/api/direct-metadata")
+async def user_direct_metadata(request: Request, context: UserContext = Depends(require_user)):
+    """Forward only a signed direct-file URL to Core's bounded HEAD probe."""
+    body = await request.json()
+    if (not isinstance(body, dict) or set(body) != {"url"} or
+            not isinstance(body["url"], str) or not 8 <= len(body["url"]) <= 4096 or
+            not body["url"].lower().startswith(("https://", "http://"))):
+        raise HTTPException(status_code=422, detail="Invalid direct-file metadata request")
+    # Core alone owns URL/DNS policy, the pin and the no-redirect HEAD probe.
+    # No user header, cookie or URL query is reflected into error messages.
+    return await core_json("POST", "direct-metadata", payload={"url": body["url"]})
+
+
 @APP.post("/user/api/torrent-manifest")
 async def user_torrent_manifest(request: Request, context: UserContext = Depends(require_user)):
     """Forward only a magnet or validated uploaded torrent bytes to Core.
