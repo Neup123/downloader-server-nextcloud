@@ -305,15 +305,15 @@ def check_torrent_selector(page) -> None:
     root.check()
     expect(count).to_contain_text("3 of 3 files selected")
     folder = picker.locator("details.dl-torrent-folder").filter(
-        has=picker.get_by_role("checkbox", name="Select files in Album", exact=True)
+        has=page.get_by_role("checkbox", name="Select files in Album", exact=True)
     ).last
     heading = folder.locator("summary").first
     expander = heading.locator(".dl-torrent-expander")
     open_transform = expander.evaluate("(el) => getComputedStyle(el).transform")
-    heading.click(position={"x": 5, "y": 8})
+    expander.click()
     expect(folder).not_to_have_attribute("open", "")
     assert expander.evaluate("(el) => getComputedStyle(el).transform") != open_transform
-    heading.click(position={"x": 5, "y": 8})
+    expander.click()
     expect(folder).to_have_attribute("open", "")
 
     second = picker.locator(".dl-torrent-file").filter(has_text="second.mp3").locator("input")
