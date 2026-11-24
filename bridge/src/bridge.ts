@@ -8,7 +8,7 @@ import { emit } from '@nextcloud/event-bus';
 import { suggestTalkSource } from './talk-links.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import { ownDeliveredFilePaths } from './files-live.mjs';
-import { downloadTitle, downloadBubbleStatus, downloadStatusDetail, SKIPPED_DETAIL, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE } from './download-labels.mjs';
+import { downloadTitle, downloadBubbleStatus, downloadStatusDetail, SKIPPED_DETAIL, deliveredFilesQuery, downloadSymbol, DOWNLOAD_QUEUED_MESSAGE, t } from './download-labels.mjs';
 import {isTerminalJobState} from './job-states.generated.mjs';
 import {captureRowState, restoreRowState} from './row-refresh-state.mjs';
 
@@ -70,7 +70,7 @@ function notify(message: string) {
   window.setTimeout(() => toast.remove(), 5000);
 }
 function announceQueued(created: {id?: string} | null) {
-  if (!created?.id) throw new Error('The download was not confirmed. Try again from Downloads.');
+  if (!created?.id) throw new Error(t('downloader_bridge', 'The download was not confirmed. Try again from Downloads.'));
   notify(DOWNLOAD_QUEUED_MESSAGE);
   window.dispatchEvent(new CustomEvent('downloader:job-queued', {detail: {id: created.id}}));
 }
@@ -119,7 +119,7 @@ function registerActions() {
   // Nextcloud 35 officially uses @nextcloud/files v4 to register contextual actions.
   registerFileAction({
     id: 'downloader-folder-action',
-    displayName: () => 'Download into this folder',
+    displayName: () => t('downloader_bridge', 'Download into this folder'),
     iconSvgInline: () => ICON,
     enabled: context => context.nodes.length === 1
       && context.nodes[0].mime === 'httpd/unix-directory',
@@ -128,14 +128,14 @@ function registerActions() {
   });
   addNewFileMenuEntry({
     id: 'downloader-new-action',
-    displayName: 'Download into this folder',
+    displayName: t('downloader_bridge', 'Download into this folder'),
     iconSvgInline: ICON,
     order: 65,
     handler: folder => {void openDialog(cleanFolder(folder.path));},
   });
   registerFileAction({
     id: 'downloader-viewer-action',
-    displayName: () => 'Download with Downloader',
+    displayName: () => t('downloader_bridge', 'Download with Downloader'),
     iconSvgInline: () => ICON,
     enabled: context => context.nodes.length === 1
       && /^(video|audio|image)\//.test(context.nodes[0].mime),
@@ -152,7 +152,7 @@ function registerActions() {
           announceQueued(created);
           return true;
         } catch (error) {
-          notify(error instanceof Error ? error.message : 'Download failed');
+          notify(error instanceof Error ? error.message : t('downloader_bridge', 'Download failed'));
           return false;
         }
       }
@@ -178,7 +178,7 @@ function attachLegacyViewerAction() {
   const mime = info?.mimetype || info?.mime || '';
   if (!/^(video|audio|image)\//.test(mime) && !viewer.querySelector('video, audio, img')) return;
   const target = viewer.querySelector<HTMLElement>('.modal-header, .modal__header, [class*="modal-header"]') || viewer;
-  const button = node('button', 'Download with Downloader', 'dl-viewer-trigger');
+  const button = node('button', t('downloader_bridge', 'Download with Downloader'), 'dl-viewer-trigger');
   button.id = 'downloader-viewer-action';
   button.type = 'button';
   button.addEventListener('click', () => {
@@ -191,8 +191,8 @@ function attachLegacyViewerAction() {
         url: source, content_type: contentTypeFromMime(current?.mimetype||current?.mime||''),
       }).then(
         created => announceQueued(created),
-        error => notify(error instanceof Error ? error.message : 'Download failed'),
-      ).catch(error => notify(error instanceof Error ? error.message : 'Download failed'));
+        error => notify(error instanceof Error ? error.message : t('downloader_bridge', 'Download failed')),
+      ).catch(error => notify(error instanceof Error ? error.message : t('downloader_bridge', 'Download failed')));
     } else {
       void openDialog(null);
     }
@@ -232,12 +232,12 @@ function registerTalkAction(): boolean {
   }}}).OCA?.Talk;
   if (typeof talk?.registerMessageAction !== 'function') return false;
   talk.registerMessageAction({
-    label: 'Download linked URL into my Files',
+    label: t('downloader_bridge', 'Download linked URL into my Files'),
     icon: 'icon-download',
     callback: ({message}) => {
       const source = suggestTalkSource(message?.message);
       if (!source) {
-        notify('Choose a Talk message containing exactly one HTTP(S) link.');
+        notify(t('downloader_bridge', 'Choose a Talk message containing exactly one HTTP(S) link.'));
         return;
       }
       // Never auto-download; show the same user-owned destination and
@@ -279,7 +279,7 @@ function headerProgress(ownerId: string) {
   container.id = 'downloader-topbar-progress';
   const button = node('button', '', 'dl-trigger');
   button.type = 'button';
-  button.setAttribute('aria-label', 'Downloads');
+  button.setAttribute('aria-label', t('downloader_bridge', 'Downloads'));
   button.setAttribute('aria-haspopup', 'true');
   button.setAttribute('aria-expanded', 'false');
   const ns = 'http://www.w3.org/2000/svg';
@@ -306,18 +306,18 @@ function headerProgress(ownerId: string) {
   const panel = node('section', '', 'dl-popover');
   panel.hidden = true;
   panel.id = 'downloader-header-popover';
-  panel.setAttribute('aria-label', 'My downloads');
+  panel.setAttribute('aria-label', t('downloader_bridge', 'My downloads'));
   button.setAttribute('aria-controls', panel.id);
   const panelHeader = node('div', '', 'dl-popover-head');
-  const title = node('h3', 'My downloads');
+  const title = node('h3', t('downloader_bridge', 'My downloads'));
   const add = node('button', '+', 'dl-popover-add');
   add.type = 'button';
-  add.title = 'Add download';
-  add.setAttribute('aria-label', 'Add a download');
+  add.title = t('downloader_bridge', 'Add download');
+  add.setAttribute('aria-label', t('downloader_bridge', 'Add a download'));
   add.addEventListener('click', () => { panel.hidden = true; button.setAttribute('aria-expanded','false'); void openDialog(null); });
   panelHeader.append(title,add);
   const list = node('div', '', 'dl-popover-list');
-  const fullLink = node('a', 'Open history', 'dl-link dl-history-link');
+  const fullLink = node('a', t('downloader_bridge', 'Open history'), 'dl-link dl-history-link');
   fullLink.href = oc()!.generateUrl('/apps/downloader_bridge/library');
   panel.append(panelHeader,list,fullLink);
   button.addEventListener('click', () => {
@@ -414,7 +414,7 @@ function headerProgress(ownerId: string) {
     badge.hidden=!running.length;
     badge.textContent=String(running.length);
     button.setAttribute('aria-label',running.length
-      ? 'Downloads: '+running.length+' unfinished' : 'My downloads');
+      ? t('downloader_bridge', 'Downloads: {count} unfinished', {count: running.length}) : t('downloader_bridge', 'My downloads'));
     // If a user hides the indicator while the panel is open, close it too.
     if(!show){panel.hidden=true;button.setAttribute('aria-expanded','false');}
   }
@@ -458,21 +458,21 @@ function headerProgress(ownerId: string) {
     action.type='button';
     if(isTerminalJobState(job.status)){
       const operation=['completed','skipped'].includes(job.status)?'redeliver':'retry';
-      action.title=operation==='redeliver'?'Deliver again':'Retry download';
+      action.title=operation==='redeliver'?t('downloader_bridge', 'Deliver again'):t('downloader_bridge', 'Retry download');
       action.setAttribute('aria-label',action.title);
       action.addEventListener('click',()=>{
         action.disabled=true;
         void api('/jobs/'+encodeURIComponent(job.id)+'/'+operation,'POST')
           .then(()=>{window.dispatchEvent(new Event('downloader:job-queued'));})
-          .catch(error=>{notify(error instanceof Error?error.message:'Download action failed');})
+          .catch(error=>{notify(error instanceof Error?error.message:t('downloader_bridge', 'Download action failed'));})
           .finally(()=>{action.disabled=false;});
       });
     }else{
       const resume=job.status==='paused';
       const operation=resume?'resume':'pause';
       const supported=resume?job.pause_capability?.can_resume:job.pause_capability?.can_pause;
-      action.title=supported?(resume?'Resume this download':'Pause this download')
-        :(job.pause_capability?.reason || 'Pause capability is unavailable for this job');
+      action.title=supported?(resume?t('downloader_bridge', 'Resume this download'):t('downloader_bridge', 'Pause this download'))
+        :(job.pause_capability?.reason || t('downloader_bridge', 'Pause capability is unavailable for this job'));
       action.setAttribute('aria-label',action.title);
       if(!supported){
         action.disabled=true;
@@ -484,7 +484,7 @@ function headerProgress(ownerId: string) {
               window.dispatchEvent(new Event('downloader:jobs-updated'));
               void refresh();
             })
-            .catch(error=>{notify(error instanceof Error?error.message:'Unable to '+operation+' this download');})
+            .catch(error=>{notify(error instanceof Error?error.message:(operation==='resume'?t('downloader_bridge', 'Unable to resume this download'):t('downloader_bridge', 'Unable to pause this download')));})
             .finally(()=>{action.disabled=false;});
         });
       }
@@ -521,7 +521,7 @@ function headerProgress(ownerId: string) {
       const interaction=captureRowState(list,'.dl-job',null);
       list.replaceChildren(...(displayed.length
         ?displayed.slice(0,75).map(renderRow)
-        :[node('p','No active downloads.','dl-empty')]));
+        :[node('p',t('downloader_bridge', 'No active downloads.'),'dl-empty')]));
       restoreRowState(list,interaction,'.dl-job',null,button);
       for(const job of jobs){
         const old=lastStatuses.get(job.id);
@@ -533,9 +533,9 @@ function headerProgress(ownerId: string) {
           notify(job.status==='completed' || job.status==='skipped'
             ?(skipped || job.status==='skipped'
               ?SKIPPED_DETAIL
-              :'Download complete. Open it in Nextcloud Files.')
-            :job.status==='failed'?'Download failed. Open Downloads for details.'
-             :'Download cancelled.');
+              :t('downloader_bridge', 'Download complete. Open it in Nextcloud Files.'))
+            :job.status==='failed'?t('downloader_bridge', 'Download failed. Open Downloads for details.')
+             :t('downloader_bridge', 'Download cancelled.'));
           window.dispatchEvent(new Event('downloader:jobs-updated'));
         }
         lastStatuses.set(job.id,job.status);
@@ -544,7 +544,7 @@ function headerProgress(ownerId: string) {
       }
       initialized=true;
     }catch {
-      button.title='Unable to refresh downloads. Retrying automatically.';
+      button.title=t('downloader_bridge', 'Unable to refresh downloads. Retrying automatically.');
     }finally{
       refreshing=false;
     }
