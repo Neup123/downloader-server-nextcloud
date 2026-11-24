@@ -78,3 +78,18 @@ def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
     assert "if: always()" in source
     assert "nextcloud-native-browser-evidence" in source
     assert "browser-evidence/*.png" in source
+
+def test_direct_metadata_browser_journey_uses_real_signed_gateway():
+    source = TEST.read_text(encoding="utf-8")
+    journey = source[source.index("def check_real_native_job_journey(page)"):
+                     source.index("def configure_disposable_appearance(")]
+    fixture = (ROOT / "tests/exapp_mock_core.py").read_text(encoding="utf-8")
+    assert "/user/api/direct-metadata" in journey
+    assert "page.expect_response(metadata_response" in journey
+    assert "page.route(" not in journey
+    assert "Type: application/pdf" in journey
+    assert "Size: 13.0 KiB" in journey
+    assert "Not a direct file" in journey
+    assert "17-signed-direct-metadata.png" in journey
+    assert 'self.path == "/api/v1/direct-metadata"' in fixture
+    assert '"mime": "text/html"' in fixture
