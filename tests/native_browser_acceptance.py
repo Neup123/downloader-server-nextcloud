@@ -131,7 +131,56 @@ def check_settings(page) -> None:
     expect(vault.get_by_role("link", name="Get cookies.txt LOCALLY")).to_be_visible()
     vault.get_by_role("button", name="Add site cookies").click()
     expect(vault.get_by_placeholder("example.com")).to_be_focused()
+    # Exercise the full existing UI with harmless synthetic cookie data;
+    # the real signed AppAPI gateway forwards to the isolated metadata-only
+    # mock Core. No real session, browser export or external site is used.
+    site = vault.get_by_placeholder("example.com")
+    paste = vault.get_by_placeholder("# Netscape HTTP Cookie File")
+    save = vault.get_by_role("button", name="Save site cookies")
+    for domain in ("alpha.example", "beta.example"):
+        vault.get_by_role("button", name="Add site cookies").click()
+        site.fill(domain)
+        paste.fill("# Netscape HTTP Cookie File\n" + domain +
+                   "\tFALSE\t/\tFALSE\t0\tfixture\tSYNTHETIC_ONLY")
+        with page.expect_response(
+            lambda response: "/user/api/cookies/" in response.url
+            and response.request.method == "PUT", timeout=30_000
+        ) as saved_cookie:
+            save.click()
+        assert saved_cookie.value.status == 200
+        expect(vault.get_by_role("option", name="Select site cookies for " + domain)).to_be_visible()
+        expect(paste).to_have_value("")
+    rows = vault.get_by_role("option")
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_contain_text("alpha.example")
+    expect(rows.nth(1)).to_contain_text("beta.example")
+    expect(rows.nth(0)).to_contain_text("Saved · validity not tested")
+    expect(rows.nth(1)).to_contain_text("Saved · validity not tested")
+    rows.nth(1).click()
+    expect(site).to_have_value("beta.example")
+    expect(paste).to_have_value("")
+    vault.get_by_role("button", name="Move selected site cookies up").click()
+    expect(rows.nth(0)).to_contain_text("beta.example")
+    vault.get_by_role("button", name="Move selected site cookies down").click()
+    expect(rows.nth(0)).to_contain_text("alpha.example")
     capture(page, "10-cookie-vault-settings.png")
+    with page.expect_response(
+        lambda response: "/user/api/cookies/" in response.url
+        and response.request.method == "DELETE", timeout=30_000
+    ) as removed_cookie:
+        vault.get_by_role("button", name="Remove selected site cookies").click()
+    assert removed_cookie.value.status == 200
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_contain_text("alpha.example")
+    with page.expect_response(
+        lambda response: "/user/api/cookies/" in response.url
+        and response.request.method == "DELETE", timeout=30_000
+    ) as reset_cookie:
+        vault.get_by_role("button", name="Reset cookies to default").click()
+    assert reset_cookie.value.status == 200
+    expect(rows).to_have_count(0)
+    expect(vault.get_by_text("Not set — no site cookies saved.", exact=True)).to_be_visible()
+    print("Real Chromium: signed cookie vault add/select/reorder/remove/reset PASS", flush=True)
     # A real signed autosave must survive a fresh page load. Source-pattern
     # assertions and a mock fetch promise do not establish persistence.
     failure_notice = root.get_by_label("Notify me if a download fails")
