@@ -5,6 +5,8 @@ ExApp forwards a request with its server-side key, not user credentials.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +19,9 @@ from urllib.parse import parse_qs, quote, urlsplit
 # actual byte-for-byte Nextcloud WebDAV upload.
 _STATE_LOCK = Lock()
 _TEST_JOB: dict | None = None
+_COOKIE_RECORDS: dict[str, dict] = {}
+_COOKIE_PREFIX = 'nc-' + hashlib.sha256(b'alice').hexdigest()[:24] + '-'
+_COOKIE_NAMES = {_COOKIE_PREFIX + site + '.txt' for site in ('alpha.example', 'beta.example')}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -47,6 +52,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(200, selected)
             else:
                 self.respond(404, {"detail": "No fixture job"})
+        elif self.path == "/api/v1/cookies":
+            with _STATE_LOCK:
+                rows = [dict(record) for record in _COOKIE_RECORDS.values()]
+            self.respond(200, rows)
         elif self.path == "/api/v1/engines":
             self.respond(200, [{"name": "generic", "installed": True}])
         else:
@@ -143,6 +152,50 @@ class Handler(BaseHTTPRequestHandler):
         with _STATE_LOCK:
             _TEST_JOB = created
         self.respond(202, created)
+
+    def _cookie_fixture_name(self) -> str | None:
+        if self.headers.get("X-API-Key") != os.environ["MOCK_CORE_TOKEN"]:
+            self.respond(401, {"detail": "Not authenticated"})
+            return None
+        if any(self.headers.get(header) for header in (
+            "Authorization", "Cookie", "AUTHORIZATION-APP-API",
+        )):
+            self.respond(400, {"detail": "Browser credentials reached core"})
+            return None
+        prefix = "/api/v1/cookies/"
+        if not self.path.startswith(prefix) or self.path[len(prefix):] not in _COOKIE_NAMES:
+            self.respond(404, {"detail": "Unknown cookie fixture"})
+            return None
+        return self.path[len(prefix):]
+
+    def do_PUT(self) -> None:
+        name = self._cookie_fixture_name()
+        if name is None:
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 4096:
+                raise ValueError("Invalid fixture length")
+            payload = json.loads(self.rfile.read(size))
+            raw = base64.b64decode(payload["content_base64"], validate=True)
+            if not raw.startswith(b"# Netscape HTTP Cookie File") or len(raw) > 2048:
+                raise ValueError("Invalid synthetic cookie fixture")
+        except (ValueError, TypeError, KeyError):
+            self.respond(422, {"detail": "Invalid synthetic cookie fixture"})
+            return
+        record = {"filename": name, "size_bytes": len(raw)}
+        # Retain metadata only, never the supplied value.
+        with _STATE_LOCK:
+            _COOKIE_RECORDS[name] = record
+        self.respond(200, record)
+
+    def do_DELETE(self) -> None:
+        name = self._cookie_fixture_name()
+        if name is None:
+            return
+        with _STATE_LOCK:
+            _COOKIE_RECORDS.pop(name, None)
+        self.respond(200, {"deleted": True})
 
     def respond(self, status: int, data: object) -> None:
         payload = json.dumps(data).encode()
