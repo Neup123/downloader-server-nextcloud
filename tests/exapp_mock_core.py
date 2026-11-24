@@ -96,6 +96,23 @@ class Handler(BaseHTTPRequestHandler):
                 }
             self.respond(200, {"fixture_completed": True})
             return
+        if self.path == "/api/v1/direct-metadata":
+            # Signed gateway fixture only. Never perform external HTTP here.
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 8192:
+                    raise ValueError("Invalid length")
+                data = json.loads(self.rfile.read(size))
+            except (ValueError, TypeError):
+                self.respond(422, {"detail": "Invalid metadata fixture request"})
+                return
+            if data == {"url": "https://example.test/dummy.pdf"}:
+                self.respond(200, {"filename": "dummy.pdf", "mime": "application/pdf", "size": 13264})
+            elif data == {"url": "https://example.test/not-a-file.pdf"}:
+                self.respond(200, {"filename": None, "mime": "text/html", "size": 123})
+            else:
+                self.respond(422, {"detail": "Unsupported metadata fixture"})
+            return
         if self.path != "/api/v1/jobs":
             self.respond(404, {"detail": "Unknown endpoint"})
             return
