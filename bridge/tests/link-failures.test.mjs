@@ -158,14 +158,15 @@ test('an ambiguous successful preview cannot be relabeled as unsupported or not-
   assert.equal(details.children.length,0);
 });
 
-test('a failed file-shaped link keeps only the direct-file action under the one explanation', async () => {
-  const {status,details}=await detectedDialog('https://example.org/archive.zip',
+test('failed HEAD still shows direct-file form with explicitly unverified metadata', async () => {
+  const {status,details,buttons}=await detectedDialog('https://example.org/archive.zip',
     () => Promise.reject(Object.assign(new Error('RAW_404_SOURCE'),{httpStatus:404})));
-  assert.equal(status.textContent,'Could not check this link. Try again.');
+  assert.equal(status.textContent,"We have not confirmed this file's type or size. Review the filename before downloading.");
   assert.equal(details.hidden,false);
-  assert.equal(details.children.length,1);
-  assert.equal(details.children[0].tagName,'button');
-  assert.equal(details.children[0].textContent,'Try as a direct file');
+  assert.equal(details.children[0].textContent,'Direct file');
+  assert.equal(details.children[1].textContent,'Name: archive.zip');
+  assert.equal(details.children[2].textContent,'Type: Unverified direct file');
+  assert.equal(buttons.hidden,false);
   assert.doesNotMatch(status.textContent,/RAW_404_SOURCE/);
 });
 
