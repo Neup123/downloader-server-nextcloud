@@ -79,6 +79,18 @@ def test_browser_gate_runs_before_disabling_exapp_and_artifacts_are_retained():
     assert "nextcloud-native-browser-evidence" in source
     assert "browser-evidence/*.png" in source
 
+
+def test_cookie_vault_browser_exercises_toolbar_and_signed_writes():
+    source = TEST.read_text(encoding="utf-8")
+    section = source[source.index("def check_settings(page)"):source.index("def check_header_and_dialog(page)")]
+    for value in ("alpha.example", "beta.example", "Move selected site cookies up",
+                  "Move selected site cookies down", "Remove selected site cookies",
+                  "Reset cookies to default", 'response.request.method == "PUT"',
+                  'response.request.method == "DELETE"', "SYNTHETIC_ONLY"):
+        assert value in section
+    assert "page.route(" not in section
+    assert 'expect(paste).to_have_value("")' in section
+
 def test_direct_metadata_browser_journey_uses_real_signed_gateway():
     source = TEST.read_text(encoding="utf-8")
     journey = source[source.index("def check_real_native_job_journey(page)"):
