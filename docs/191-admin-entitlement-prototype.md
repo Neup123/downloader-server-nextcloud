@@ -39,8 +39,9 @@ regular control.
   demonstration-only save receipt are represented in one HTML file.
 
 All names, IDs and group sizes are synthetic. The demo intentionally uses
-no authentication, Nextcloud SDK, ExApp API, HTTP requests or persistent
-browser storage. Save changes only to in-memory test data. A browser reload
+no authentication, Nextcloud SDK, ExApp API calls or persistent
+browser storage. The external Tailwind CDN script may be fetched when the
+prototype opens; no actual user records or credentials are embedded in the demo. Save changes only to in-memory test data. A browser reload
 restores the baseline. An actual query error, user deletion, directory
 pagination, delegated administrators, ACL conflicts and real native i18n
 are **not** simulated and must be designed and tested during implementation.
