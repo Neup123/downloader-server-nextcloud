@@ -284,7 +284,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   let quality=null, audioOnly=null, subtitles=null, subtitleLanguage=null, container=null;
   let subtitleLanguagesAvailable=false;
   let cbz=null, pageChoice=null, filter=null;
-  let observation=null, currentUrl='', busy=false;
+  let observation=null, currentUrl='', busy=false, headBusy=false;
   let lastSubmissionPayload=null, lastSubmissionId=null;
   let filesConnection='checking';
   function explainFilesConnection(text){
@@ -316,7 +316,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
-  const available=()=>!busy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
+  const available=()=>!busy && !headBusy && filesConnection='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
     if(count && kind!=='torrent')count.textContent=previewSelectionSummary(choices,selected);
@@ -835,7 +835,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(kind==='direct'){
       const token=generation, inspectedUrl=currentUrl;
       let metadata=null;
-      busy=true;refreshSubmit();
+      headBusy=true;refreshSubmit();
       try{
         // This is a signed Core HEAD inspection only; the browser never
         // contacts the source or reads downloaded content directly.
@@ -844,7 +844,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         // Unsupported HEAD, redirects or blocked targets must not be
         // presented as verified file metadata.
       }finally{
-        if(token===generation)busy=false;
+        if(token===generation)headBusy=false;
       }
       if(token!==generation||closed||currentUrl!==inspectedUrl)return;
       // A filename-looking URL may still point to an ordinary HTML page.
@@ -938,7 +938,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
   }
   function schedule(){
-    clearTimeout(timer);++generation;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
+    clearTimeout(timer);++generation;headBusy=false;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
     kind='unsupported';download.disabled=true;message('');
     timer=setTimeout(()=>{void detect(url.value);},220);
   }
