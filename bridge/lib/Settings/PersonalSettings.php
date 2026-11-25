@@ -29,6 +29,7 @@ final class PersonalSettings implements ISettings {
             fn (string $user, string $group): bool => $this->groupManager->isInGroup($user, $group),
         );
         if ($entitled) {
+            Util::addTranslations(Application::APP_ID);
             Util::addScript(Application::APP_ID, 'settings');
         }
         return new TemplateResponse(Application::APP_ID, 'personal', ['entitled' => $entitled], '');

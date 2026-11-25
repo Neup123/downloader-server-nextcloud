@@ -61,9 +61,9 @@ test('default Files folder is the first row of one compact routing group',()=>{
   assert.match(routing,/routes\.append\(list\)/);
   assert.ok(routing.indexOf("routeRow('downloader-route-default'")
     <routing.indexOf('for(const [kind,subfolder] of Object.entries(routeSubfolders))'));
-  assert.match(routing,/routeRow\('downloader-route-default','Default Files folder',folder/);
+  assert.match(routing,/routeRow\('downloader-route-default',t\('downloader_bridge', 'Default Files folder'\),folder/);
   assert.match(routing,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.subfolder\]\)/);
-  assert.match(routing,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.label\]\)/);
+  assert.match(routing,/const routeLabels:Record<string,string>/);
   assert.match(js,/downloader-settings-card\.downloader-routing-card\{grid-column:1\/-1;justify-self:start;width:max-content/);
   assert.match(js,/downloader-routing-list\{display:grid;grid-template-columns:max-content max-content max-content/);
 });
@@ -72,7 +72,7 @@ test('every folder row uses adjacent icon buttons with full accessible tooltips'
   const routing=js.slice(js.indexOf("const routes=card("),js.indexOf("const collisions=card("));
   assert.match(js,/const FOLDER_SEARCH_ICON='<svg /);
   assert.match(js,/const RESET_ICON='<svg /);
-  assert.match(js,/button\.title=name;button\.setAttribute\('aria-label',name\)/);
+  assert.match(js,/button\.title=tooltip;button\.setAttribute\('aria-label',tooltip\)/);
   assert.match(routing,/const browse=folderAction\('Choose folder'\)/);
   assert.match(routing,/const clear=folderAction\('Use default'\)/);
   assert.match(routing,/actions\.append\(browse,clear\);group\.append\(title,field,actions\)/);
@@ -116,10 +116,10 @@ test('site cookie vault is mounted in Advanced settings with owner-scoped API an
   assert.match(vault,/upload\.value=''/);
   assert.match(vault,/role','listbox'/);
   assert.match(vault,/aria-selected/);
-  assert.match(vault,/iconButton\('Add site cookies','\+'/);
-  assert.match(vault,/iconButton\('Remove selected site cookies','−'/);
-  assert.match(vault,/iconButton\('Move selected site cookies up','▲'/);
-  assert.match(vault,/iconButton\('Move selected site cookies down','▼'/);
+  assert.match(vault,/iconButton\(t\('downloader_bridge', 'Add site cookies'\),'\+'/);
+  assert.match(vault,/iconButton\(t\('downloader_bridge', 'Remove selected site cookies'\),'−'/);
+  assert.match(vault,/iconButton\(t\('downloader_bridge', 'Move selected site cookies up'\),'▲'/);
+  assert.match(vault,/iconButton\(t\('downloader_bridge', 'Move selected site cookies down'\),'▼'/);
   assert.match(vault,/Reset cookies to default/);
   assert.match(vault,/submit\.type='submit'/);
   assert.doesNotMatch(vault,/innerHTML|console\.|localStorage|sessionStorage/);

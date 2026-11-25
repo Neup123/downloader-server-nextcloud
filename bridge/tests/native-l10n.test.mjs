@@ -142,3 +142,25 @@ test('Media and non-torrent picker controls use native translations',()=>{
     assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
   }
 });
+
+
+test('Native personal settings use translated static labels and placeholders without changing route IDs',()=>{
+  const settings=readFileSync(new URL('../src/settings.ts',import.meta.url),'utf8');
+  const keys=[...settings.matchAll(/t\('downloader_bridge', '([^']+)'/g)].map(match=>match[1]);
+  assert.ok(keys.length>=65);
+  for(const key of keys)assert.equal(typeof catalog.translations[key],'string','Missing native settings translation: '+key);
+  for(const key of ['Downloader settings','Choose folder','Use default','Current folder: /{path}','Default Files folder','Video folder','Default download quality','Connect my Files','Save Files connection','Notifications','Advanced — technical engine settings'])assert.ok(keys.includes(key),key);
+  assert.match(settings,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.subfolder\]\)/);
+  assert.match(settings,/setDefaultFolder\('Downloads'\)/);
+});
+
+
+test('Cookie vault translated labels keep dynamic site names as replacements, never raw secrets',()=>{
+  const vault=readFileSync(new URL('../src/cookie-vault.ts',import.meta.url),'utf8');
+  const keys=[...vault.matchAll(/t\('downloader_bridge', '([^']+)'/g)].map(match=>match[1]);
+  assert.ok(keys.length>=25);
+  for(const key of keys)assert.equal(typeof catalog.translations[key],'string','Missing native vault translation: '+key);
+  for(const key of ['Site cookies','Saved site cookies','Select site cookies for {site}','Cookies removed for {site}','Cookies stored for {site}.','Saved · validity not tested'])assert.ok(keys.includes(key),key);
+  const form=readFileSync(new URL('../lib/Settings/PersonalSettings.php',import.meta.url),'utf8');
+  assert.ok(form.indexOf('Util::addTranslations')<form.indexOf('Util::addScript'));
+});

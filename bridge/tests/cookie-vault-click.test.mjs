@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
+import {t} from '../src/download-labels.mjs';
 
 class EventStub{
   constructor(type){this.type=type;this.defaultPrevented=false;}
@@ -60,6 +61,7 @@ function descendants(root){return [root,...root.childNodes.flatMap(descendants)]
 function renderWithDom(document){
   const source=readFileSync(new URL('../src/cookie-vault.ts',import.meta.url),'utf8');
   const replacements=[
+    ["import {t} from './download-labels.mjs';",''],
     [/^type Api = .*;\r?\n/m,''],
     [/^type CookieRecord=.*;\r?\n/m,''],
     ["function node<K extends keyof HTMLElementTagNameMap>(tag:K,copy=''):HTMLElementTagNameMap[K]","function node(tag,copy='')"],
@@ -84,7 +86,7 @@ function renderWithDom(document){
     javascript=javascript.replace(from,to);
   }
   return runInNewContext(`${javascript}\nrenderCookieVault`,{
-    document,TextEncoder,TextDecoder,Uint8Array,btoa,
+    document,TextEncoder,TextDecoder,Uint8Array,btoa,t,
   });
 }
 function mount(initial=[]){
