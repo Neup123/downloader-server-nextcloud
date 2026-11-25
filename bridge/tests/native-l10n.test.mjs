@@ -121,3 +121,14 @@ test('Link dialog entry, failure and direct metadata labels use the native catal
   }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
   assert.equal(linkFailureMessage('malformed'),'Paste a valid HTTP(S) link or magnet URI.');
 });
+
+
+test('Torrent picker labels, tooltips and dynamic summaries use the native catalog',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  const picker=dialog.slice(dialog.indexOf('  function torrentPicker()'),dialog.indexOf('  async function render('));
+  for(const key of ["View","File view","Tree view","Flat list","Order by","Name","Size","Ascending (A–Z)","Descending (Z–A)","ascending","descending","Order by: {field}, {direction}","Torrent file filters","File type","No extension","File size (MiB)","Min","Max","Minimum","Maximum","File name","Filter by file name","Path name","Path segment","Filter by partial path segment","{selected} of {total} files selected · {size} total","Select files in {name}","All files","No files match the current filter.","No selectable files were reported for this torrent."]){
+    assert.ok(picker.includes("t('downloader_bridge', '"+key+"'"),'Missing translated torrent label: '+key);
+    assert.equal(typeof catalog.translations[key],'string');
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
+  }
+});
