@@ -100,9 +100,13 @@ class CoreSyncEvidenceTests(unittest.TestCase):
     def test_workflow_emits_artifact_only_after_merge_and_before_appapi_dispatch(self):
         content = (ROOT / ".github/workflows/bootstrap-upstream.yml").read_text()
         self.assertIn("scripts/record_core_sync.py", content)
-        self.assertIn("core-sync-evidence.json", content)
+        self.assertIn("core-sync-candidate.json", content)
+        self.assertIn("current-main-revalidation.json", content)
+        self.assertIn("tested-candidate-not-accepted-main", content)
+        self.assertIn("--revalidate-existing-main", content)
+        self.assertNotIn("git push origin HEAD:main", content)
         self.assertIn("actions/upload-artifact@v4", content)
-        self.assertLess(content.index("git push origin HEAD:main"), content.index("scripts/record_core_sync.py"))
+        self.assertLess(content.index('git push origin "HEAD:refs/heads/$branch"'), content.index("scripts/record_core_sync.py"))
         self.assertLess(
             content.index("scripts/record_core_sync.py"),
             content.index('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main'),

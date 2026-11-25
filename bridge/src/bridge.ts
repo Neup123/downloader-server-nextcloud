@@ -890,7 +890,9 @@ function styles() {
     'flex:0 0 16px;accent-color:var(--color-primary,#377bd1);vertical-align:middle}',
     '.dl-torrent-selection .dl-picker-count{font-size:12px}',
     '.dl-torrent-all-files>summary{font-weight:650}',
-    '.dl-torrent-folder-size{margin-inline-start:auto;padding-inline-start:10px;',
+    // Keep selected folder totals adjacent to their names, like file rows.
+    // The summary itself can remain full-width for easy click/touch targets.
+    '.dl-torrent-folder-size{flex:0 0 auto;',
     'font-size:11px;font-weight:400;white-space:nowrap;font-variant-numeric:tabular-nums}',
 
     // Repeat the same 28px step at every folder level; wrap long names, never pan sideways.

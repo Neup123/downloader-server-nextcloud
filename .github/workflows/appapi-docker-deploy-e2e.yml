@@ -22,26 +22,9 @@ on:
       - "app/delivery.py"
       - "tests/test_delivery_paths.py"
       - "tests/test_nextcloud_delivery_flat.py"
+  # Required checks must not remain pending on path-filtered PRs.
   pull_request:
-    paths:
-      - ".github/workflows/appapi-docker-deploy-e2e.yml"
-      - "tests/test_appapi_deploy_workflow.py"
-      - "nextcloud_exapp/**"
-      - "appinfo/info.xml"
-      - "scripts/exapp_release_manifest.py"
-      - "scripts/exapp_build_inputs.py"
-      - "tests/test_exapp_build_inputs.py"
-      - "tests/test_exapp_release_manifest.py"
-      - "tests/test_exapp_publication_workflow.py"
-      - ".github/workflows/publish-exapp-commit-image.yml"
-      - "tests/exapp_mock_core.py"
-      - "tests/native_browser_acceptance.py"
-      - "tests/test_native_browser_workflow.py"
-      - "web/**"
-      - "bridge/**"
-      - "app/delivery.py"
-      - "tests/test_delivery_paths.py"
-      - "tests/test_nextcloud_delivery_flat.py"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -322,6 +305,39 @@ jobs:
           with urlopen(signed_request("alice", "/user/api/me"), timeout=30) as response:
               identity = json.load(response)
           assert identity == {"user_id": "alice", "entitled": True}
+
+          # Real AppAPI user entitlement and Core server-only credential path.
+          # The fixture checks exact selector and window and rejects browser
+          # credentials. No real site is contacted and no job is submitted.
+          gallery = {"url": "https://example.test/album", "engine": "gallery-dl",
+                     "max_entries": 2, "offset": 100}
+          path = "/user/api/media-preview"
+          with urlopen(signed_request("alice", path, method="POST", payload=gallery),
+                       timeout=30) as response:
+              preview = json.load(response)
+          assert preview["extractor"] == "gallery-dl" and preview["kind"] == "playlist"
+          assert [item["index"] for item in preview["entries"]] == [101, 102]
+          assert preview["has_more"] is True and preview["next_offset"] == 102
+          for user, payload, expected in (
+              ("bob", gallery, 403),
+              ("alice", {**gallery, "engine": "generic"}, 422),
+              ("alice", {**gallery, "owner_id": "bob"}, 422),
+              ("alice", {**gallery, "cookies_file": "forbidden"}, 422),
+              ("alice", {**gallery, "offset": True}, 422),
+              ("alice", {"url": "https://example.test/old-core", "max_entries": 2,
+                         "engine": "gallery-dl"}, 502),
+          ):
+              try:
+                  urlopen(signed_request(user, path, method="POST", payload=payload), timeout=30)
+              except HTTPError as exc:
+                  assert exc.code == expected, (user, exc.code, expected)
+              else:
+                  raise AssertionError("Invalid gallery preview request was accepted")
+          with urlopen(signed_request("alice", path, method="POST",
+                       payload={"url": "https://example.test/video", "max_entries": 2}),
+                       timeout=30) as response:
+              assert json.load(response)["kind"] == "video"
+          print("Real AppAPI signed gallery preview: window, entitlement, compatibility PASS")
 
           with urlopen(signed_request("alice", "/user/api/settings"), timeout=30) as response:
               settings = json.load(response)

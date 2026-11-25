@@ -11,6 +11,9 @@ on:
   push:
     branches: [main]
     paths: [".github/workflows/bootstrap-upstream.yml"]
+  pull_request:
+    branches: [main]
+    types: [closed]
   workflow_dispatch:
     inputs:
       expected_core_sha:
@@ -28,6 +31,7 @@ on:
 permissions:
   contents: write
   actions: write
+  pull-requests: write
 
 concurrency:
   group: core-upstream-sync
@@ -35,11 +39,15 @@ concurrency:
 
 jobs:
   sync-core:
+    # No privileged execution for forks or unrelated PRs. After a sync PR is
+    # merged, revalidate actual main, never the PR's untrusted checkout.
+    if: github.repository == 'Neup123/downloader-server-nextcloud' && (github.event_name != 'pull_request' && github.ref == 'refs/heads/main' || github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'automatic/core-sync-'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
@@ -53,6 +61,7 @@ jobs:
         env:
           EXPECTED_CORE_SHA: ${{ inputs.expected_core_sha }}
           REVALIDATE_CURRENT_MAIN: ${{ inputs.revalidate_current_main }}
+          ACCEPTED_PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -60,6 +69,12 @@ jobs:
           git remote add upstream https://github.com/Neup123/Media-Downloader-server.git
           git fetch --no-tags upstream main
           core_sha="$(git rev-parse upstream/main)"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            # Squash/rebase can discard the source ancestry. Require the
+            # reviewed topic itself to be an ancestor of actual main.
+            [[ "$ACCEPTED_PR_HEAD" =~ ^[0-9a-f]{40}$ ]]
+            git merge-base --is-ancestor "$ACCEPTED_PR_HEAD" HEAD
+          fi
           # Never interpolate manual input directly into bash source.
           if [[ -n "$EXPECTED_CORE_SHA" ]]; then
             if [[ ! "$EXPECTED_CORE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -76,7 +91,7 @@ jobs:
             echo "Core main is already incorporated."
             # Recheck a known-good existing main only on a workflow-file push
             # or explicit manual revalidation. The daily schedule stays cheap.
-            if [[ "$GITHUB_EVENT_NAME" == "push" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "push" || "$GITHUB_EVENT_NAME" == "pull_request" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]; then
               echo "reverify=true" >> "$GITHUB_OUTPUT"
               echo "Revalidating existing main before trusted AppAPI dispatch."
             else
@@ -175,37 +190,64 @@ jobs:
         if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
         run: docker build --tag downloader-server:nextcloud-upstream-acceptance .
 
-      - name: Commit tested merge to downstream main
+      - name: Open tested upstream candidate PR without pushing main
         if: steps.merge.outputs.changed == 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Core tests inspect core workflow versions temporarily staged by
-          # the resolver; preserve downstream README and *all* its workflows
-          # only after tests and Docker build have passed.
           git restore --source=HEAD --staged --worktree README.md .github/workflows
           if git diff --cached --name-only | grep -q '^.github/workflows/'; then
             echo "Core workflow changes unexpectedly staged" >&2
             exit 1
           fi
+          core_sha="$(git rev-parse upstream/main)"
+          previous_main="$(git rev-parse HEAD)"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$previous_main"
           git commit -m "Merge accepted core main into Nextcloud integration"
-          git push origin HEAD:main
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^2)" = "$core_sha"
+          branch="automatic/core-sync-${core_sha:0:12}-${previous_main:0:12}"
+          remote_candidate="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+          if [[ -n "$remote_candidate" ]]; then
+            git fetch --no-tags origin "refs/heads/$branch"
+            test "$(git rev-parse FETCH_HEAD)" = "$remote_candidate"
+            test "$(git rev-parse FETCH_HEAD^1)" = "$previous_main"
+            test "$(git rev-parse FETCH_HEAD^2)" = "$core_sha"
+            git diff --exit-code HEAD FETCH_HEAD --
+            candidate="$remote_candidate"
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$candidate"
+          number="$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "$number" ]]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "Sync verified Core ${core_sha:0:12}" \
+              --body "Candidate $candidate preserves Core $core_sha as its second parent. Local upstream/downstream tests and Docker build passed in $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Approve PR workflows if GitHub requests it; merge only after all required PR checks succeed. Use a merge commit, not squash or rebase. Main is not yet accepted."
+            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          fi
+          [[ "$number" =~ ^[0-9]+$ ]]
+          test "$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$candidate"
+          python3 - "$core_sha" "$candidate" "$previous_main" "$number" <<'PY'
+          import json, sys
+          from pathlib import Path
+          core, candidate, base, number = sys.argv[1:]
+          Path("core-sync-candidate.json").write_text(json.dumps({
+              "record_type": "tested-candidate-not-accepted-main",
+              "source_commit": core, "candidate_commit": candidate,
+              "downstream_base": base, "pull_request": int(number),
+              "accepted_main": False, "production_nextcloud_target_verified": False,
+          }, sort_keys=True, indent=2) + "\n")
+          PY
 
-      - name: Validate and archive the exact verified core-to-main merge provenance
-        if: steps.merge.outputs.changed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # This runs AFTER the full core/downstream test suites, Docker build
-          # and successful merge push; an unpushed or drifted main fails closed.
-          python3 scripts/record_core_sync.py --output core-sync-evidence.json
-
-      - name: Upload accepted core-sync provenance evidence
+      - name: Upload tested candidate evidence (not main acceptance)
         if: steps.merge.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: verified-core-sync-${{ github.run_id }}
-          path: core-sync-evidence.json
+          name: core-sync-candidate-${{ github.run_id }}
+          path: core-sync-candidate.json
           if-no-files-found: error
           retention-days: 60
 
@@ -215,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           # This runs ONLY after exact core/downstream tests and Docker passed.
-          # Current HEAD can be a regular squash commit, not a core merge.
+          # Current HEAD may contain the reviewed sync merge as an ancestor.
           python3 scripts/record_core_sync.py \
             --revalidate-existing-main \
             --output current-main-revalidation.json
@@ -230,7 +272,7 @@ jobs:
           retention-days: 60
 
       - name: Dispatch full AppAPI acceptance for the accepted main
-        if: steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'
+        if: steps.merge.outputs.reverify == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
