@@ -310,6 +310,26 @@ def check_subtitle_layout(page) -> None:
     page.unroute("**/user/api/media-preview", preview)
 
 
+def assert_compact_torrent_folder_totals(picker) -> None:
+    # Check real layout, not a CSS source substring. Works in either direction.
+    for row in picker.locator("details.dl-torrent-folder > summary").all():
+        name = row.locator(".dl-torrent-folder-name")
+        total = row.locator(".dl-torrent-folder-size")
+        if not name.is_visible() or not total.is_visible():
+            continue
+        a, b = name.bounding_box(), total.bounding_box()
+        assert a and b, "Folder name/total missing layout"
+        if a["x"] <= b["x"]:
+            gap = b["x"] - (a["x"] + a["width"])
+        else:
+            gap = a["x"] - (b["x"] + b["width"])
+        assert -1 <= gap <= 14, ("Folder total separated from its name", gap)
+        box = row.bounding_box()
+        assert box and b["x"] >= box["x"] - 1 and (
+            b["x"] + b["width"] <= box["x"] + box["width"] + 1
+        ), "Folder total overflows its summary"
+
+
 def check_torrent_selector(page) -> None:
     """#170: real magnet file-selection layout and controls, fixture manifest."""
     import json
@@ -409,6 +429,7 @@ def check_torrent_selector(page) -> None:
     minimum.fill("")
     picker.get_by_role("checkbox", name="jpg", exact=True).check()
     expect(picker.locator(".dl-torrent-file")).to_have_count(3)
+    assert_compact_torrent_folder_totals(picker)
     capture(page, "19-torrent-tree-desktop.png")
 
     flat = picker.get_by_role("button", name="Flat list")
@@ -435,6 +456,7 @@ def check_torrent_selector(page) -> None:
     submit = dialog.get_by_role("button", name="Download", exact=True)
     expect(submit).to_be_visible()
     in_viewport(page, "dialog.dl-link-dialog button.dl-primary")
+    assert_compact_torrent_folder_totals(picker)
     capture(page, "12-torrent-selector-mobile.png")
     fail_manifest = True
     source.fill("magnet:?xt=urn:btih:1123456789012345678901234567890123456789")
