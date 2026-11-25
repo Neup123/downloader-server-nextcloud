@@ -297,5 +297,6 @@ OC.L10N.register("downloader_bridge", {
   "Cookies stored for {site}.": "העוגיות עבור {site} נשמרו.",
   "Downloader is not enabled for this account.": "Downloader אינו מופעל עבור חשבון זה.",
   "Downloader personal settings": "הגדרות אישיות של Downloader",
-  "Loading your own download preferences…": "טוען את העדפות ההורדה שלך…"
+  "Loading your own download preferences…": "טוען את העדפות ההורדה שלך…",
+  "Select up to {limit} distinct files.": "בחרו עד {limit} קבצים שונים."
 }, "nplurals=2; plural=(n != 1);");

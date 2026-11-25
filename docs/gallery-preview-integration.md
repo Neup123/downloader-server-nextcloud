@@ -35,3 +35,17 @@ clients must not enable this path unless preview provides matching
 selection_id values. Nested chapters and immutable file bytes are not
 claimed. Unit tests exercise signed request construction and cookie bypass;
 real gallery UI and delivery are independent acceptance gates.
+
+## Native link-first dialog
+
+An unsupported or unconfirmed-direct yt-dlp preview may try explicit
+public gallery-dl metadata. Successful video/audio/list handling is unchanged.
+Only a matching gallery response with usable selection_id fields enables the
+existing image-gallery grid. Subsequent pages keep the same extractor and
+bounded offset; duplicate URL identities are not listed twice. Gallery
+selection sends the actual IDs with no media-quality controls, cookie or
+playlist override. At most 200 distinct files per submission. Older Core
+without selection IDs does not enable this path. The gallery remains source
+ordered, and identity is not byte immutability. Tests cover fallback guard,
+paging deduplication, missing selections, and exact payload. Real remote
+provider and nested chapter/CBZ acceptance are still open.

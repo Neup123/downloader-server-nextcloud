@@ -1,9 +1,10 @@
-import {filesJobRequest} from './files-dialog-payload.mjs';
+import {filesJobRequest, validGalleryIdentity, galleryIdentityList, MAX_GALLERY_SELECTION} from './files-dialog-payload.mjs';
 import {DOWNLOAD_QUEUED_MESSAGE, t} from './download-labels.mjs';
 
 const PAGE = 24;
 const MAX = 100;
 const MAX_OFFSET = 100000;
+const MAX_GALLERY_OFFSET = 1000;
 const DIRECT = /\.(?:zip|7z|rar|pdf|epub|cbz|iso|exe|dmg|apk|tar|gz|csv|json|dat|bin|txt|mp3|flac|wav|m4a|mp4|mkv|webm|png|jpe?g|gif|webp)$/i;
 const TORRENT = /\.torrent$/i;
 const CHANNEL = /\/(?:channels?|series|shows|seasons|users?|@[^/]+\/(?:videos|streams))(?:\/|$)/i;
@@ -26,6 +27,7 @@ export function classifyPreview(url, preview) {
   if (!preview || typeof preview !== 'object') return 'unsupported';
   if (preview.kind === 'direct') return 'direct';
   if (preview.kind === 'playlist' && Array.isArray(preview.entries)) {
+    if(preview.extractor==='gallery-dl')return galleryPreviewIsSelectable(preview)?'gallery':'unsupported';
     const path = new URL(input).pathname;
     if (MANGA.test(path)) return 'manga';
     if (GALLERY.test(path)) return 'gallery';
@@ -90,6 +92,17 @@ export function chooseFiltered(indices, matching, checked) {
   }
   return next;
 }
+export function galleryPreviewIsSelectable(preview, allowEmpty=false) {
+  return preview?.extractor==='gallery-dl'&&preview.kind==='playlist'&&
+    Array.isArray(preview.entries)&&(allowEmpty||preview.entries.length>0)&&
+    preview.entries.every(row=>Number.isInteger(row?.index)&&row.index>=1&&
+      row.index<=MAX_GALLERY_OFFSET+MAX&&validGalleryIdentity(row.selection_id));
+}
+export function selectedGalleryIdentities(rows, selected) {
+  const matches=rows.filter(row=>selected.has(row.index));
+  if(matches.length!==selected.size)throw new Error('Gallery selection is no longer available.');
+  return galleryIdentityList(matches.map(row=>row.selection_id));
+}
 export function previewRows(preview) {
   if (!preview || !Array.isArray(preview.entries)) return [];
   // Each Core page carries its absolute, one-based extractor indices. Its
@@ -97,6 +110,7 @@ export function previewRows(preview) {
   return preview.entries.filter(item => Number.isInteger(item.index) && item.index >= 1 && item.index <= MAX_OFFSET+MAX)
     .map(item => ({
       index: item.index,
+      ...(validGalleryIdentity(item.selection_id)?{selection_id:item.selection_id}:{}),
       title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
       subtitle: typeof item.subtitle === 'string' ? item.subtitle.slice(0,200) : '',
       thumbnail: safeThumbnail(item.thumbnail),
@@ -119,9 +133,20 @@ function safeThumbnail(value) {
 }
 export function appendPreviewPage(current, response, offset) {
   const existing=new Set(current.map(row=>row.index));
-  const fresh=previewRows(response).filter(row=>!existing.has(row.index));
+  const gallery=response?.extractor==='gallery-dl';
+  const identities=new Set(current.map(row=>row.selection_id).filter(Boolean));
+  const fresh=previewRows(response).filter(row=>{
+    if(existing.has(row.index))return false;
+    if(gallery){
+      if(!validGalleryIdentity(row.selection_id)||identities.has(row.selection_id))return false;
+      identities.add(row.selection_id);
+    }
+    existing.add(row.index);
+    return true;
+  });
+  const maxOffset=gallery?MAX_GALLERY_OFFSET:MAX_OFFSET;
   const nextOffset=response?.has_more===true && Number.isInteger(response.next_offset) &&
-    response.next_offset>offset && response.next_offset<=MAX_OFFSET ? response.next_offset : null;
+    response.next_offset>offset && response.next_offset<=maxOffset ? response.next_offset : null;
   return {rows:[...current,...fresh],fresh,nextOffset};
 }
 export function previewMeta(row) {
@@ -316,11 +341,19 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const close=()=>{closed=true;generation++;clearTimeout(timer);observation?.disconnect();dialog.remove();};
   dialog.addEventListener('close',close,{once:true});
   const message=(text)=>{status.textContent=text;status.hidden=!text;};
+  const identityGallery=()=>kind==='gallery'&&preview?.extractor==='gallery-dl';
   const available=()=>!busy && !headBusy && filesConnection==='ready' && kind!=='unsupported' && (kind!=='torrent'||torrentSource==='magnet') && !(kind==='manga' && cbz?.checked);
   function refreshSubmit(){
     const count=details.querySelector('.dl-picker-count');
-    if(count && kind!=='torrent')count.textContent=previewSelectionSummary(choices,selected);
-    download.disabled=!available() || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
+    let validIdentity=true;
+    if(identityGallery()&&selected.size){
+      try{selectedGalleryIdentities(choices,selected);}catch{validIdentity=false;}
+    }
+    if(count && kind!=='torrent'){
+      count.textContent=previewSelectionSummary(choices,selected);
+      if(!validIdentity)count.textContent+=' · '+t('downloader_bridge', 'Select up to {limit} distinct files.', {limit:MAX_GALLERY_SELECTION});
+    }
+    download.disabled=!available() || !validIdentity || (['playlist','channel','gallery','manga','torrent'].includes(kind) && selected.size===0);
     buttons.hidden=kind==='unsupported' || (kind==='torrent' && torrentSource!=='magnet');
   }
   function mediaControls(settingsValue, soundOnly=false, checkbox=true) {
@@ -449,9 +482,12 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(busy || !preview || next===null || next>MAX_OFFSET)return;
     busy=true;refreshSubmit();
     try {
-      const result=await api('/media-preview','POST',{url:urlAtStart,max_entries:PAGE,offset:next});
+      const gallery=identityGallery();
+      const result=await api('/media-preview','POST',{url:urlAtStart,max_entries:PAGE,offset:next,
+        ...(gallery?{engine:'gallery-dl'}:{})});
       if(token!==generation || urlAtStart!==currentUrl || closed)return;
-      if(result.offset!==next)throw new Error('Preview page did not match requested offset');
+      if(result.offset!==next || (gallery&&!galleryPreviewIsSelectable(result,true)))
+        throw new Error('Preview page did not match requested extractor or offset');
       const page=appendPreviewPage(choices,result,next);
       choices=page.rows;
       if(type==='playlist' && playlistAutoSelect)for(const row of page.fresh)selected.add(row.index);
@@ -883,7 +919,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if(kind==='video' && (preview?.live_status==='is_live'||preview?.is_live===true))
       title.append(e('span',t('downloader_bridge', 'Live'),'dl-live-badge'));
     let advanced;
-    if(kind==='audio'){
+    if(identityGallery()){
+      advanced=e('details','','dl-options');
+      advanced.append(e('summary',t('downloader_bridge', 'Advanced')));
+      details.append(advanced);
+    }else if(kind==='audio'){
       const media=mediaControls(prefs,true,false);
       advanced=advancedVideo([],true);
       details.append(media,advanced);
@@ -927,18 +967,29 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if(token===generation&&!closed)spinner.hidden=true;
       return;
     }
+    let original=null, detected='unsupported', failure='could_not_check';
     try{
-      let result=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
+      original=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0});
       if(token!==generation||closed)return;
-      const detected=classifyPreview(value,result);
-      // All first-page playlist entries are selected; further pages select as loaded.
-      spinner.hidden=true;
-      await render(detected,result);
+      detected=classifyPreview(value,original);
     }catch(error){
       if(token!==generation||closed)return;
-      spinner.hidden=true;
-      await render('unsupported',null,classifyLinkFailure(value,error));
+      failure=classifyLinkFailure(value,error);
     }
+    // Do not disturb a successful video/audio/list extractor. Only an
+    // unsupported or unconfirmed direct guess gets the public gallery probe.
+    if((detected==='unsupported'||detected==='direct')&&failure!=='malformed'&&failure!=='item_not_found'){
+      try{
+        const gallery=await api('/media-preview','POST',{url:value,max_entries:PAGE,offset:0,engine:'gallery-dl'});
+        if(token!==generation||closed)return;
+        if(galleryPreviewIsSelectable(gallery)&&gallery.offset===0){
+          original=gallery;detected='gallery';
+        }
+      }catch{ /* preserve the original diagnosis; older Core is compatible */ }
+    }
+    if(token!==generation||closed)return;
+    spinner.hidden=true;
+    await render(detected,original,failure);
   }
   function schedule(){
     clearTimeout(timer);++generation;headBusy=false;spinner.hidden=true;details.hidden=true;buttons.hidden=true;
@@ -962,6 +1013,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         subtitles:Boolean(subtitles?.checked),subtitleLanguage:subtitleLanguage?.value||
           (navigator.language||'en').split('-')[0].toLowerCase(),
         selectedIndices:[...selected],cbz:cbz?.checked,
+        ...(identityGallery()?{extractor:'gallery-dl',galleryItemIds:selectedGalleryIdentities(choices,selected)}:{}),
       });
     }catch(error){notify('Please review your download options and try again.');return;}
     // Retry one unchanged action with the same key. New user choices
