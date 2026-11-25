@@ -105,6 +105,30 @@ class Handler(BaseHTTPRequestHandler):
                 }
             self.respond(200, {"fixture_completed": True})
             return
+        if self.path == "/api/v1/preview":
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 8192:
+                    raise ValueError("Invalid length")
+                data = json.loads(self.rfile.read(size))
+            except (ValueError, TypeError):
+                self.respond(422, {"detail": "Invalid preview fixture"})
+                return
+            if data == {"url": "https://example.test/album", "engine": "gallery-dl",
+                        "max_entries": 2, "offset": 100}:
+                self.respond(200, {"extractor": "gallery-dl", "kind": "playlist",
+                                   "entries": [{"index": 101, "title": "First"},
+                                               {"index": 102, "title": "Second"}],
+                                   "offset": 100, "has_more": True, "next_offset": 102})
+            elif data == {"url": "https://example.test/old-core", "engine": "gallery-dl",
+                          "max_entries": 2}:
+                self.respond(200, {"extractor": "Generic", "kind": "video", "entries": []})
+            elif data == {"url": "https://example.test/video", "max_entries": 2}:
+                self.respond(200, {"extractor": "Generic", "kind": "video", "entries": []})
+            else:
+                self.respond(422, {"detail": "Unsupported preview fixture",
+                                   "reason_code": "could_not_check"})
+            return
         if self.path == "/api/v1/direct-metadata":
             # Signed gateway fixture only. Never perform external HTTP here.
             try:

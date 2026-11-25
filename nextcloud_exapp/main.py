@@ -336,10 +336,13 @@ async def user_media_preview(request: Request, context: UserContext = Depends(re
     body = await request.json()
     if (not isinstance(body, dict) or
             not {"url", "max_entries"}.issubset(body) or
-            set(body) - {"url", "max_entries", "offset"}):
+            set(body) - {"url", "max_entries", "offset", "engine"}):
         raise HTTPException(status_code=422, detail="Invalid media inspection request")
     url, count = body["url"], body["max_entries"]
     offset = body.get("offset", 0)
+    engine = body.get("engine", "yt-dlp")
+    if (not isinstance(engine, str) or engine not in {"yt-dlp", "gallery-dl"}):
+        raise HTTPException(status_code=422, detail="Invalid preview extractor")
     if (not isinstance(url, str) or not 8 <= len(url) <= 4096
             or type(count) is not int or not 1 <= count <= 100
             or type(offset) is not int or not 0 <= offset <= 100_000):
@@ -347,7 +350,17 @@ async def user_media_preview(request: Request, context: UserContext = Depends(re
     payload = {"url": url, "max_entries": count}
     if "offset" in body:
         payload["offset"] = offset
-    return await core_json("POST", "preview", payload=payload, preview_reason_code=True)
+    if "engine" in body:
+        payload["engine"] = engine
+    result = await core_json("POST", "preview", payload=payload, preview_reason_code=True)
+    # Older Core versions may ignore the additive engine selector and return
+    # yt-dlp data. Never pass it off as a gallery listing or enable submission.
+    if engine == "gallery-dl" and (
+        not isinstance(result, dict) or result.get("extractor") != "gallery-dl"
+        or result.get("kind") != "playlist"
+    ):
+        raise HTTPException(status_code=502, detail="Gallery preview is unavailable on the download server")
+    return result
 
 
 @APP.post("/user/api/direct-metadata")
