@@ -310,6 +310,75 @@ def check_subtitle_layout(page) -> None:
     page.unroute("**/user/api/media-preview", preview)
 
 
+def check_gallery_identity_selector(page) -> None:
+    """Real native selection UI; deterministic preview and submission fixture."""
+    import json
+    ids = ["a" * 64, "b" * 64]
+    requests = []
+    submissions = []
+
+    def preview(route):
+        body = route.request.post_data_json
+        requests.append(body)
+        if body.get("engine") != "gallery-dl":
+            route.fulfill(status=422, content_type="application/json",
+                          body=json.dumps({"detail": "unsupported_domain"}))
+            return
+        entries = [{"index": i + 1, "title": f"Gallery photo {i + 1}",
+                    "selection_id": identity, "size_bytes": 1024}
+                   for i, identity in enumerate(ids)]
+        if "older" in body["url"]:
+            for item in entries:
+                del item["selection_id"]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({
+            "extractor": "gallery-dl", "kind": "playlist", "title": "Gallery fixture",
+            "offset": 0, "entries": entries, "has_more": False, "next_offset": None,
+        }))
+
+    def submit(route):
+        if route.request.method != "POST":
+            route.continue_()
+            return
+        submissions.append(route.request.post_data_json)
+        # Deliberately refuse fixture submission so no synthetic job is stored.
+        route.fulfill(status=422, content_type="application/json",
+                      body=json.dumps({"detail": "Fixture submission captured"}))
+
+    page.route("**/user/api/media-preview", preview)
+    page.route("**/user/api/jobs", submit)
+    try:
+        page.locator("#downloader-topbar-progress button.dl-trigger").click()
+        page.locator("#downloader-header-popover .dl-popover-add").click()
+        dialog = page.locator("dialog.dl-link-dialog")
+        source = dialog.get_by_role("textbox", name="Source link")
+        source.fill("https://example.org/gallery/identity")
+        grid = dialog.locator(".dl-gallery-grid")
+        expect(grid).to_be_visible(timeout=20_000)
+        checks = grid.locator("input[type='checkbox']")
+        expect(checks).to_have_count(2)
+        download = dialog.get_by_role("button", name="Download", exact=True)
+        expect(download).to_be_disabled()
+        checks.nth(1).check()
+        expect(download).to_be_enabled(timeout=20_000)
+        expect(dialog.get_by_text("Audio only", exact=True)).to_have_count(0)
+        capture(page, "18-gallery-identity-selection.png")
+        with page.expect_response(lambda r: r.url.endswith("/user/api/jobs")
+                                  and r.request.method == "POST"):
+            download.click()
+        assert submissions and submissions[-1]["engine"] == "gallery-dl"
+        assert submissions[-1]["overrides"] == {"gallery_item_ids": [ids[1]]}
+        source.fill("https://example.org/gallery/older")
+        expect(dialog.locator(".dl-detect-status")).to_be_visible(timeout=20_000)
+        expect(download).to_be_hidden()
+        assert any(r.get("engine") == "gallery-dl" for r in requests)
+        print("Real Chromium: identity gallery fallback, selection and old Core guard PASS", flush=True)
+    finally:
+        if page.locator("dialog.dl-link-dialog").count():
+            page.keyboard.press("Escape")
+        page.unroute("**/user/api/media-preview", preview)
+        page.unroute("**/user/api/jobs", submit)
+
+
 def assert_compact_torrent_folder_totals(picker) -> None:
     # Check real layout, not a CSS source substring. Works in either direction.
     for row in picker.locator("details.dl-torrent-folder > summary").all():
@@ -784,6 +853,7 @@ def main() -> None:
             check_settings(page)
             check_header_and_dialog(page)
             check_subtitle_layout(page)
+            check_gallery_identity_selector(page)
             check_torrent_selector(page)
             check_real_native_job_journey(page)
             check_mobile_rtl_and_theme(page)

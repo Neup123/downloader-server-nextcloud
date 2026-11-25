@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {SKIPPED_DETAIL} from '../src/download-labels.mjs';
 import {filesJobRequest, selectedMediaFormat, playlistIndices} from '../src/files-dialog-payload.mjs';
 import {classifyPreview, looksLikeDirectFile, chooseFiltered, previewRows, previewMeta,
-  appendPreviewPage, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes,
+  appendPreviewPage, galleryPreviewIsSelectable, selectedGalleryIdentities, torrentRows, torrentMatches, torrentTree, torrentSelectedBytes,
   shouldDisableSubtitleLanguage} from '../src/link-first-dialog.mjs';
 
 const source=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf8');
@@ -553,4 +553,23 @@ test('direct-file detection uses a signed HEAD probe and never invents file meta
   assert.match(dialog,/\['text\/html','application\/xhtml\+xml'\]\.includes\(metadata\?\.mime\)/);
   assert.match(dialog,/kind='unsupported'/);
   assert.doesNotMatch(dialog,/fetch\(inspectedUrl/);
+});
+
+
+test('gallery identity preview never mistakes an older Core response for selectable files',()=>{
+  const fixture={extractor:'gallery-dl',kind:'playlist',offset:0,has_more:true,next_offset:2,entries:[
+    {index:1,title:'A',selection_id:'a'.repeat(64)},{index:2,title:'B',selection_id:'b'.repeat(64)},
+  ]};
+  assert.equal(classifyPreview('https://example.org/album',fixture),'gallery');
+  assert.equal(classifyPreview('https://example.org/album',{...fixture,entries:[{index:1,title:'Old'}]}),'unsupported');
+  assert.equal(galleryPreviewIsSelectable(fixture),true);
+  const first=appendPreviewPage([],fixture,0);
+  const page={...fixture,offset:2,has_more:false,entries:[{index:3,title:'B moved',selection_id:'b'.repeat(64)},{index:4,title:'C',selection_id:'c'.repeat(64)}]};
+  const second=appendPreviewPage(first.rows,page,2);
+  assert.deepEqual(second.rows.map(row=>row.index),[1,2,4]);
+  assert.deepEqual(selectedGalleryIdentities(second.rows,new Set([4,1])),['a'.repeat(64),'c'.repeat(64)]);
+  assert.throws(()=>selectedGalleryIdentities(second.rows,new Set([99])));
+  const request=filesJobRequest('https://example.org/album',null,'best',false,{kind:'gallery',extractor:'gallery-dl',galleryItemIds:['c'.repeat(64),'a'.repeat(64)]});
+  assert.deepEqual(request,{url:'https://example.org/album',engine:'gallery-dl',content_type:'images',overrides:{gallery_item_ids:['a'.repeat(64),'c'.repeat(64)]}});
+  assert.throws(()=>filesJobRequest('https://example.org/album',null,'best',false,{kind:'gallery',extractor:'gallery-dl',galleryItemIds:['a'.repeat(64),'a'.repeat(64)]}));
 });

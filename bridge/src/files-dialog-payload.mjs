@@ -45,6 +45,16 @@ export function playlistIndices(indices) {
   return expression;
 }
 
+export const MAX_GALLERY_SELECTION=200;
+export function validGalleryIdentity(value) {
+  return typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
+}
+export function galleryIdentityList(values) {
+  if(!Array.isArray(values)||!values.length||values.length>MAX_GALLERY_SELECTION||
+     values.some(value=>!validGalleryIdentity(value))||new Set(values).size!==values.length)
+    throw new Error('Invalid gallery file selection.');
+  return [...values].sort();
+}
 export function filesJobRequest(url, folder, quality = 'best', audioOnly = false, options = {}) {
   const audioChoices = ['best', '192', '128', 'small'];
   const videoChoices = ['best', '1080', '720', '480'];
@@ -60,6 +70,13 @@ export function filesJobRequest(url, folder, quality = 'best', audioOnly = false
   }
   if(kind==='torrent' && !/^magnet:\?/i.test(url)) {
     throw new Error('Torrent download requires a magnet link.');
+  }
+  if(options.extractor==='gallery-dl'){
+    if(kind!=='gallery'||audioOnly)throw new Error('Invalid image gallery selection.');
+    const result={url,engine:'gallery-dl',content_type:contentCategoryFor(kind,false),
+      overrides:{gallery_item_ids:galleryIdentityList(options.galleryItemIds)}};
+    if(folder!==null)result.folder=folder;
+    return result;
   }
   const media = !['auto','direct','torrent'].includes(kind);
   const container = options.container || 'original';
