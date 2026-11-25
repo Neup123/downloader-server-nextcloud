@@ -582,7 +582,7 @@ async def attach_owner_cookie(context: UserContext, payload: dict) -> None:
     if engine not in {"yt-dlp", "you-get", "gallery-dl", "auto"}:
         return
     overrides = payload.setdefault("overrides", {})
-    if overrides.get("cookies_file"):
+    if overrides.get("cookies_file") or "gallery_item_ids" in overrides:
         return
     source = payload.get("url")
     if not isinstance(source, str):

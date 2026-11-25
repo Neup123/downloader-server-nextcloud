@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from nextcloud_exapp.main import APP, core_json, user_media_preview, user_torrent_manifest, user_direct_metadata
+from nextcloud_exapp.main import APP, core_json, user_media_preview, user_torrent_manifest, user_direct_metadata, attach_owner_cookie
 from nextcloud_exapp.user import UserContext, job_submission
 
 
@@ -259,6 +259,32 @@ class LinkFirstGatewayTests(TestCase):
                     core.assert_not_awaited()
 
             asyncio.run(reject())
+
+    def test_signed_gallery_selection_preserves_only_the_public_identity_contract(self):
+        ctx = context()
+        ctx.nc.preferences_ex.data["engine_settings"] = '{"gallery-dl":{"cookies_file":"private.txt","options":{"extractor.file-range":"1"}}}'
+        selection = ["b" * 64, "a" * 64]
+        data = {"url": "https://example.org/album", "engine": "gallery-dl",
+                "content_type": "images", "overrides": {"gallery_item_ids": selection}}
+        async def run():
+            job = await job_submission(ctx, data)
+            self.assertEqual(job["owner_id"], "alice")
+            self.assertEqual(job["delivery"]["username"], "alice")
+            self.assertEqual(job["overrides"], {"gallery_item_ids": sorted(selection)})
+            with patch("nextcloud_exapp.main.core_json", new=AsyncMock()) as core:
+                await attach_owner_cookie(ctx, job)
+                core.assert_not_awaited()
+            self.assertEqual(job["overrides"], {"gallery_item_ids": sorted(selection)})
+        asyncio.run(run())
+        for bad in ({"engine": "yt-dlp"}, {"content_type": "video"},
+                    {"overrides": {"gallery_item_ids": selection, "cookies_file": "private.txt"}},
+                    {"overrides": {"gallery_item_ids": selection, "gallery_items": "1,2"}},
+                    {"overrides": {"gallery_item_ids": [selection[0], selection[0]]}},
+                    {"overrides": {"gallery_item_ids": ["https://other.test/file"]}},
+                    {"overrides": {"gallery_item_ids": []}}):
+            with self.subTest(bad=bad), self.assertRaises(HTTPException) as error:
+                asyncio.run(job_submission(ctx, {**data, **bad}))
+            self.assertEqual(error.exception.status_code, 422)
 
     def test_torrent_selected_indices_preserve_no_seed_policy_in_gateway(self):
         job = asyncio.run(job_submission(context(), {

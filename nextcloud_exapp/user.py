@@ -477,6 +477,19 @@ async def job_submission(
     options = data.get("overrides", {})
     if not isinstance(options, dict) or len(json.dumps(options)) > 16000:
         raise HTTPException(status_code=422, detail="Invalid engine overrides")
+    gallery_identity_selection = "gallery_item_ids" in options
+    if gallery_identity_selection:
+        identities = options["gallery_item_ids"]
+        if (engine != "gallery-dl" or content_type != "images"
+                or set(options) != {"gallery_item_ids"}
+                or not isinstance(identities, list) or not 1 <= len(identities) <= 200
+                or any(not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None
+                       for value in identities)
+                or len(set(identities)) != len(identities)):
+            raise HTTPException(status_code=422, detail="Invalid gallery file selection")
+        # Identity preview is unauthenticated. Never mix saved settings,
+        # site cookies, proxies or other extractor filters with its selection.
+        options = {"gallery_item_ids": sorted(identities)}
     # The dialog's explicit mode/quality must be represented by the actual
     # yt-dlp format sent to Core, not cosmetic client-only controls. The
     # signed ExApp accepts mode metadata and validates it before stripping
@@ -499,7 +512,7 @@ async def job_submission(
     # newer Core versions reject ineffective settings instead of ignoring them.
     if engine == "auto" and source.lower().startswith("magnet:"):
         engine = "aria2c"
-    chosen = prefs["engine_settings"].get(engine, {})
+    chosen = {} if gallery_identity_selection else prefs["engine_settings"].get(engine, {})
     overrides = {**chosen, **options}
     if engine == "aria2c":
         saved_options = chosen.get("options", {})
