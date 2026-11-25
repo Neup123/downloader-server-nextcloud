@@ -132,3 +132,13 @@ test('Torrent picker labels, tooltips and dynamic summaries use the native catal
     assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
   }
 });
+
+
+test('Media and non-torrent picker controls use native translations',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  for(const key of ["Audio only","Best quality","Up to 192 kbps","Up to 128 kbps","Smallest audio","Up to 1080p","Up to 720p","Up to 480p","Quality","Advanced","Subtitles","Download subtitles","System language ({language})","Subtitle language","No subtitles available.","Original format","Prefer M4A","Prefer WebM","Prefer MP4","Format","No entries match the current filter.","Thumbnail unavailable","Loading additional entries…","Load next batch","Select all / none (loaded entries)","Search / filter","Filter loaded titles","Filter loaded items","All available","Maximum visible items","Check / uncheck loaded items matching filter","Pack as a single CBZ file","Packing these pages into one comic book file is not available yet. Turn this off to download individual items.","Page selection is not available yet","Pages","Try as a direct file","Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded."]){
+    assert.ok(dialog.includes("t('downloader_bridge', '"+key+"'"),'Missing translated media label: '+key);
+    assert.equal(typeof catalog.translations[key],'string');
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
+  }
+});
