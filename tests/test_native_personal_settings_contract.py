@@ -41,6 +41,6 @@ def test_owner_cookie_selection_is_owner_scoped_and_host_matched():
     assert "async def attach_owner_cookie(" in source
     assert "unscoped_cookie_filename(context.user_id, filename)" in source
     assert 'host == domain or host.endswith("." + domain)' in source
-    assert 'if overrides.get("cookies_file"):' in source
+    assert 'if overrides.get("cookies_file") or "gallery_item_ids" in overrides:' in source
     assert 'overrides["cookies_file"] = max(choices)[1]' in source
     assert "await attach_owner_cookie(context, request_body)" in source
