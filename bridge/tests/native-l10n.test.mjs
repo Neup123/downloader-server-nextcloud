@@ -153,3 +153,14 @@ test('Native personal settings use translated static labels and placeholders wit
   assert.match(settings,/CONTENT_ROUTES\.map\(route=>\[route\.id,route\.subfolder\]\)/);
   assert.match(settings,/setDefaultFolder\('Downloads'\)/);
 });
+
+
+test('Cookie vault translated labels keep dynamic site names as replacements, never raw secrets',()=>{
+  const vault=readFileSync(new URL('../src/cookie-vault.ts',import.meta.url),'utf8');
+  const keys=[...vault.matchAll(/t\('downloader_bridge', '([^']+)'/g)].map(match=>match[1]);
+  assert.ok(keys.length>=25);
+  for(const key of keys)assert.equal(typeof catalog.translations[key],'string','Missing native vault translation: '+key);
+  for(const key of ['Site cookies','Saved site cookies','Select site cookies for {site}','Cookies removed for {site}','Cookies stored for {site}.','Saved · validity not tested'])assert.ok(keys.includes(key),key);
+  const form=readFileSync(new URL('../lib/Settings/PersonalSettings.php',import.meta.url),'utf8');
+  assert.ok(form.indexOf('Util::addTranslations')<form.indexOf('Util::addScript'));
+});
