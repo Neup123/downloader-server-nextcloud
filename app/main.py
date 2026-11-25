@@ -32,12 +32,14 @@ from app.config import Settings
 from app.cookies import encrypt_cookie
 from app.version import product_version
 from app.discovery import PreviewError, inspect_ytdlp
+from app.gallery_preview import inspect_gallery_dl
+from app.direct_metadata import inspect_direct_head
 from app.options_catalog import get_catalog
 from app.engine_registry import ENGINE_SETTING_KEYS
 from app.db import DeliverySetting, EngineSetting, EngineRule, Preset, Job, make_engine, make_session_factory, initialize_database, append_log, requeue_job, utcnow
 from app.job_states import JobStatus, TERMINAL_STATUSES, ACTIVE_STATUSES, transition_job
 from app.delivery import DeliveryError, serialize_delivery, set_delivery_settings, encrypt_job_delivery, verify_delivery_destination
-from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn, MediaPreviewOut, TorrentManifestOut
+from app.schemas import CookieUploadIn, CookieFileOut, CookieUploadedOut, CookieDeletedOut, DeliverySettingsIn, DeliverySettingsOut, DeliveryTestOut, EngineStatusOut, EngineOptionsOut, EngineSettingsIn, EngineSettingsOut, EngineRuleInput, EngineRuleOrderInput, PresetInput, JobBatchCreate, JobCreate, JobBatchOut, JobOut, MediaPreviewIn, TorrentManifestIn, MediaPreviewOut, TorrentManifestOut, DirectMetadataIn, DirectMetadataOut
 from app.security import SourceResolutionError, UnsafeUrlError, preflight_source_dns, validate_target_url, supported_url_schemes
 from app.worker import ENGINE_DEFAULTS, ENGINE_DESCRIPTIONS, JobWorker
 
@@ -134,10 +136,15 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
     @app.post("/api/v1/preview", response_model=MediaPreviewOut, response_model_exclude_unset=True, tags=["jobs"])
     async def preview_media(payload: MediaPreviewIn, _: bool = Depends(authenticate)):
         try:
-            url = validate_target_url(payload.url, "yt-dlp", config.allow_private_targets)
-            if not config.allow_private_targets:
+            # Explicit extractor choice only; keep existing yt-dlp callers
+            # unchanged. The gallery path is strictly public even on trusted
+            # test installs that permit private targets for other engines.
+            allow_private = config.allow_private_targets and payload.engine == "yt-dlp"
+            url = validate_target_url(payload.url, payload.engine, allow_private)
+            if not allow_private:
                 await asyncio.to_thread(preflight_source_dns, url)
-            return await inspect_ytdlp(url, max_entries=payload.max_entries, offset=payload.offset)
+            inspect = inspect_gallery_dl if payload.engine == "gallery-dl" else inspect_ytdlp
+            return await inspect(url, max_entries=payload.max_entries, offset=payload.offset)
         except SourceResolutionError as exc:
             detail, code = str(exc), "could_not_check"
         except (UnsafeUrlError, ValueError) as exc:
@@ -146,6 +153,16 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             detail, code = str(exc), exc.reason_code
         # Same HTTP 422 and exact detail string as before; only the code is new.
         return JSONResponse(status_code=422, content={"detail": detail, "reason_code": code})
+
+
+    @app.post("/api/v1/direct-metadata", response_model=DirectMetadataOut, tags=["jobs"])
+    async def direct_metadata(payload: DirectMetadataIn, _: bool = Depends(authenticate)):
+        """One bounded, pinned-DNS HTTP HEAD; no body, cookies or redirects."""
+        try:
+            return await inspect_direct_head(payload.url, config.allow_private_targets)
+        except (UnsafeUrlError, SourceResolutionError, ValueError, RuntimeError, TimeoutError, OSError) as exc:
+            # Do not expose the URL, target response or upstream diagnostics.
+            raise HTTPException(status_code=422, detail="Could not verify direct-file metadata") from exc
 
 
     @app.post("/api/v1/torrent/manifest", response_model=TorrentManifestOut, tags=["jobs"])
@@ -929,13 +946,15 @@ def validate_engine_settings(engine: str, values: dict, partial: bool = False) -
                 result[key] = value
         return result
     if engine == "aria2c":
-        from app.adapters.aria2 import ARIA2_OPTION_ALLOWLIST
+        from app.adapters.aria2 import ARIA2_OPTION_ALLOWLIST, validate_select_file
         options = values.get("options", {})
         if not isinstance(options, dict):
             raise ValueError("aria2c options must be an object")
         for key, value in options.items():
             if key not in ARIA2_OPTION_ALLOWLIST:
                 raise ValueError(f"aria2c option is not allowed: {key}")
+            if key == "select-file":
+                validate_select_file(value)
             if len(str(value)) > 1024:
                 raise ValueError(f"aria2c option value is too long: {key}")
         return {"options": {str(k): str(v) for k, v in options.items()}} if "options" in values else {}
@@ -1044,8 +1063,24 @@ def build_job(payload: JobCreate, session: Session, config: Settings) -> Job:
     try:
         url = validate_target_url(payload.url, engine, config.allow_private_targets)
         preset_settings = validate_engine_settings(engine, preset.settings, partial=True) if preset else {}
-        job_overrides = validate_engine_settings(engine, payload.overrides, partial=True)
+        raw_overrides = dict(payload.overrides)
+        # Selection belongs only to this job, never an engine default or preset.
+        has_gallery_items = engine == "gallery-dl" and "gallery_items" in raw_overrides
+        gallery_items = raw_overrides.pop("gallery_items") if has_gallery_items else None
+        job_overrides = validate_engine_settings(engine, raw_overrides, partial=True)
         overrides = _merge_settings(preset_settings, job_overrides)
+        if has_gallery_items:
+            from app.adapters.gallery_dl import _effective_settings
+            from app.gallery_selection import validate_gallery_selection_settings
+            overrides["gallery_items"] = gallery_items
+            saved = session.get(EngineSetting, "gallery-dl")
+            effective = _effective_settings(
+                {**ENGINE_DEFAULTS["gallery-dl"], **(saved.settings if saved else {})},
+                overrides,
+            )
+            selection = validate_gallery_selection_settings(effective)
+            assert selection is not None
+            overrides["gallery_items"] = selection[0]
         if engine == "yt-dlp":
             allow_playlist = overrides.get("allow_playlist")
             if allow_playlist is None:

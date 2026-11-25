@@ -63,3 +63,30 @@ Pinned candidate PRs, GHCR image builds and disposable CI can demonstrate develo
 ## 6. Nextcloud integration is separate
 
 The Core UI and queue stay in this repository. The optional Nextcloud plugin has its own native Files, Dashboard, Library and settings surfaces under [downloader-server-nextcloud](https://github.com/Neup123/downloader-server-nextcloud). Its privileged AppAPI/ExApp gateway calls the Core API server-side and owns per-user entitlement and encrypted WebDAV identity. Never embed the standalone Core UI in that plugin, or add a Core token field to a regular Nextcloud user's UI.
+
+## Selected gallery API acceptance
+
+No new storage or credentials are required for gallery index selection.
+Run `python -m pytest tests/test_gallery_selection.py tests/test_gallery_preview.py -q`.
+Verify job-only one-based ranges, rejection of conflicting extractor settings,
+and a partial-output failure with no verified completion manifest. The offline
+adapter fixture is not a live gallery identity or production egress test.
+
+### Explicit gallery preview API
+
+The existing authenticated preview route supports the new explicit
+gallery-dl engine selector with no new service or credentials. Verify
+unauthenticated access, private source rejection, bounded offset, default
+yt-dlp compatibility and sanitized metadata with
+`python -m pytest tests/test_gallery_preview.py tests/test_discovery.py -q`.
+This does not replace the host egress policy or verify a remote gallery's
+stable identity, nested chapter handling or native signed gateway.
+
+### Engine failure categories
+
+No migration or new configuration is required. Run
+`python -m pytest tests/test_engine_failure_categories.py -q` to verify fixed
+public wording, typed CLI failure, missing executable, empty output, native
+curl/aria2 codes and separation from technical diagnostics. These tests
+exercise deterministic inputs, not actual remote authentication or every
+possible upstream diagnostic. Existing end-to-end delivery gates still apply.

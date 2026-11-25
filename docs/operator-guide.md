@@ -53,3 +53,54 @@ The HTTP `/healthz` endpoint checks process liveness only. A queue can still be 
 For a reproducible diagnosis: record the affected job's **redacted** ID and status, inspect whether the queue/scheduler is advancing, run a disposable fixture download into a test destination, and verify actual bytes by readback. Escalate unresolved failures with sanitized steps and an exact commit identifier.
 
 Do not expose the downloader to arbitrary untrusted source URLs while the host-level egress safety and real-site acceptance gates remain open. See [installation/acceptance](installation-acceptance.md).
+
+## Direct HTTP file metadata
+
+The authenticated `POST /api/v1/direct-metadata` endpoint inspects a public
+HTTP(S) URL with a bounded HTTP HEAD request before any download. It uses the
+generic curl engine's validated, pinned first-hop DNS, disables proxies and
+redirects, and never requests the response body or sends browser cookies.
+`filename` (from safe Content-Disposition), `mime`, and `size` are
+explicitly nullable; a missing or failed HEAD check does not prove an item
+does not exist. The visible filename can otherwise be taken from the link,
+but must not be labelled as server-verified. HTML responses are not direct
+files. A redirect requires a separately reviewed source and cannot be
+trusted solely because the first host was public.
+
+This check **does not prove final download success**, identify every file
+type, validate a remote HTTPS certificate beyond curl's configured trust,
+or replace real target-host IPv4/IPv6 egress rules. Do not treat a green
+unit/CI fixture as a target-machine acceptance receipt.
+
+## Selected flat gallery files (API only)
+
+For a reviewed, public, unauthenticated flat gallery, the authenticated job
+API accepts `engine: gallery-dl` with `overrides: {gallery_items: "1,3-5"}`.
+Indexes are one-based and sorted in source order. This is a per-job option,
+not an engine setting or preset. Cookie files, proxies and extractor options
+that may change the selection are rejected. If the number of output files
+changes, the job fails before delivery; the source must be checked again.
+This count check does not establish immutable file identity for changing
+remote galleries. Native gallery preview and selection UI are not yet enabled.
+
+### Explicit gallery preview
+
+The same authenticated `POST /api/v1/preview` endpoint now accepts
+`engine: "gallery-dl"` for public, unauthenticated flat galleries.
+The default remains yt-dlp. Request up to 100 entries per page; gallery
+offsets above 1000 are rejected, even when a source has more items.
+The response identifies `extractor: "gallery-dl"` and uses the existing
+list contract (`kind: "playlist"`), with source-order indices, real nullable
+sizes/thumbnails and no source media URLs. Do not assume chronological
+ordering or immutable identity across repeated extraction. Nested chapter
+listings are not supported. Native Nextcloud users are not yet wired to
+this path.
+
+### Download failure messages
+
+The job card gives a short fixed explanation for a recognized source access,
+rate limit, missing media, network, certificate, storage or engine failure.
+Unrecognized diagnostics remain generic. Technical details stay in the
+existing redacted log; the public message never repeats an engine's stdout,
+source URL or arbitrary error text. A failed recording/transfer is not marked
+complete because the message is more helpful.
