@@ -22,3 +22,16 @@ Installation: use a compatible Core containing #231 and the accepted ExApp
 build. No additional secrets, containers or settings are needed. Test the
 existing signed gateway and verify that gallery responses identify their real
 extractor. A failing preview does not imply a successful download.
+
+## Explicit gallery identity submission
+
+The signed gateway validates a gallery-dl job with content_type=images and
+only gallery_item_ids (1–200 unique lowercase SHA-256 values). It preserves
+the signed owner and normal Files destination. It does not merge saved
+extractor options or attach owner cookies to this public selection path.
+Core remains responsible for checking actual extracted URLs, safe network
+policy and verified delivery. Older Core versions reject the new override;
+clients must not enable this path unless preview provides matching
+selection_id values. Nested chapters and immutable file bytes are not
+claimed. Unit tests exercise signed request construction and cookie bypass;
+real gallery UI and delivery are independent acceptance gates.
