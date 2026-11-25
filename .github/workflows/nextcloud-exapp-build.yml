@@ -17,19 +17,9 @@ on:
       - "tests/test_nextcloud_user.py"
       - "tests/test_search_index.py"
       - ".github/workflows/nextcloud-exapp-build.yml"
+  # Required checks must not remain pending on path-filtered PRs.
   pull_request:
-    paths:
-      - "nextcloud_exapp/**"
-      - "appinfo/info.xml"
-      - "scripts/exapp_release_manifest.py"
-      - "scripts/exapp_build_inputs.py"
-      - "tests/test_exapp_build_inputs.py"
-      - "tests/test_exapp_release_manifest.py"
-      - "tests/test_exapp_publication_workflow.py"
-      - ".github/workflows/publish-exapp-commit-image.yml"
-      - "web/**"
-      - "tests/test_nextcloud_bridge_config.py"
-      - ".github/workflows/nextcloud-exapp-build.yml"
+    branches: [main]
   workflow_dispatch:
 
 permissions:

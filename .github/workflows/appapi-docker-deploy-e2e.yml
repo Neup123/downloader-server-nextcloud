@@ -22,26 +22,9 @@ on:
       - "app/delivery.py"
       - "tests/test_delivery_paths.py"
       - "tests/test_nextcloud_delivery_flat.py"
+  # Required checks must not remain pending on path-filtered PRs.
   pull_request:
-    paths:
-      - ".github/workflows/appapi-docker-deploy-e2e.yml"
-      - "tests/test_appapi_deploy_workflow.py"
-      - "nextcloud_exapp/**"
-      - "appinfo/info.xml"
-      - "scripts/exapp_release_manifest.py"
-      - "scripts/exapp_build_inputs.py"
-      - "tests/test_exapp_build_inputs.py"
-      - "tests/test_exapp_release_manifest.py"
-      - "tests/test_exapp_publication_workflow.py"
-      - ".github/workflows/publish-exapp-commit-image.yml"
-      - "tests/exapp_mock_core.py"
-      - "tests/native_browser_acceptance.py"
-      - "tests/test_native_browser_workflow.py"
-      - "web/**"
-      - "bridge/**"
-      - "app/delivery.py"
-      - "tests/test_delivery_paths.py"
-      - "tests/test_nextcloud_delivery_flat.py"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
