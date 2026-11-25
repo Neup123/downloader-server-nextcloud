@@ -1,3 +1,4 @@
+import {t} from './download-labels.mjs';
 import {renderCookieVault} from './cookie-vault';
 import {reconcileSettingsPatch,mergePendingPatches,overlayPendingSettings} from './settings-reconcile.mjs';
 import {extendFolderResults} from './folder-picker-pages.mjs';
@@ -96,7 +97,8 @@ const RESET_ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 function folderAction(name:'Choose folder'|'Use default'){
   const button=element('button');button.type='button';
   button.className='downloader-folder-action';
-  button.title=name;button.setAttribute('aria-label',name);
+  const tooltip=name==='Choose folder'?t('downloader_bridge', 'Choose folder'):t('downloader_bridge', 'Use default');
+  button.title=tooltip;button.setAttribute('aria-label',tooltip);
   button.innerHTML=name==='Choose folder'?FOLDER_SEARCH_ICON:RESET_ICON;
   return button;
 }
@@ -109,12 +111,12 @@ function start() {
   if(!root)return;
   document.head.append(Object.assign(element('style'),{textContent:CSS}));
   root.replaceChildren();
-  const title=element('h2','Downloader settings');title.className='downloader-setting-title';
-  const intro=element('p','These preferences apply only to your own downloads and Files.');
+  const title=element('h2',t('downloader_bridge', 'Downloader settings'));title.className='downloader-setting-title';
+  const intro=element('p',t('downloader_bridge', 'These preferences apply only to your own downloads and Files.'));
   intro.className='downloader-settings-help';
-  const status=element('p','Loading your settings…');status.className='downloader-save-status';
+  const status=element('p',t('downloader_bridge', 'Loading your settings…'));status.className='downloader-save-status';
   status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-  const retry=element('button','Retry saving');retry.hidden=true;retry.type='button';
+  const retry=element('button',t('downloader_bridge', 'Retry saving'));retry.hidden=true;retry.type='button';
   status.append(retry);
   const cards=element('div');cards.className='downloader-settings-grid';
   root.append(title,intro,status,cards);
@@ -128,25 +130,25 @@ function start() {
     window.clearTimeout(timer);
     if(saving||!Object.keys(dirty).length)return;
     const patch=dirty;dirty={};saving=true;
-    status.firstChild!.textContent='Saving changes…';retry.hidden=true;
+    status.firstChild!.textContent=t('downloader_bridge', 'Saving changes…');retry.hidden=true;
     try {
       const updated=await api<Personal>('/settings','PUT',patch);
       // Keep the latest locally-selected fields; an in-flight request must
       // never overwrite changes made since the request started.
       personal={...updated,...dirty} as Personal;
       status.firstChild!.textContent=Object.keys(dirty).length
-        ? 'Saving your latest changes…' : 'Saved ✓ Changes apply to new downloads.';
+        ? t('downloader_bridge', 'Saving your latest changes…') : t('downloader_bridge', 'Saved ✓ Changes apply to new downloads.');
     }catch(error){
-      const reason=error instanceof Error?error.message:'Could not save settings.';
+      const reason=error instanceof Error?error.message:t('downloader_bridge', 'Could not save settings.');
       try{
         const saved=await api<Personal>('/settings');
         const outcome=reconcileSettingsPatch(patch,saved);
         dirty=mergePendingPatches(outcome.remaining,dirty);
         setup(overlayPendingSettings(saved,dirty) as Personal);
         const report=[
-          outcome.applied.length?'Applied: '+outcome.applied.join(', '):'No requested values were applied',
-          outcome.pending.length?'Not saved: '+outcome.pending.join(', '):'',
-          outcome.unverified.length?'Cannot verify: '+outcome.unverified.join(', '):'',
+          outcome.applied.length?t('downloader_bridge', 'Applied: {fields}', {fields:outcome.applied.join(', ')}):t('downloader_bridge', 'No requested values were applied'),
+          outcome.pending.length?t('downloader_bridge', 'Not saved: {fields}', {fields:outcome.pending.join(', ')}):'',
+          outcome.unverified.length?t('downloader_bridge', 'Cannot verify: {fields}', {fields:outcome.unverified.join(', ')}):'',
         ].filter(Boolean).join('. ');
         status.firstChild!.textContent=reason+' '+report+'.';
         retry.hidden=!Object.keys(dirty).length;
@@ -154,7 +156,7 @@ function start() {
         // Never blindly replay a possibly-partial write until GET succeeds.
         dirty=mergePendingPatches(patch,dirty);
         needsReconciliation=true;
-        status.firstChild!.textContent=reason+' Could not verify saved settings; retry will check first.';
+        status.firstChild!.textContent=reason+' '+t('downloader_bridge', 'Could not verify saved settings; retry will check first.');
         retry.hidden=false;
       }
     }finally{
@@ -175,11 +177,11 @@ function start() {
           setup(overlayPendingSettings(saved,dirty) as Personal);
           needsReconciliation=false;
           if(!Object.keys(dirty).length){
-            status.firstChild!.textContent='Settings verified. All requested values are already saved.';
+            status.firstChild!.textContent=t('downloader_bridge', 'Settings verified. All requested values are already saved.');
             return;
           }
         }catch{
-          status.firstChild!.textContent='Could not verify saved settings. Try again when Nextcloud is available.';
+          status.firstChild!.textContent=t('downloader_bridge', 'Could not verify saved settings. Try again when Nextcloud is available.');
           retry.hidden=false;return;
         }
       }
@@ -192,7 +194,7 @@ function start() {
       dirty[key]={...(before||{}),...(value as Record<string,unknown>)};
     }else dirty[key]=value;
     if(personal)(personal as unknown as Record<string,unknown>)[key]=value;
-    status.firstChild!.textContent='Changes will save automatically…';
+    status.firstChild!.textContent=t('downloader_bridge', 'Changes will save automatically…');
     retry.hidden=true;
     window.clearTimeout(timer);
     timer=window.setTimeout(()=>{void save();},450);
@@ -207,8 +209,9 @@ function start() {
   function setup(data:Personal){
     personal=data;
     cards.replaceChildren();
-    const routes=card('Destination routing by content type',
-      'Files not routed by type use the default folder. Starting in a specific folder takes precedence.');
+    root.querySelector(':scope > .downloader-advanced')?.remove();
+    const routes=card(t('downloader_bridge', 'Destination routing by content type'),
+      t('downloader_bridge', 'Files not routed by type use the default folder. Starting in a specific folder takes precedence.'));
     routes.classList.add('downloader-routing-card');
     const list=element('div');list.className='downloader-routing-list';
     routes.append(list);
@@ -217,8 +220,11 @@ function start() {
 
     const routeSubfolders:Record<string,string>=Object.fromEntries(
       CONTENT_ROUTES.map(route=>[route.id,route.subfolder]));
-    const routeLabels:Record<string,string>=Object.fromEntries(
-      CONTENT_ROUTES.map(route=>[route.id,route.label]));
+    const routeLabels:Record<string,string>={
+      video:t('downloader_bridge', 'Video folder'),audio:t('downloader_bridge', 'Audio folder'),
+      images:t('downloader_bridge', 'Images / galleries folder'),manga:t('downloader_bridge', 'Manga / comics folder'),
+      direct:t('downloader_bridge', 'Direct files folder'),torrent:t('downloader_bridge', 'Torrents folder'),
+    };
     const customRoutes=new Set(Object.keys(data.destination_route_overrides||{}));
     const routeFields:Record<string,HTMLInputElement>={};
     function routeRow(id:string,name:string,field:HTMLInputElement,
@@ -236,9 +242,9 @@ function start() {
       return group;
     }
     const folder=element('input');folder.readOnly=true;
-    folder.value=data.destination_folder||'(Files root)';
+    folder.value=data.destination_folder||t('downloader_bridge', '(Files root)');
     function setDefaultFolder(path:string){
-      folder.value=path||'(Files root)';
+      folder.value=path||t('downloader_bridge', '(Files root)');
       sizeFolderField(folder);
       data.destination_folder=path;
       changed('destination_folder',path);
@@ -263,11 +269,11 @@ function start() {
       const token=append?pickerGeneration:++pickerGeneration;
       picker.hidden=false;
       if(!append){
-        picker.replaceChildren(element('p','Loading folders…'));
+        picker.replaceChildren(element('p',t('downloader_bridge', 'Loading folders…')));
         listedFolders=[];folderList=null;moreButton=null;
       }else if(moreButton){
         moreButton.disabled=true;
-        moreButton.textContent='Loading more folders…';
+        moreButton.textContent=t('downloader_bridge', 'Loading more folders…');
       }
       try {
         const params=new URLSearchParams({path,offset:String(offset)});
@@ -276,9 +282,9 @@ function start() {
         const previousCount=listedFolders.length;
         listedFolders=extendFolderResults(listedFolders,page,path,offset,append);
         if(!append){
-          picker.replaceChildren(element('strong','Current folder: /'+page.path));
+          picker.replaceChildren(element('strong',t('downloader_bridge', 'Current folder: /{path}', {path:page.path})));
           const buttons=element('div');buttons.className='downloader-picker-buttons';
-          const parent=element('button','Parent folder'), choose=element('button','Use this folder');
+          const parent=element('button',t('downloader_bridge', 'Parent folder')), choose=element('button',t('downloader_bridge', 'Use this folder'));
           parent.disabled=!page.path;choose.className='primary';
           parent.addEventListener('click',()=>{
             void openFolder(page.path.split('/').slice(0,-1).join('/'));
@@ -292,13 +298,13 @@ function start() {
         }
         for(const entry of listedFolders.slice(previousCount)){
           const li=element('li');li.append(element('span','📁 '+entry.name));
-          const open=element('button','Open');open.type='button';
+          const open=element('button',t('downloader_bridge', 'Open'));open.type='button';
           open.addEventListener('click',()=>{void openFolder(entry.path);});
           li.append(open);folderList!.append(li);
         }
         moreButton?.remove();moreButton=null;
         if(page.has_more){
-          moreButton=element('button','More folders');
+          moreButton=element('button',t('downloader_bridge', 'More folders'));
           moreButton.addEventListener('click',()=>{void openFolder(page.path,page.offset+100,true);});
           picker.append(moreButton);
         }
@@ -306,14 +312,14 @@ function start() {
         if(token!==pickerGeneration)return;
         if(append && moreButton){
           moreButton.disabled=false;
-          moreButton.textContent='Retry loading more folders';
+          moreButton.textContent=t('downloader_bridge', 'Retry loading more folders');
         }else{
-          picker.replaceChildren(element('p',error instanceof Error?error.message:'Unable to browse Files.'));
+          picker.replaceChildren(element('p',error instanceof Error?error.message:t('downloader_bridge', 'Unable to browse Files.')));
         }
       }
     }
     // The default base folder is the first row of this same routing list.
-    routeRow('downloader-route-default','Default Files folder',folder,()=>{
+    routeRow('downloader-route-default',t('downloader_bridge', 'Default Files folder'),folder,()=>{
       if(!picker.hidden){picker.hidden=true;return;}
       onFolderChosen=setDefaultFolder;
       void openFolder(data.destination_folder||'');
@@ -347,23 +353,23 @@ function start() {
           // Never revert the text: keep it visible if the path is invalid.
           if (!path || path.split('/').some(part=>!part||part==='.'||part==='..')
             || /[\\\u0000-\u001f]/.test(path) || path.length>512) {
-            showError('Enter an existing folder path in your Files.');
+            showError(t('downloader_bridge', 'Enter an existing folder path in your Files.'));
             return;
           }
           try {
             const page=await api<FolderList>('/folders?'+new URLSearchParams({path,offset:'0'}));
             if(revision!==edited)return;
-            if(page.path!==path)throw new Error('Folder not found');
+            if(page.path!==path)throw new Error(t('downloader_bridge', 'Folder not found'));
             showError('');
             customRoutes.add(kind);
             data.destination_routes={...data.destination_routes,[kind]:path};
             changed('destination_routes',{[kind]:path});
           }catch{
-            if(revision===edited)showError('Folder not found in your Files. Check the path or choose a folder.');
+            if(revision===edited)showError(t('downloader_bridge', 'Folder not found in your Files. Check the path or choose a folder.'));
           }
         })();
       });
-      const group=routeRow('downloader-route-'+kind,routeLabels[kind]+' folder',field,()=>{
+      const group=routeRow('downloader-route-'+kind,routeLabels[kind],field,()=>{
         picker.hidden=true;
         onFolderChosen=(path)=>{
           edited++;
@@ -390,36 +396,36 @@ function start() {
       group.append(inlineError);
     }
 
-    const collisions=card('When a destination file already exists',
-      'Never overwrite an existing file. Choose whether to rename the incoming file or skip it and notify you.');
+    const collisions=card(t('downloader_bridge', 'When a destination file already exists'),
+      t('downloader_bridge', 'Never overwrite an existing file. Choose whether to rename the incoming file or skip it and notify you.'));
     const collisionChoice=element('select');
     for(const [value,text] of [
-      ['rename','Rename the incoming file'],['skip','Skip the download'],
+      ['rename',t('downloader_bridge', 'Rename the incoming file')],['skip',t('downloader_bridge', 'Skip the download')],
     ]){
       const option=element('option',text);option.value=value;collisionChoice.append(option);
     }
     collisionChoice.value=data.existing_file_behavior==='skip'?'skip':'rename';
     collisionChoice.addEventListener('change',()=>changed('existing_file_behavior',collisionChoice.value));
-    collisions.append(label('Existing-file behaviour',collisionChoice));
+    collisions.append(label(t('downloader_bridge', 'Existing-file behaviour'),collisionChoice));
 
-    const header=card('Header downloads',
-      'Choose when the downloads arrow appears and which downloads its bubble shows.');
+    const header=card(t('downloader_bridge', 'Header downloads'),
+      t('downloader_bridge', 'Choose when the downloads arrow appears and which downloads its bubble shows.'));
     const visibility=element('select');visibility.className='downloader-header-select';
-    for(const [value,txt] of [['active','Only while downloading (default)'],['always','Always show the arrow']]){
+    for(const [value,txt] of [['active',t('downloader_bridge', 'Only while downloading (default)')],['always',t('downloader_bridge', 'Always show the arrow')]]){
       const option=element('option',txt);option.value=value;visibility.append(option);
     }
     visibility.value=data.header_indicator_visibility||'active';
     visibility.addEventListener('change',()=>changed('header_indicator_visibility',visibility.value));
     const content=element('select');content.className='downloader-header-select';
-    for(const [value,txt] of [['active','Active downloads only (default)'],['all','Active first, then finished']]){
+    for(const [value,txt] of [['active',t('downloader_bridge', 'Active downloads only (default)')],['all',t('downloader_bridge', 'Active first, then finished')]]){
       const option=element('option',txt);option.value=value;content.append(option);
     }
     content.value=data.dropdown_content||'active';
     content.addEventListener('change',()=>changed('dropdown_content',content.value));
-    header.append(label('Header indicator visibility',visibility),label('Dropdown content',content));
+    header.append(label(t('downloader_bridge', 'Header indicator visibility'),visibility),label(t('downloader_bridge', 'Dropdown content'),content));
 
-    const qualityDefaults=card('Default download quality',
-      'New Download into my Files dialogs start with these preferences. You can change quality for each download.');
+    const qualityDefaults=card(t('downloader_bridge', 'Default download quality'),
+      t('downloader_bridge', 'New Download into my Files dialogs start with these preferences. You can change quality for each download.'));
     function qualityPreference(
       field:'default_video_quality'|'default_audio_quality',heading:string,
       choices:Array<[string,string]>,fallback:string
@@ -432,27 +438,27 @@ function start() {
       input.addEventListener('change',()=>changed(field,input.value));
       qualityDefaults.append(label(heading,input));
     }
-    qualityPreference('default_video_quality','Default video quality',[
-      ['best','Best available'],['1080','Up to 1080p'],['720','Up to 720p'],['480','Up to 480p'],
+    qualityPreference('default_video_quality',t('downloader_bridge', 'Default video quality'),[
+      ['best',t('downloader_bridge', 'Best available')],['1080',t('downloader_bridge', 'Up to 1080p')],['720',t('downloader_bridge', 'Up to 720p')],['480',t('downloader_bridge', 'Up to 480p')],
     ],'best');
-    qualityPreference('default_audio_quality','Default audio quality',[
-      ['best','Best available'],['192','Up to 192 kbps'],['128','Up to 128 kbps'],['small','Smallest available'],
+    qualityPreference('default_audio_quality',t('downloader_bridge', 'Default audio quality'),[
+      ['best',t('downloader_bridge', 'Best available')],['192',t('downloader_bridge', 'Up to 192 kbps')],['128',t('downloader_bridge', 'Up to 128 kbps')],['small',t('downloader_bridge', 'Smallest available')],
     ],'best');
 
-    const files=card('Files connection',
-      'Downloader uses a dedicated, securely stored Nextcloud Files password. Your Core service connection is handled by the installation.');
+    const files=card(t('downloader_bridge', 'Files connection'),
+      t('downloader_bridge', 'Downloader uses a dedicated, securely stored Nextcloud Files password. Your Core service connection is handled by the installation.'));
     const connection=element('p',data.app_password_configured
-      ? 'Configured ✓ A Files password is stored for your account.'
-      : 'Not connected. Connect Files before starting a download.');
+      ? t('downloader_bridge', 'Configured ✓ A Files password is stored for your account.')
+      : t('downloader_bridge', 'Not connected. Connect Files before starting a download.'));
     connection.setAttribute('role','status');files.append(connection);
-    const connect=element('button',data.app_password_configured?'Update Files connection':'Connect my Files');
+    const connect=element('button',data.app_password_configured?t('downloader_bridge', 'Update Files connection'):t('downloader_bridge', 'Connect my Files'));
     const form=element('form');form.hidden=true;
     const password=element('input');password.type='password';password.autocomplete='new-password';
-    password.placeholder='Nextcloud Files app password';
-    const apply=element('button','Save Files connection');apply.className='primary';apply.type='submit';
-    const security=element('a','Create an app password in Nextcloud Security');
+    password.placeholder=t('downloader_bridge', 'Nextcloud Files app password');
+    const apply=element('button',t('downloader_bridge', 'Save Files connection'));apply.className='primary';apply.type='submit';
+    const security=element('a',t('downloader_bridge', 'Create an app password in Nextcloud Security'));
     security.href=oc()!.generateUrl('/settings/user/security');
-    form.append(label('Dedicated Files password',password),security,apply);
+    form.append(label(t('downloader_bridge', 'Dedicated Files password'),password),security,apply);
     connect.addEventListener('click',()=>{form.hidden=!form.hidden;if(!form.hidden)password.focus();});
     form.addEventListener('submit',event=>{event.preventDefault();
       if(!password.value)return;
@@ -460,41 +466,41 @@ function start() {
       const secret=password.value;
       password.value='';
       void api<Personal>('/settings','PUT',{app_password:secret}).then(updated=>{
-        personal={...personal,...updated};connection.textContent='Configured ✓ Your Files password was saved.';
-        connect.textContent='Update Files connection';form.hidden=true;
+        personal={...personal,...updated};connection.textContent=t('downloader_bridge', 'Configured ✓ Your Files password was saved.');
+        connect.textContent=t('downloader_bridge', 'Update Files connection');form.hidden=true;
       }).catch(async error=>{
-        const reason=error instanceof Error?error.message:'Could not connect Files.';
+        const reason=error instanceof Error?error.message:t('downloader_bridge', 'Could not connect Files.');
         try{
           const saved=await api<Personal>('/settings');
           personal={...personal,...saved};
-          connect.textContent=saved.app_password_configured?'Update Files connection':'Connect my Files';
-          connection.textContent=reason+(saved.app_password_configured
-            ? ' A Files password is configured, but this update cannot be verified. Re-enter it to retry.'
-            : ' No Files password is configured.');
+          connect.textContent=saved.app_password_configured?t('downloader_bridge', 'Update Files connection'):t('downloader_bridge', 'Connect my Files');
+          connection.textContent=reason+' '+(saved.app_password_configured
+            ? t('downloader_bridge', 'A Files password is configured, but this update cannot be verified. Re-enter it to retry.')
+            : t('downloader_bridge', 'No Files password is configured.'));
         }catch{
-          connection.textContent=reason+' Could not verify the Files connection. Reload before trying again.';
+          connection.textContent=reason+' '+t('downloader_bridge', 'Could not verify the Files connection. Reload before trying again.');
         }
       }).finally(()=>{apply.disabled=false;});
     });
     files.append(connect,form);
 
-    const notifications=card('Notifications',
-      'Get a native Nextcloud notification when a download finishes or fails.');
+    const notifications=card(t('downloader_bridge', 'Notifications'),
+      t('downloader_bridge', 'Get a native Nextcloud notification when a download finishes or fails.'));
     function check(name:string,key:'notify_finished'|'notify_failed',value:boolean){
       const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=value;
       checkbox.addEventListener('change',()=>changed(key,checkbox.checked));
       const holder=element('label',name);holder.className='downloader-check';holder.prepend(checkbox);
       notifications.append(holder);
     }
-    check('Notify me when a download finishes','notify_finished',data.notify_finished!==false);
-    check('Notify me if a download fails','notify_failed',data.notify_failed!==false);
+    check(t('downloader_bridge', 'Notify me when a download finishes'),'notify_finished',data.notify_finished!==false);
+    check(t('downloader_bridge', 'Notify me if a download fails'),'notify_failed',data.notify_failed!==false);
 
     const advanced=element('details');advanced.className='downloader-advanced';
-    const toggle=element('summary','Advanced — technical engine settings');
-    const explanation=element('p','JSON options are for administrators and experienced users only.');
+    const toggle=element('summary',t('downloader_bridge', 'Advanced — technical engine settings'));
+    const explanation=element('p',t('downloader_bridge', 'JSON options are for administrators and experienced users only.'));
     const json=element('textarea');json.rows=6;
     json.value=JSON.stringify(data.engine_settings||{},null,2);
-    const saveJson=element('button','Save advanced settings');
+    const saveJson=element('button',t('downloader_bridge', 'Save advanced settings'));
     saveJson.type='button';
     saveJson.addEventListener('click',()=>{
       try {
@@ -502,22 +508,22 @@ function start() {
         if(!value||typeof value!=='object'||Array.isArray(value))throw Error();
         changed('engine_settings',value);
       }catch{
-        status.firstChild!.textContent='Engine settings must be a JSON object.';
+        status.firstChild!.textContent=t('downloader_bridge', 'Engine settings must be a JSON object.');
         retry.hidden=true;
       }
     });
     advanced.append(toggle);
     renderCookieVault(advanced,api);
-    advanced.append(explanation,label('Engine settings JSON',json),saveJson);
+    advanced.append(explanation,label(t('downloader_bridge', 'Engine settings JSON'),json),saveJson);
     root.append(advanced);
   }
   async function reload(){
     try{
       const data=await api<Personal>('/settings');
       setup(data);
-      status.firstChild!.textContent='All changes save automatically.';
+      status.firstChild!.textContent=t('downloader_bridge', 'All changes save automatically.');
     }catch(error){
-      status.firstChild!.textContent=error instanceof Error?error.message:'Could not load settings.';
+      status.firstChild!.textContent=error instanceof Error?error.message:t('downloader_bridge', 'Could not load settings.');
     }
   }
   void reload();
