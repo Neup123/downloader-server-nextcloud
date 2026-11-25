@@ -328,15 +328,15 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     if (checkbox) {
       audioOnly=e('input'); audioOnly.type='checkbox'; audioOnly.checked=false;
       const toggle=e('label','','dl-audio-toggle');
-      toggle.append(audioOnly,e('span','Audio only'));media.append(toggle);
+      toggle.append(audioOnly,e('span',t('downloader_bridge', 'Audio only')));media.append(toggle);
     } else audioOnly=null;
     const qualityPicker=pick([], 'best');
     quality=qualityPicker;
     const update=()=>{
       const audio=soundOnly || Boolean(audioOnly?.checked);
       const options=audio
-        ? [['best','Best quality'],['192','Up to 192 kbps'],['128','Up to 128 kbps'],['small','Smallest audio']]
-        : [['best','Best quality'],['1080','Up to 1080p'],['720','Up to 720p'],['480','Up to 480p']];
+        ? [['best',t('downloader_bridge', 'Best quality')],['192',t('downloader_bridge', 'Up to 192 kbps')],['128',t('downloader_bridge', 'Up to 128 kbps')],['small',t('downloader_bridge', 'Smallest audio')]]
+        : [['best',t('downloader_bridge', 'Best quality')],['1080',t('downloader_bridge', 'Up to 1080p')],['720',t('downloader_bridge', 'Up to 720p')],['480',t('downloader_bridge', 'Up to 480p')]];
       qualityPicker.replaceChildren(...options.map(([value,label])=>{
         const node=e('option',label); node.value=value; return node;
       }));
@@ -352,24 +352,24 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       }
     });
     update();
-    qualityPicker.setAttribute('aria-label','Quality');
+    qualityPicker.setAttribute('aria-label',t('downloader_bridge', 'Quality'));
     media.append(qualityPicker);
     return media;
   }
   function advancedVideo(subtitleLanguages=[], soundOnly=false) {
     const advanced=e('details','','dl-options');
-    advanced.append(e('summary','Advanced'));
+    advanced.append(e('summary',t('downloader_bridge', 'Advanced')));
     const optionsRow=e('div','','dl-advanced-media-row');
     if(!soundOnly){
       subtitleLanguagesAvailable=subtitleLanguages.length>0;
       const subFrame=e('fieldset','','dl-subtitles-frame');
-      subFrame.append(e('legend','Subtitles'));
+      subFrame.append(e('legend',t('downloader_bridge', 'Subtitles')));
       subtitles=e('input'); subtitles.type='checkbox';subtitles.checked=false;
       const subToggle=e('label','','dl-audio-toggle dl-subtitle-toggle');
-      subToggle.append(subtitles,e('span','Download subtitles'));
+      subToggle.append(subtitles,e('span',t('downloader_bridge', 'Download subtitles')));
       subFrame.append(subToggle);
       const system=(navigator.language||'en').split('-')[0].toLowerCase();
-      subtitleLanguage=pick([['', 'System language ('+system+')'],
+      subtitleLanguage=pick([['', t('downloader_bridge', 'System language ({language})', {language:system})],
         ...subtitleLanguages.filter(lang=>typeof lang==='string' && lang!==system)
           .slice(0,50).map(lang=>[lang,lang])], '');
       subtitleLanguage.disabled=true;
@@ -377,17 +377,17 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         subtitleLanguage.disabled=shouldDisableSubtitleLanguage(
           subtitles.checked,Boolean(audioOnly?.checked),subtitleLanguagesAvailable);
       });
-      subFrame.append(labeled('Subtitle language',subtitleLanguage));
+      subFrame.append(labeled(t('downloader_bridge', 'Subtitle language'),subtitleLanguage));
       if(!subtitleLanguagesAvailable)
-        subFrame.append(e('small','No subtitles available.','dl-subtitles-unavailable'));
+        subFrame.append(e('small',t('downloader_bridge', 'No subtitles available.'),'dl-subtitles-unavailable'));
       optionsRow.append(subFrame);
     } else {subtitles=null;subtitleLanguage=null;}
     container=pick([], 'original');
     const setContainers=()=>{
       const audio=soundOnly||Boolean(audioOnly?.checked);
       const choices=audio
-        ? [['original','Original format'],['m4a','Prefer M4A'],['webm','Prefer WebM']]
-        : [['original','Original format'],['mp4','Prefer MP4'],['webm','Prefer WebM']];
+        ? [['original',t('downloader_bridge', 'Original format')],['m4a',t('downloader_bridge', 'Prefer M4A')],['webm',t('downloader_bridge', 'Prefer WebM')]]
+        : [['original',t('downloader_bridge', 'Original format')],['mp4',t('downloader_bridge', 'Prefer MP4')],['webm',t('downloader_bridge', 'Prefer WebM')]];
       container.replaceChildren(...choices.map(([value,text])=>{
         const option=e('option',text);option.value=value;return option;
       }));
@@ -395,7 +395,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     };
     setContainers();
     audioOnly?.addEventListener('change',setContainers);
-    optionsRow.append(labeled('Format',container));
+    optionsRow.append(labeled(t('downloader_bridge', 'Format'),container));
     advanced.append(optionsRow);
     return advanced;
   }
@@ -404,7 +404,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     containerNode.replaceChildren();
     const filterText=(filter?.value||'').toLowerCase();
     const matching=choices.filter(row=>row.title.toLowerCase().includes(filterText)).slice(0,limit);
-    if(!matching.length)containerNode.append(e('p','No entries match the current filter.','dl-muted'));
+    if(!matching.length)containerNode.append(e('p',t('downloader_bridge', 'No entries match the current filter.'),'dl-muted'));
     for(const row of matching){
       const card=e('label','',type==='playlist'?'dl-playlist-item':'dl-grid-item');
       const check=e('input');check.type='checkbox';check.checked=selected.has(row.index);
@@ -413,7 +413,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if(row.thumbnail){
         const img=e('img'); img.src=row.thumbnail; img.alt=''; img.loading='lazy';
         media.append(img);
-      }else media.append(e('span','Thumbnail unavailable','dl-entry-placeholder'));
+      }else media.append(e('span',t('downloader_bridge', 'Thumbnail unavailable'),'dl-entry-placeholder'));
       const title=e('span',row.title,'dl-entry-caption');
       if(row.subtitle) title.append(e('small',row.subtitle));
       const metadata=previewMeta(row);
@@ -430,7 +430,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       containerNode.append(card);
     }
     if(previewNextOffset!==null && previewNextOffset<=MAX_OFFSET && choices.length<limit) {
-      const sentinel=e('div','Loading additional entries…','dl-load-sentinel');
+      const sentinel=e('div',t('downloader_bridge', 'Loading additional entries…'),'dl-load-sentinel');
       containerNode.append(sentinel);
       if(typeof IntersectionObserver!=='undefined'){
         observation=new IntersectionObserver(entries=>{
@@ -438,7 +438,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         },{root:containerNode,rootMargin:'120px'});
         observation.observe(sentinel);
       }else{
-        const more=e('button','Load next batch');more.type='button';
+        const more=e('button',t('downloader_bridge', 'Load next batch'));more.type='button';
         more.addEventListener('click',()=>{void loadMore(containerNode,type);});
         sentinel.replaceChildren(more);
       }
@@ -476,20 +476,20 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         drawRows(rows,type);refreshSubmit();
       });
       const action=e('label','','dl-audio-toggle');
-      action.append(selectAll,e('span','Select all / none (loaded entries)'));
+      action.append(selectAll,e('span',t('downloader_bridge', 'Select all / none (loaded entries)')));
       operations.append(action);
     }else{
       // The single Advanced section owns all search/filter controls.
       const filters=e('fieldset','','dl-advanced-filters');
-      filters.append(e('legend','Search / filter'));
-      filter=e('input');filter.type='search';filter.placeholder='Filter loaded titles';
+      filters.append(e('legend',t('downloader_bridge', 'Search / filter')));
+      filter=e('input');filter.type='search';filter.placeholder=t('downloader_bridge', 'Filter loaded titles');
       filter.addEventListener('input',()=>{drawRows(rows,type);});
-      filters.append(labeled('Filter loaded items',filter));
-      const count=pick([['all','All available'],['25','25'],['50','50'],['100','100']], 'all');
+      filters.append(labeled(t('downloader_bridge', 'Filter loaded items'),filter));
+      const count=pick([['all',t('downloader_bridge', 'All available')],['25','25'],['50','50'],['100','100']], 'all');
       count.addEventListener('change',()=>{limit=count.value==='all'?Infinity:Number(count.value);drawRows(rows,type);});
-      filters.append(labeled('Maximum visible items',count));
+      filters.append(labeled(t('downloader_bridge', 'Maximum visible items'),count));
       const action=e('label','','dl-audio-toggle');
-      action.append(selectAll,e('span','Check / uncheck loaded items matching filter'));
+      action.append(selectAll,e('span',t('downloader_bridge', 'Check / uncheck loaded items matching filter')));
       selectAll.checked=false;
       selectAll.addEventListener('change',()=>{
         const matching=choices.filter(item=>item.title.toLowerCase().includes(filter.value.toLowerCase())).slice(0,limit);
@@ -499,11 +499,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       filters.append(action);
       if(type==='manga'){
         cbz=e('input');cbz.type='checkbox';cbz.checked=true;
-        const pack=e('label','','dl-audio-toggle');pack.append(cbz,e('span','Pack as a single CBZ file'));
+        const pack=e('label','','dl-audio-toggle');pack.append(cbz,e('span',t('downloader_bridge', 'Pack as a single CBZ file')));
         cbz.addEventListener('change',refreshSubmit);
-        filters.append(pack,e('p','Packing these pages into one comic book file is not available yet. Turn this off to download individual items.','dl-muted'));
-        pageChoice=e('input');pageChoice.placeholder='Page selection is not available yet';pageChoice.disabled=true;
-        filters.append(labeled('Pages',pageChoice));
+        filters.append(pack,e('p',t('downloader_bridge', 'Packing these pages into one comic book file is not available yet. Turn this off to download individual items.'),'dl-muted'));
+        pageChoice=e('input');pageChoice.placeholder=t('downloader_bridge', 'Page selection is not available yet');pageChoice.disabled=true;
+        filters.append(labeled(t('downloader_bridge', 'Pages'),pageChoice));
       }
       advanced.append(filters);
     }
@@ -807,7 +807,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       // or second diagnosis based on an extractor check that did not succeed.
       details.hidden=true;
       if(looksLikeDirectFile(currentUrl)){
-        const tryDirect=e('button','Try as a direct file');tryDirect.type='button';
+        const tryDirect=e('button',t('downloader_bridge', 'Try as a direct file'));tryDirect.type='button';
         tryDirect.addEventListener('click',()=>{void render('direct',null);});
         details.append(tryDirect);
         details.hidden=false;
@@ -899,7 +899,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       if(kind==='playlist'){
         for(const row of choices)selected.add(row.index);
       }else{
-        details.append(e('p','Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.','dl-muted'));
+        details.append(e('p',t('downloader_bridge', 'Items appear in the order received. Some previews may not include dates or pictures; more items can be loaded.'),'dl-muted'));
       }
       details.append(itemPicker(kind,advanced));
     }

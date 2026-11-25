@@ -51,7 +51,7 @@ test('single-video quality, audio/music, subtitles and original container map co
   assert.equal(subs.overrides.subtitles_lang,'en');
   assert.match(dialog,/subtitleLanguage\.disabled=true/);
   assert.match(dialog,/subtitles\.checked=false/);
-  assert.match(dialog,/\['original','Original format'\]/);
+  assert.match(dialog,/\['original',t\('downloader_bridge', 'Original format'\)\]/);
 });
 
 
@@ -401,7 +401,7 @@ test('torrent picker is immediately visible without Inspect/upload, and failures
   assert.ok(picker,'torrentPicker source must exist');
   assert.match(picker,/const picker=e\('div','','dl-picker dl-torrent-picker'\)/);
   assert.match(picker,/picker\.append\(filterPanel,controls,selectionLine,files\)/);
-  assert.doesNotMatch(picker,/e\('details','','dl-options|summary','Advanced'|inspectUploadedTorrent/);
+  assert.doesNotMatch(picker,/e\('details','','dl-options|summary',t\('downloader_bridge', 'Advanced'\)|inspectUploadedTorrent/);
   assert.doesNotMatch(dialog,/dl-torrent-native-file|dl-torrent-upload-row|Choose \.torrent file|inspectUploadedTorrent|torrent_base64/);
   assert.match(dialog,/else details\.append\(torrentPicker\(\)\)/);
   assert.match(dialog,/if\(!manifestFiles\.length\)details\.append\(e\('p',t\('downloader_bridge', 'No selectable files were reported/);
@@ -413,12 +413,12 @@ test('torrent picker is immediately visible without Inspect/upload, and failures
 
 test('channel search and selection filters are nested in the single Advanced fieldset',()=>{
   assert.match(dialog,/const advanced=e\('details','','dl-options'\)/);
-  assert.match(dialog,/advanced\.append\(e\('summary','Advanced'\)\)/);
+  assert.match(dialog,/advanced\.append\(e\('summary',t\('downloader_bridge', 'Advanced'\)\)\)/);
   assert.match(dialog,/function itemPicker\(type, advanced\)/);
   assert.match(dialog,/const filters=e\('fieldset','','dl-advanced-filters'\)/);
-  assert.match(dialog,/filters\.append\(e\('legend','Search \/ filter'\)\)/);
-  assert.match(dialog,/filters\.append\(labeled\('Filter loaded items',filter\)\)/);
-  assert.match(dialog,/filters\.append\(labeled\('Maximum visible items',count\)\)/);
+  assert.match(dialog,/filters\.append\(e\('legend',t\('downloader_bridge', 'Search \/ filter'\)\)\)/);
+  assert.match(dialog,/filters\.append\(labeled\(t\('downloader_bridge', 'Filter loaded items'\),filter\)\)/);
+  assert.match(dialog,/filters\.append\(labeled\(t\('downloader_bridge', 'Maximum visible items'\),count\)\)/);
   assert.match(dialog,/advanced\.append\(filters\)/);
   assert.match(dialog,/details\.append\(itemPicker\(kind,advanced\)\)/);
   assert.match(source,/\.dl-advanced-filters\{display:grid;gap:10px/);
@@ -440,9 +440,9 @@ test('Torrent submission selects actual one-based aria2 file indices and never a
 
 test('advanced subtitle checkbox and label share the Audio only row alignment',()=>{
   assert.match(dialog,/const subToggle=e\('label','','dl-audio-toggle dl-subtitle-toggle'\)/);
-  assert.match(dialog,/subToggle\.append\(subtitles,e\('span','Download subtitles'\)\)/);
+  assert.match(dialog,/subToggle\.append\(subtitles,e\('span',t\('downloader_bridge', 'Download subtitles'\)\)\)/);
   assert.match(dialog,/subFrame\.append\(subToggle\)/);
-  assert.doesNotMatch(dialog,/labeled\('Download subtitles',subtitles\)/);
+  assert.doesNotMatch(dialog,/labeled\(t\('downloader_bridge', 'Download subtitles'\),subtitles\)/);
   assert.match(source,/\.dl-options \.dl-audio-toggle\{display:flex;align-items:center;gap:6px\}/);
   assert.match(source,/\.dl-options \.dl-subtitle-toggle input\{width:18px;height:18px;margin:0\}/);
 });
@@ -451,9 +451,9 @@ test('advanced subtitle checkbox and label share the Audio only row alignment',(
 test('advanced subtitles use an offset legend frame around both controls',()=>{
   const advanced=dialog.split('function advancedVideo(')[1].split('function drawRows(')[0];
   assert.match(advanced,/const subFrame=e\('fieldset','','dl-subtitles-frame'\)/);
-  assert.match(advanced,/subFrame\.append\(e\('legend','Subtitles'\)\)/);
+  assert.match(advanced,/subFrame\.append\(e\('legend',t\('downloader_bridge', 'Subtitles'\)\)\)/);
   assert.match(advanced,/subFrame\.append\(subToggle\)/);
-  assert.match(advanced,/subFrame\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
+  assert.match(advanced,/subFrame\.append\(labeled\(t\('downloader_bridge', 'Subtitle language'\),subtitleLanguage\)\)/);
   assert.match(source,/\.dl-link-dialog \.dl-subtitles-frame\{display:grid;gap:8px;box-sizing:border-box;/);
   assert.match(source,/width:max-content;max-width:100%;min-width:0;margin:0;padding:8px 10px 10px;/);
   assert.match(source,/border:1px solid color-mix\(in srgb,var\(--color-border,#ddd\) 65%,transparent\)/);
@@ -464,8 +464,8 @@ test('Format sits after the subtitles frame in a top-aligned wrapping row',()=>{
   const advanced=dialog.split('function advancedVideo(')[1].split('function drawRows(')[0];
   assert.match(advanced,/const optionsRow=e\('div','','dl-advanced-media-row'\)/);
   assert.ok(advanced.indexOf('optionsRow.append(subFrame)') <
-    advanced.indexOf("optionsRow.append(labeled('Format',container))"));
-  assert.match(advanced,/optionsRow\.append\(labeled\('Format',container\)\)/);
+    advanced.indexOf("optionsRow.append(labeled(t('downloader_bridge', 'Format'),container))"));
+  assert.match(advanced,/optionsRow\.append\(labeled\(t\('downloader_bridge', 'Format'\),container\)\)/);
   assert.match(advanced,/advanced\.append\(optionsRow\)/);
   assert.doesNotMatch(dialog,/labeled\('Container',container\)/);
   assert.match(source,/\.dl-link-dialog \.dl-advanced-media-row\{display:flex;align-items:flex-start;gap:14px;/);
@@ -477,7 +477,7 @@ test('no detected subtitle languages keeps the selector disabled and explains wh
   assert.equal(shouldDisableSubtitleLanguage(true,false,[].length>0),true);
   assert.match(dialog,/subtitleLanguagesAvailable=subtitleLanguages\.length>0/);
   assert.match(dialog,/subtitleLanguage\.disabled=true/);
-  assert.match(dialog,/if\(!subtitleLanguagesAvailable\)\s+subFrame\.append\(e\('small','No subtitles available\.','dl-subtitles-unavailable'\)\)/);
+  assert.match(dialog,/if\(!subtitleLanguagesAvailable\)\s+subFrame\.append\(e\('small',t\('downloader_bridge', 'No subtitles available\.'\),'dl-subtitles-unavailable'\)\)/);
   assert.match(source,/\.dl-link-dialog \.dl-subtitles-frame \.dl-input:disabled\{opacity:\.55;/);
   assert.match(source,/background:var\(--color-background-dark,#f4f4f4\);cursor:not-allowed/);
 });
@@ -516,9 +516,9 @@ test('dialog has no visible title and hides status text unless a problem exists'
 
 
 test('quality picker is inline and accessible without a visible label; other inputs keep content width',()=>{
-  assert.match(dialog,/qualityPicker\.setAttribute\('aria-label','Quality'\)/);
+  assert.match(dialog,/qualityPicker\.setAttribute\('aria-label',t\('downloader_bridge', 'Quality'\)\)/);
   assert.match(dialog,/media\.append\(qualityPicker\)/);
-  assert.doesNotMatch(dialog,/const qualityLabel=labeled\('Quality',qualityPicker\)/);
+  assert.doesNotMatch(dialog,/const qualityLabel=labeled\(t\('downloader_bridge', 'Quality'\),qualityPicker\)/);
   assert.doesNotMatch(dialog,/qualityLabel\.classList\.add\('dl-quality-label'\)/);
   assert.match(source,/\.dl-media-row select\.dl-input\{flex:0 1 auto;width:max-content;max-width:100%\}/);
   assert.match(source,/\.dl-link-dialog select\.dl-input\{width:max-content;field-sizing:content;max-width:100%;/);
@@ -532,13 +532,13 @@ test('quality picker is inline and accessible without a visible label; other inp
   assert.match(source,/\.dl-link-line input\{flex:1;min-width:0\}/);
   assert.match(source,/\.dl-playlist-list\{display:grid/);
   assert.match(source,/\.dl-gallery-grid\{display:grid/);
-  assert.match(dialog,/subFrame\.append\(labeled\('Subtitle language',subtitleLanguage\)\)/);
-  assert.match(dialog,/optionsRow\.append\(labeled\('Format',container\)\)/);
+  assert.match(dialog,/subFrame\.append\(labeled\(t\('downloader_bridge', 'Subtitle language'\),subtitleLanguage\)\)/);
+  assert.match(dialog,/optionsRow\.append\(labeled\(t\('downloader_bridge', 'Format'\),container\)\)/);
 });
 
 
 test('video and audio default to the same plain Best quality label',()=>{
-  assert.equal((dialog.match(/\['best','Best quality'\]/g)||[]).length,2);
+  assert.equal((dialog.match(/\['best',t\('downloader_bridge', 'Best quality'\)\]/g)||[]).length,2);
   assert.doesNotMatch(dialog,/Best available video|Best available audio/);
 });
 
