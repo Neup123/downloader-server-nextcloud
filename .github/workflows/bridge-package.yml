@@ -8,12 +8,9 @@ on:
       - "app/job_states.py"
       - "scripts/bridge_job_state_contract.py"
       - ".github/workflows/bridge-package.yml"
+  # Required checks must not remain pending on path-filtered PRs.
   pull_request:
-    paths:
-      - "bridge/**"
-      - "app/job_states.py"
-      - "scripts/bridge_job_state_contract.py"
-      - ".github/workflows/bridge-package.yml"
+    branches: [main]
   workflow_dispatch:
 
 permissions:

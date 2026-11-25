@@ -54,7 +54,8 @@ class ReadOnlyMergePreviewTests(unittest.TestCase):
             self.assertIn("python3 scripts/run_downstream_acceptance.py", content)
             self.assertIn("git diff --exit-code upstream/main", content)
             self.assertIn("scripts/resolve_upstream_conflicts.py", content)
-        self.assertIn("git push origin HEAD:main", live)
+        self.assertIn('git push origin "HEAD:refs/heads/$branch"', live)
+        self.assertNotIn("git push origin HEAD:main", live)
         self.assertNotIn("git push origin HEAD:main", preview)
 
 

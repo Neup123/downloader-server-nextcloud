@@ -33,7 +33,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         assert generation < stage < verified < downstream
         # The merge may publish only after generated consumers and the
         # separately reviewed downstream suite have passed.
-        assert downstream < content.index("git push origin HEAD:main")
+        assert downstream < content.index("git push origin \"HEAD:refs/heads/$branch\"")
         self.assertLess(
             content.index("python3 -m scripts.bridge_job_state_contract --check"),
             content.index("python3 scripts/run_downstream_acceptance.py"),
@@ -49,7 +49,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertNotIn('"tests/test_audited_*.py"', selector)
         self.assertLess(
             content.index("git diff --exit-code upstream/main -- LICENSE app"),
-            content.index("git push origin HEAD:main"),
+            content.index("git push origin \"HEAD:refs/heads/$branch\""),
         )
 
     def test_nextcloud_web_suite_excludes_imported_standalone_contract_tests(self):
@@ -83,7 +83,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn('actual_main="$(git ls-remote origin refs/heads/main | cut -f1)"', content)
         self.assertIn('if [[ "$actual_main" != "$accepted_sha" ]]', content)
         self.assertLess(
-            content.index("git push origin HEAD:main"),
+            content.index("git push origin \"HEAD:refs/heads/$branch\""),
             content.index('gh workflow run appapi-docker-deploy-e2e.yml --repo "$GITHUB_REPOSITORY" --ref main'),
         )
 
@@ -91,7 +91,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("revalidate_current_main:", content)
         self.assertIn("REVALIDATE_CURRENT_MAIN: ${{ inputs.revalidate_current_main }}", content)
-        self.assertIn('if [[ "$GITHUB_EVENT_NAME" == "push" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]', content)
+        self.assertIn('if [[ "$GITHUB_EVENT_NAME" == "push" || "$GITHUB_EVENT_NAME" == "pull_request" || "$REVALIDATE_CURRENT_MAIN" == "true" ]]', content)
         self.assertIn('echo "reverify=false" >> "$GITHUB_OUTPUT"', content)
         self.assertIn("steps.merge.outputs.changed == 'true' || steps.merge.outputs.reverify == 'true'", content)
         self.assertIn("python3 scripts/record_core_sync.py", content)
@@ -108,6 +108,35 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("if: steps.merge.outputs.reverify == 'true'", content)
         self.assertIn("if: steps.merge.outputs.changed == 'true'", content)
 
+    def test_sync_candidate_has_no_direct_main_push_or_bypass(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("git push origin HEAD:main", content)
+        self.assertNotIn("gh pr merge", content)
+        self.assertIn("pull-requests: write", content)
+        self.assertIn("types: [closed]", content)
+        self.assertIn("github.event.pull_request.merged == true", content)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", content)
+        self.assertIn('git merge-base --is-ancestor "$ACCEPTED_PR_HEAD" HEAD', content)
+        self.assertIn('test "$(git rev-parse HEAD^2)" = "$core_sha"', content)
+        self.assertIn('test "$(git rev-parse FETCH_HEAD^2)" = "$core_sha"', content)
+        self.assertIn("tested-candidate-not-accepted-main", content)
+        self.assertIn('"accepted_main": False', content)
+        self.assertIn('gh pr create --repo "$GITHUB_REPOSITORY" --base main', content)
+        self.assertIn("Use a merge commit, not squash or rebase", content)
+        self.assertIn("if: steps.merge.outputs.reverify == 'true'", content)
+
+    def test_required_pr_checks_are_not_path_filtered(self):
+        for name in (
+            "nextcloud-preflight.yml", "live-nextcloud-preflight.yml",
+            "appapi-docker-deploy-e2e.yml", "bridge-package.yml",
+            "nextcloud-exapp-build.yml",
+        ):
+            source = (ROOT / ".github/workflows" / name).read_text()
+            pr_trigger = source.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+            self.assertIn("branches: [main]", pr_trigger)
+            self.assertNotIn("paths:", pr_trigger)
+            self.assertNotIn("paths-ignore:", pr_trigger)
+
     def test_no_unverified_or_unsafe_merges(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git merge-base --is-ancestor", content)
@@ -117,8 +146,8 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         self.assertIn("git diff --exit-code upstream/main -- BLUEPRINT.md", content)
         self.assertIn("python -m pytest -q", content)
         self.assertIn("docker build --tag downloader-server:nextcloud-upstream-acceptance .", content)
-        self.assertLess(content.index("python -m pytest -q"), content.index("git push origin HEAD:main"))
-        self.assertLess(content.index("docker build --tag"), content.index("git push origin HEAD:main"))
+        self.assertLess(content.index("python -m pytest -q"), content.index("git push origin \"HEAD:refs/heads/$branch\""))
+        self.assertLess(content.index("docker build --tag"), content.index("git push origin \"HEAD:refs/heads/$branch\""))
         self.assertIn("git restore --source=HEAD --staged --worktree README.md .github/workflows", content)
         self.assertNotIn("--allow-unrelated-histories", content)
         self.assertLess(content.index("python3 scripts/resolve_upstream_conflicts.py"), content.index("python -m pytest -q"))
