@@ -32,6 +32,7 @@ DOWNSTREAM = frozenset({
 # Use core CI workflow versions *temporarily* while running the merged core
 # test suite, then restore the Nextcloud CI directory before committing.
 CORE_TEST_ONLY = frozenset({
+    ".github/workflows/test.yml",
     ".github/workflows/live-nextcloud-e2e.yml",
     ".github/workflows/egress-guard-e2e.yml",
     ".github/workflows/manual-p2-site-webdav.yml",
