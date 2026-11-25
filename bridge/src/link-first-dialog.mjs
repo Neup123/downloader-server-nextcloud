@@ -546,13 +546,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
 
     const controls=e('div','','dl-torrent-controls');
     const viewControl=e('div','','dl-torrent-control');
-    viewControl.append(e('span','View','dl-torrent-control-label'));
+    viewControl.append(e('span',t('downloader_bridge', 'View'),'dl-torrent-control-label'));
     const segment=e('div','','dl-torrent-view-toggle dl-segmented-toggle');
-    segment.setAttribute('role','group');segment.setAttribute('aria-label','File view');
+    segment.setAttribute('role','group');segment.setAttribute('aria-label',t('downloader_bridge', 'File view'));
     const slider=e('span','','dl-torrent-view-slider dl-segmented-slider');
     slider.setAttribute('aria-hidden','true');
-    const treeButton=iconButton('tree','Tree view');
-    const flatButton=iconButton('list','Flat list');
+    const treeButton=iconButton('tree',t('downloader_bridge', 'Tree view'));
+    const flatButton=iconButton('list',t('downloader_bridge', 'Flat list'));
     treeButton.classList.add('dl-torrent-view-button','dl-segmented-button');
     flatButton.classList.add('dl-torrent-view-button','dl-segmented-button');
     segment.append(slider,treeButton,flatButton);
@@ -568,11 +568,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
 
     // Desktop-style unified sort menu: one checked type, one checked direction.
     const sortControl=e('div','','dl-torrent-control dl-torrent-sort-control');
-    const sortButton=iconButton('sort','Order by');
+    const sortButton=iconButton('sort',t('downloader_bridge', 'Order by'));
     sortButton.setAttribute('aria-haspopup','menu');
     sortButton.setAttribute('aria-expanded','false');
     const sortMenu=e('div','','dl-torrent-sort-menu');
-    sortMenu.setAttribute('role','menu');sortMenu.setAttribute('aria-label','Order by');
+    sortMenu.setAttribute('role','menu');sortMenu.setAttribute('aria-label',t('downloader_bridge', 'Order by'));
     sortMenu.hidden=true;
     const sortOptions=[];
     const sortOption=(group,value,label)=>{
@@ -590,11 +590,11 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     const divider=e('div','','dl-torrent-sort-divider');
     divider.setAttribute('role','separator');
     sortMenu.append(
-      sortOption('type','name','Name'),
-      sortOption('type','size','Size'),
+      sortOption('type','name',t('downloader_bridge', 'Name')),
+      sortOption('type','size',t('downloader_bridge', 'Size')),
       divider,
-      sortOption('direction','asc','Ascending (A–Z)'),
-      sortOption('direction','desc','Descending (Z–A)')
+      sortOption('direction','asc',t('downloader_bridge', 'Ascending (A–Z)')),
+      sortOption('direction','desc',t('downloader_bridge', 'Descending (Z–A)'))
     );
     const updateSortMenu=()=>{
       for(const {button,group,value,tick} of sortOptions){
@@ -602,8 +602,10 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         button.setAttribute('aria-checked',String(checked));
         tick.hidden=!checked;
       }
-      sortButton.title='Order by: '+(order==='name'?'Name':'Size')+
-        ', '+(direction==='asc'?'ascending':'descending');
+      sortButton.title=t('downloader_bridge', 'Order by: {field}, {direction}', {
+        field:order==='name'?t('downloader_bridge', 'Name'):t('downloader_bridge', 'Size'),
+        direction:direction==='asc'?t('downloader_bridge', 'ascending'):t('downloader_bridge', 'descending'),
+      });
     };
     const closeSortMenu=()=>{
       sortMenu.hidden=true;sortButton.setAttribute('aria-expanded','false');
@@ -632,9 +634,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     // Always-visible filters, laid out in the order they are used.
     const filterPanel=e('div','','dl-torrent-filter-panel');
     filterPanel.setAttribute('role','group');
-    filterPanel.setAttribute('aria-label','Torrent file filters');
+    filterPanel.setAttribute('aria-label',t('downloader_bridge', 'Torrent file filters'));
     const typeGroup=e('fieldset','','dl-torrent-type-filter');
-    typeGroup.append(e('legend','File type'));
+    typeGroup.append(e('legend',t('downloader_bridge', 'File type')));
     const typeOptions=e('div','','dl-torrent-type-options');
     for(const ext of availableExtensions){
       const label=e('label','','dl-torrent-type-option');
@@ -643,17 +645,17 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         if(check.checked)extensions.add(ext);else extensions.delete(ext);
         draw();
       });
-      label.append(check,e('span',ext?ext.slice(1):'No extension'));
+      label.append(check,e('span',ext?ext.slice(1):t('downloader_bridge', 'No extension')));
       typeOptions.append(label);
     }
     typeGroup.append(typeOptions);
     const sizeGroup=e('fieldset','','dl-torrent-size-filter');
-    sizeGroup.append(e('legend','File size (MiB)'));
+    sizeGroup.append(e('legend',t('downloader_bridge', 'File size (MiB)')));
     const sizeBounds=e('div','','dl-torrent-size-bounds');
     const minimum=e('input','','dl-input');minimum.type='number';
-    minimum.min='0';minimum.step='any';minimum.placeholder='Min';
+    minimum.min='0';minimum.step='any';minimum.placeholder=t('downloader_bridge', 'Min');
     const maximum=e('input','','dl-input');maximum.type='number';
-    maximum.min='0';maximum.step='any';maximum.placeholder='Max';
+    maximum.min='0';maximum.step='any';maximum.placeholder=t('downloader_bridge', 'Max');
     const readBound=(input,fallback)=>{
       if(input.value.trim()==='')return fallback;
       const value=Number(input.value);
@@ -666,19 +668,19 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     };
     minimum.addEventListener('input',updateBounds);
     maximum.addEventListener('input',updateBounds);
-    sizeBounds.append(labeled('Minimum',minimum),labeled('Maximum',maximum));
+    sizeBounds.append(labeled(t('downloader_bridge', 'Minimum'),minimum),labeled(t('downloader_bridge', 'Maximum'),maximum));
     sizeGroup.append(sizeBounds);
     const nameGroup=e('fieldset','','dl-torrent-name-filter');
-    nameGroup.append(e('legend','File name'));
+    nameGroup.append(e('legend',t('downloader_bridge', 'File name')));
     const query=e('input','','dl-input');query.type='search';
-    query.placeholder='File name';query.setAttribute('aria-label','Filter by file name');
+    query.placeholder=t('downloader_bridge', 'File name');query.setAttribute('aria-label',t('downloader_bridge', 'Filter by file name'));
     query.addEventListener('input',draw);
     nameGroup.append(query);
     const pathGroup=e('fieldset','','dl-torrent-path-filter');
-    pathGroup.append(e('legend','Path name'));
+    pathGroup.append(e('legend',t('downloader_bridge', 'Path name')));
     const pathQuery=e('input','','dl-input');pathQuery.type='search';
-    pathQuery.placeholder='Path segment';
-    pathQuery.setAttribute('aria-label','Filter by partial path segment');
+    pathQuery.placeholder=t('downloader_bridge', 'Path segment');
+    pathQuery.setAttribute('aria-label',t('downloader_bridge', 'Filter by partial path segment'));
     pathQuery.addEventListener('input',draw);
     pathGroup.append(pathQuery);
     filterPanel.append(typeGroup,sizeGroup,nameGroup,pathGroup);
@@ -702,8 +704,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         check.disabled=scopeRows.length===0;
         sizeOutput.textContent=sizeLabel(torrentSelectedBytes(totalRows,selected));
       }
-      count.textContent=selected.size+' of '+manifestFiles.length+' files selected · '+
-        sizeLabel(torrentSelectedBytes(manifestFiles,selected))+' total';
+      count.textContent=t('downloader_bridge', '{selected} of {total} files selected · {size} total', {
+        selected:selected.size,total:manifestFiles.length,size:sizeLabel(torrentSelectedBytes(manifestFiles,selected)),
+      });
     }
     function applyScope(rows,checked){
       selected=chooseFiltered(selected,rows,checked);
@@ -711,7 +714,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     }
     function folderCheck(rows,name,scopeRows,totalRows,sizeOutput){
       const check=e('input');check.type='checkbox';
-      check.setAttribute('aria-label','Select files in '+name);
+      check.setAttribute('aria-label',t('downloader_bridge', 'Select files in {name}', {name}));
       check.addEventListener('click',event=>event.stopPropagation());
       check.addEventListener('change',()=>applyScope(scopeRows,check.checked));
       folderChecks.push({check,rows,scopeRows,totalRows,sizeOutput});
@@ -771,9 +774,9 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
       const fullTree=torrentTree(manifestFiles);
       // Root affects ALL manifest files, irrespective of filters. Its displayed
       // checkbox state remains visible-only, like every other folder.
-      const {group,children}=folderRow('All files',matches,manifestFiles,manifestFiles);
+      const {group,children}=folderRow(t('downloader_bridge', 'All files'),matches,manifestFiles,manifestFiles);
       group.classList.add('dl-torrent-all-files');
-      if(!matches.length)children.append(e('p','No files match the current filter.','dl-muted'));
+      if(!matches.length)children.append(e('p',t('downloader_bridge', 'No files match the current filter.'),'dl-muted'));
       else if(view==='tree')drawTree(torrentTree(matches),fullTree,children);
       else for(const file of matches)children.append(fileLabel(file,true));
       files.append(group);
@@ -787,7 +790,7 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
     torrentSource=manifestFiles.length ? 'magnet' : 'none';
     selected=new Set(manifestFiles.map(item=>item.index));
     details.replaceChildren();
-    if(!manifestFiles.length)details.append(e('p','No selectable files were reported for this torrent.','dl-muted'));
+    if(!manifestFiles.length)details.append(e('p',t('downloader_bridge', 'No selectable files were reported for this torrent.'),'dl-muted'));
     else details.append(torrentPicker());
     refreshSubmit();
   }
