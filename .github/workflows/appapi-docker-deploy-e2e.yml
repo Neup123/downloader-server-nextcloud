@@ -300,7 +300,27 @@ jobs:
               payload={"allowed_users": "alice", "allowed_groups": "downloader-allowed"}
           ), timeout=45) as response:
               allowed = json.load(response)
-          assert "alice" in allowed["allowed_users"]
+          assert allowed == {"allowed_users": "alice", "allowed_groups": "downloader-allowed"}
+          # Verify exact live directory validation before either setting is written.
+          for identity, payload, status, message in (
+              ("admin", {"allowed_users": "missing-fixture-user", "allowed_groups": "downloader-allowed"},
+               422, "Unknown Nextcloud user IDs"),
+              ("admin", {"allowed_users": "bob", "allowed_groups": "missing-fixture-group"},
+               422, "Unknown Nextcloud group IDs"),
+              ("alice", {"allowed_users": "bob", "allowed_groups": "downloader-allowed"},
+               403, "administrator required"),
+          ):
+              try:
+                  urlopen(signed_request(identity, "/admin/api/entitlements", method="PUT",
+                                         payload=payload), timeout=45)
+              except HTTPError as exc:
+                  assert exc.code == status, (identity, exc.code, status)
+                  assert message in json.load(exc)["detail"], message
+              else:
+                  raise AssertionError("Unknown ID or non-admin entitlement write was accepted")
+              with urlopen(signed_request("admin", "/admin/api/entitlements"), timeout=30) as response:
+                  assert json.load(response) == allowed, "Rejected entitlement patch changed a setting"
+          print("Real AppAPI signed entitlement saves: exact directory IDs, no writes on invalid patch, non-admin denied PASS")
 
           with urlopen(signed_request("alice", "/user/api/me"), timeout=30) as response:
               identity = json.load(response)
