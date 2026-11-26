@@ -114,7 +114,7 @@
       const label=document.createElement('span');label.textContent=item.name;
       const remove=document.createElement('button');remove.type='button';remove.textContent='×';
       remove.title='Remove '+item.name;remove.setAttribute('aria-label',remove.title);
-      remove.addEventListener('click',()=>{selected[kind].delete(id);render()});
+      remove.addEventListener('click',()=>{selected[kind].delete(id);render();el('search').focus()});
       chip.append(label,remove);parent.append(chip);
     }
     if(!parent.children.length){const empty=document.createElement('span');empty.className='muted text-sm';empty.textContent='None selected';parent.append(empty)}
@@ -127,7 +127,14 @@
       const label=document.createElement('label');label.className='choice';
       const input=document.createElement('input');input.type='checkbox';input.checked=selected[item.kind].has(item.id);
       input.setAttribute('aria-label','Grant access to '+item.name);
-      input.addEventListener('change',()=>{if(input.checked)selected[item.kind].add(item.id);else selected[item.kind].delete(item.id);render()});
+      input.dataset.directoryId=item.id;input.dataset.directoryKind=item.kind;
+      input.addEventListener('change',()=>{
+        if(input.checked)selected[item.kind].add(item.id);else selected[item.kind].delete(item.id);
+        render();
+        const replacement=[...el('results').querySelectorAll('input')].find(candidate=>
+          candidate.dataset.directoryId===item.id&&candidate.dataset.directoryKind===item.kind);
+        (replacement||el('search')).focus();
+      });
       const body=document.createElement('span');body.className='flex-1';
       const name=document.createElement('strong');name.textContent=item.name;
       const detail=document.createElement('div');detail.className='secondary';detail.textContent=(item.kind==='groups'?'Group · ':'Person · ')+item.detail;
