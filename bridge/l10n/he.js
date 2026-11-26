@@ -336,5 +336,9 @@ OC.L10N.register("downloader_bridge", {
   "Nextcloud routing unavailable": "הניתוב של Nextcloud אינו זמין",
   "Downloader request failed ({status})": "בקשת Downloader נכשלה ({status})",
   "Downloads are not enabled for your account. Ask your Nextcloud administrator for access.": "הורדות אינן מופעלות בחשבון זה. פנו למנהל Nextcloud לקבלת גישה.",
-  "Loading your download history…": "טוען את היסטוריית ההורדות שלכם…"
+  "Loading your download history…": "טוען את היסטוריית ההורדות שלכם…",
+  "Starting": "מתחיל",
+  "Extracting": "מחלץ",
+  "Post-processing": "עיבוד לאחר הורדה",
+  "Unknown status: {status}": "מצב לא ידוע: {status}"
 }, "nplurals=2; plural=(n != 1);");
