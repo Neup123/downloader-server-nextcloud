@@ -8,7 +8,7 @@ import {
 const dialogSource=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
 const bridgeSource=readFileSync(new URL('../src/bridge.ts',import.meta.url),'utf8');
 
-function fakeDocument() {
+function fakeDocument(lang = 'en') {
   function createElement(tagName) {
     const classNames=new Set();
     return {
@@ -33,12 +33,14 @@ function fakeDocument() {
       remove() {},
     };
   }
-  return {createElement, body: createElement('body')};
+  return {createElement, body: createElement('body'), documentElement:{lang}};
 }
 
-async function detectedDialog(link, preview) {
+async function detectedDialog(link, preview, lang='en', direction='ltr') {
   const previous=globalThis.document;
-  globalThis.document=fakeDocument();
+  const previousComputedStyle=globalThis.getComputedStyle;
+  globalThis.document=fakeDocument(lang);
+  globalThis.getComputedStyle=()=>({direction});
   try {
     const dialog=showLinkDialog({
       folder: null, suggested: link,
@@ -51,9 +53,11 @@ async function detectedDialog(link, preview) {
     // The detection starts immediately for a supplied link.
     await new Promise(resolve => setImmediate(resolve));
     const [, status, connectionHelp, details, buttons]=dialog.children[0].children;
-    return {status, details, buttons};
+    return {status, details, buttons, direction:dialog.dir};
   } finally {
     globalThis.document=previous;
+    if(previousComputedStyle===undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle=previousComputedStyle;
   }
 }
 
@@ -213,4 +217,12 @@ test('bridge preserves structured preview HTTP status, not a raw Core error mess
   assert.match(bridgeSource,/throw failure;/);
   assert.match(dialogSource,/classifyLinkFailure\(value,error\)/);
   assert.doesNotMatch(dialogSource,/message\(error\.message\)|message\(error instanceof Error/);
+});
+
+test('Link dialog direction follows the actual Nextcloud document locale and host direction', async()=>{
+  const never=()=>{throw new Error('No preview for malformed URL');};
+  assert.equal((await detectedDialog('bad',never,'en')).direction,'ltr');
+  assert.equal((await detectedDialog('bad',never,'he')).direction,'rtl');
+  assert.equal((await detectedDialog('bad',never,'ar')).direction,'rtl');
+  assert.equal((await detectedDialog('bad',never,'en','rtl')).direction,'rtl');
 });
