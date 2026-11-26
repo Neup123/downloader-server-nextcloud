@@ -164,3 +164,32 @@ test('Cookie vault translated labels keep dynamic site names as replacements, ne
   const form=readFileSync(new URL('../lib/Settings/PersonalSettings.php',import.meta.url),'utf8');
   assert.ok(form.indexOf('Util::addTranslations')<form.indexOf('Util::addScript'));
 });
+
+import {previewSelectionSummary, previewRows, previewMeta} from '../src/link-first-dialog.mjs';
+
+test('Remaining dynamic Link and Library messages are extracted and keep named replacements',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  const keys=["Untitled","About {size}","Size not available","{selected} of {total} selected","0 B selected","About {size} for {count} sized item","About {size} for {count} sized items","{size} for {count} sized item","{size} for {count} sized items","size unknown for {count} item","size unknown for {count} items","Please review your download options and try again.","A secure browser connection is required to start downloads.","Downloader is unavailable. Retry in a moment.","Source: {url}","Verified","Awaiting verification","{count} history entries hidden. Files were not deleted.","More actions for {name}","{count} downloads queued to retry.","Download skipped: a file already exists in Nextcloud Files. The existing file was kept."];
+  for(const key of keys){
+    assert.ok([dialog,library,labels].some(source=>source.includes("t('downloader_bridge', '"+key+"'")),key);
+    assert.equal(typeof catalog.translations[key],'string',key);
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
+  }
+  const previous=globalThis.t;
+  try{
+    globalThis.t=(app,key,values={})=>{assert.equal(app,'downloader_bridge');return (catalog.translations[key]||key).replace(/\{(\w+)\}/g,(_,name)=>values[name]);};
+    const rows=previewRows({entries:[{index:1,size_estimate_bytes:1024},{index:2}]});
+    assert.equal(rows[0].title,catalog.translations.Untitled);
+    assert.equal(previewMeta(rows[0]),'כ־1.0 KiB');
+    assert.equal(previewSelectionSummary(rows,new Set([1,2])),'נבחרו 2 מתוך 2 · כ־1.0 KiB עבור פריט אחד (1) שגודלו ידוע · גודל לא ידוע עבור פריט אחד (1)');
+  }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
+  assert.equal(previewSelectionSummary([{index:1,size_bytes:1024}],new Set([1])),'1 of 1 selected · 1.0 KiB for 1 sized item');
+});
+
+test('Torrent segmented control mirrors movement in RTL; Library menu uses logical axes',()=>{
+  assert.match(bridge,/inset-block:3px;inset-inline-start:3px/);
+  assert.match(bridge,/data-view=flat\]:dir\(rtl\) \.dl-segmented-slider/);
+  assert.match(bridge,/translateX\(calc\(-100% - 1px\)\)/);
+  assert.match(bridge,/\.dl-torrent-expander:dir\(rtl\)/);
+  assert.match(library,/inset-inline-end:0;inset-block-start:100%/);
+});
