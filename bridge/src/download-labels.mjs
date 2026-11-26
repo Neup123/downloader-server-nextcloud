@@ -53,7 +53,7 @@ export function downloadSymbol(job) {
   return '↓';
 }
 
-export const SKIPPED_DETAIL = 'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.';
+export const SKIPPED_DETAIL = t('downloader_bridge', 'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.');
 
 /** @param {Job} job */
 export function downloadStatusDetail(job) {
