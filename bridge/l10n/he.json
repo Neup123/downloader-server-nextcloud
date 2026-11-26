@@ -320,7 +320,24 @@
     "{count} history entries hidden. Files were not deleted.": "{count} רשומות הוסתרו מההיסטוריה. הקבצים לא נמחקו.",
     "More actions for {name}": "פעולות נוספות עבור {name}",
     "{count} downloads queued to retry.": "{count} הורדות נוספו לתור לניסיון חוזר.",
-    "Download skipped: a file already exists in Nextcloud Files. The existing file was kept.": "ההורדה דולגה: קובץ כבר קיים ב־Nextcloud Files. הקובץ הקיים נשמר."
+    "Download skipped: a file already exists in Nextcloud Files. The existing file was kept.": "ההורדה דולגה: קובץ כבר קיים ב־Nextcloud Files. הקובץ הקיים נשמר.",
+    "Checking download source…": "בודק את מקור ההורדה…",
+    "No Downloader source is associated with this file.": "לא משויך מקור של Downloader לקובץ זה.",
+    "Original download source": "מקור ההורדה המקורי",
+    "Filename": "שם הקובץ",
+    "Unknown": "לא ידוע",
+    "Downloaded by": "הורד על ידי",
+    "Downloaded on": "תאריך הורדה",
+    "Date unavailable": "תאריך לא זמין",
+    "Engine": "מנוע",
+    "Re-download from source": "הורדה חוזרת מהמקור",
+    "Use a secure browser to queue a re-download.": "השתמשו בחיבור דפדפן מאובטח כדי להוסיף הורדה חוזרת לתור.",
+    "Could not re-download source": "לא ניתן להוריד שוב מהמקור",
+    "Unable to check download source. Open Downloads to retry.": "לא ניתן לבדוק את מקור ההורדה. פתחו את ההורדות ונסו שוב.",
+    "Nextcloud routing unavailable": "הניתוב של Nextcloud אינו זמין",
+    "Downloader request failed ({status})": "בקשת Downloader נכשלה ({status})",
+    "Downloads are not enabled for your account. Ask your Nextcloud administrator for access.": "הורדות אינן מופעלות בחשבון זה. פנו למנהל Nextcloud לקבלת גישה.",
+    "Loading your download history…": "טוען את היסטוריית ההורדות שלכם…"
   },
   "pluralForm": "nplurals=2; plural=(n != 1);"
 }
