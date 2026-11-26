@@ -743,6 +743,45 @@ def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
         raise AssertionError("Disposable Nextcloud did not restart after appearance update")
 
 
+def check_hebrew_native_catalog(page) -> None:
+    """Real installed app translation via Nextcloud's documented forceLanguage.
+
+    Nextcloud 35.0.2 does not ship the stock core Hebrew catalog. This checks
+    the native app's actual rendered Hebrew text independently of global
+    shell locale; the separate Arabic test proves genuine RTL geometry.
+    No DOM attribute or translation function is overridden.
+    """
+    import json
+
+    catalog = json.loads((Path(__file__).resolve().parents[1] /
+                          "bridge/l10n/he.json").read_text(encoding="utf-8"))["translations"]
+    response = page.goto(BASE + "/index.php/apps/downloader_bridge/library?forceLanguage=he",
+                         wait_until="domcontentloaded")
+    assert response and response.status == 200
+    root = page.locator("#downloader-library-app")
+    expect(root.locator(".library-controls")).to_be_visible(timeout=25_000)
+    expect(root.locator("h1")).to_have_text(catalog["My downloads"])
+    expect(root.locator(".library-controls input")).to_have_attribute(
+        "aria-label", catalog["Search by filename or source link"])
+    expect(root.get_by_role("button", name=catalog["Clear history"])).to_be_visible()
+    capture(page, "24-library-hebrew-catalog.png")
+    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+    expect(trigger).to_be_visible(timeout=25_000)
+    trigger.click()
+    page.locator("#downloader-header-popover .dl-popover-add").click()
+    dialog = page.locator("dialog.dl-link-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_have_attribute("aria-label", catalog["Download link"])
+    source = dialog.locator("input[autocomplete='url']")
+    expect(source).to_have_attribute("aria-label", catalog["Source link"])
+    source.fill("not a valid URL")
+    expect(dialog.locator(".dl-detect-status")).to_have_text(
+        catalog["Paste a valid HTTP(S) link or magnet URI."])
+    capture(page, "25-link-dialog-hebrew-catalog.png")
+    page.keyboard.press("Escape")
+    print("Real Nextcloud native Hebrew catalog: Library and Link dialog render translated labels and validation PASS", flush=True)
+
+
 def check_mobile_rtl_and_theme(page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     response = page.goto(BASE + "/index.php/apps/downloader_bridge/library", wait_until="domcontentloaded")
@@ -879,6 +918,7 @@ def main() -> None:
             check_gallery_identity_selector(page)
             check_torrent_selector(page)
             check_real_native_job_journey(page)
+            check_hebrew_native_catalog(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")
