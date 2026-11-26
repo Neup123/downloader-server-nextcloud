@@ -193,3 +193,30 @@ test('Torrent segmented control mirrors movement in RTL; Library menu uses logic
   assert.match(bridge,/\.dl-torrent-expander:dir\(rtl\)/);
   assert.match(library,/inset-inline-end:0;inset-block-start:100%/);
 });
+
+
+test('All literal translation keys in Link, Library and shared native labels exist with matching placeholders',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  for(const [name,source] of Object.entries({dialog,library,labels,bridge})){
+    for(const match of source.matchAll(/t\('downloader_bridge',\s*'((?:\\.|[^'\\])*)'/g)){
+      const key=match[1].replace(/\\'/g,"'");
+      assert.equal(typeof catalog.translations[key],'string',name+': '+key);
+      assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),key);
+    }
+  }
+  // Direct UI literal sinks; symbols, element/attribute names, data and internal
+  // exceptions are not messages. Dynamic copy is checked separately above.
+  for(const source of [dialog,library]){
+    assert.doesNotMatch(source, /\b(?:e|el)\('[a-z0-9]+',\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /\.(?:textContent|placeholder|title)\s*=\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /setAttribute\('aria-label',\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /\bnotify\('[A-Za-z][^']*'/);
+  }
+  const template=readFileSync(new URL('../templates/library.php',import.meta.url),'utf8');
+  for(const key of ['My downloads','Loading your download history…','Downloads are not enabled for your account. Ask your Nextcloud administrator for access.']){
+    assert.ok(template.includes("$l->t('"+key+"')"),key);
+    assert.equal(typeof catalog.translations[key],'string',key);
+  }
+  assert.doesNotMatch(bridge,/gap:0;direction:ltr;/);
+  assert.match(dialog,/dialog\.dir = /);
+});
