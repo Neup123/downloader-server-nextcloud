@@ -63,6 +63,9 @@ class AdminEntitlementPrototypeTests(unittest.TestCase):
         self.assertIn("document.documentElement.dir=", self.source)
         self.assertIn("data-theme", self.source)
         self.assertIn("title='Remove '", self.source)
+        self.assertIn("candidate.dataset.directoryId===item.id", self.source)
+        self.assertIn("(replacement||el('search')).focus()", self.source)
+        self.assertIn("selected[kind].delete(id);render();el('search').focus()", self.source)
         self.assertTrue((ROOT / "docs" / "191-admin-entitlement-prototype.md").is_file())
 
 
