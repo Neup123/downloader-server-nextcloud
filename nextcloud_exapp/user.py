@@ -91,6 +91,40 @@ def parse_entitlements(value: str | None) -> set[str]:
     return {part.strip() for part in re.split(r"[,\n\r]+", value or "") if part.strip()}
 
 
+async def validate_entitlement_patch(admin: UserContext, patch: dict[str, str]) -> None:
+    """Verify every proposed grant against the signed administrator's directory.
+
+    Blank lists revoke grants and do not require a working directory. Exact
+    IDs, not case-insensitive matches or display names, are authoritative.
+    Never write either setting if the directory is unavailable or any ID is
+    unknown. The existing entitlement enforcement remains unchanged.
+    """
+    for key, kind in (("allowed_users", "user"), ("allowed_groups", "group")):
+        ids = parse_entitlements(patch.get(key))
+        if not ids:
+            continue
+        try:
+            # nc_py_api 0.30.3 exposes these provisioning list methods in
+            # NextcloudApp mode; the default unpaginated request lists IDs.
+            directory = (await admin.nc.users.get_list() if kind == "user"
+                         else await admin.nc.users_groups.get_list())
+            if not isinstance(directory, list) or any(
+                not isinstance(identity, str) or not identity for identity in directory
+            ):
+                raise ValueError("Invalid directory response")
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not verify Nextcloud {kind} IDs. No changes saved; retry when the directory is available.",
+            ) from None
+        missing = sorted(ids.difference(directory))
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown Nextcloud {kind} IDs: {', '.join(missing)}. No changes saved.",
+            )
+
+
 async def entitlement(nc: AsyncNextcloudApp, user_id: str) -> bool:
     """The administrator grants individual IDs or group IDs in AppAPI admin settings."""
     allowed_users = parse_entitlements(await nc.appconfig_ex.get_value("allowed_users", ""))
