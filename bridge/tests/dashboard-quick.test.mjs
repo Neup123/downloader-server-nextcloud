@@ -26,8 +26,8 @@ test('Dashboard reviews downloads using shared signed link-first dialog', () => 
 
 test('Provenance remains owner-scoped and readable with download date and engine', () => {
   for (const expected of [
-    "['Filename', record.filename", "['Downloaded by', record.owner_id",
-    "['Downloaded on',", "['Engine', record.engine",
+    "[t('downloader_bridge', 'Filename'), record.filename", "[t('downloader_bridge', 'Downloaded by'), record.owner_id",
+    "[t('downloader_bridge', 'Downloaded on'),", "[t('downloader_bridge', 'Engine'), record.engine",
     'new Date(record.created_at)', 'node(\'dl\'', 'node(\'dt\'', 'node(\'dd\'',
     "'/provenance?file_id='", '/redownload'
   ]) {
