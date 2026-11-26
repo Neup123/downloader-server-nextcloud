@@ -701,7 +701,7 @@ def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
         for catalog in ("core", "lib"):
             check = subprocess.run(
                 ["docker", "exec", app, "sh", "-c",
-                 "test -f /var/www/html/" + catalog + "/l10n/he.json"],
+                 "test -f /var/www/html/" + catalog + "/l10n/ar.json"],
                 check=False, capture_output=True, text=True, timeout=35,
             )
             print("Nextcloud " + catalog + " Arabic catalog: "
