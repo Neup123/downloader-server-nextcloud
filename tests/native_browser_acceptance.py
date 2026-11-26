@@ -834,6 +834,29 @@ def check_mobile_rtl_and_theme(page) -> None:
         in_viewport(page, "dialog.dl-link-dialog")
         in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
         capture(page, "07-link-dialog-mobile-rtl.png")
+        # Use the real Nextcloud RTL shell, with a deterministic manifest.
+        def rtl_manifest(route):
+            route.fulfill(json={"files": [{"index": 1, "path": "Album/file.mp3",
+                                           "name": "file.mp3", "size_bytes": 1024}]})
+        page.route("**/user/api/torrent-manifest", rtl_manifest)
+        try:
+            dialog = page.locator("dialog.dl-link-dialog")
+            dialog.locator("input[aria-label='Source link']").fill(
+                "magnet:?xt=urn:btih:0123456789012345678901234567890123456789")
+            segment = dialog.locator(".dl-segmented-toggle")
+            expect(segment).to_be_visible(timeout=20_000)
+            assert segment.evaluate("(el) => getComputedStyle(el).direction") == "rtl"
+            slider = segment.locator(".dl-segmented-slider")
+            flat = segment.locator("button").last
+            initial_x = slider.bounding_box()["x"]
+            flat.click()
+            expect(flat).to_have_attribute("aria-pressed", "true")
+            page.wait_for_function("(el) => new DOMMatrix(getComputedStyle(el).transform).e < -1",
+                                   arg=slider.element_handle())
+            assert slider.bounding_box()["x"] < initial_x
+            capture(page, "07b-torrent-selector-rtl.png")
+        finally:
+            page.unroute("**/user/api/torrent-manifest", rtl_manifest)
         page.keyboard.press("Escape")
         print("Real Nextcloud 35 Arabic RTL and dark theme config across pages PASS", flush=True)
     finally:
