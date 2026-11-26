@@ -220,3 +220,22 @@ test('All literal translation keys in Link, Library and shared native labels exi
   assert.doesNotMatch(bridge,/gap:0;direction:ltr;/);
   assert.match(dialog,/dialog\.dir = /);
 });
+
+import {ALL_JOB_STATES} from '../src/job-states.generated.mjs';
+
+test('Every current Core job state resolves a native catalog label',()=>{
+  const previous=globalThis.t;
+  try{
+    globalThis.t=(app,key,replacements={})=>{
+      assert.equal(app,'downloader_bridge');
+      assert.equal(typeof catalog.translations[key],'string',key);
+      return catalog.translations[key].replace(/\{(\w+)\}/g,(_,name)=>String(replacements[name]));
+    };
+    for(const state of ALL_JOB_STATES){
+      const value=downloadStatus({id:'fixture',url:'https://example.org/file',status:state});
+      assert.match(value,/[\u0590-\u05ff]/,state);
+      assert.doesNotMatch(value,/undefined/);
+    }
+    assert.equal(downloadStatus({status:'new-state'}),'מצב לא ידוע: new-state');
+  }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
+});
