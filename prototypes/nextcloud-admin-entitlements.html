@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Downloader access | Nextcloud administrator prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{color-scheme:light;--surface:#fff;--page:#f5f7f9;--ink:#202c35;--line:#d9e0e7;--muted:#587080;--brand:#00679e;--focus:#1e88dc;--chip:#edf5fa}
+    html[data-theme=dark]{color-scheme:dark;--surface:#202b34;--page:#131c23;--ink:#edf5fc;--line:#465866;--muted:#b1c1cc;--brand:#80c8ee;--focus:#9cddff;--chip:#324755}
+    body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+    .surface{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+    .muted{color:var(--muted)}
+    button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.55}
+    :is(button,input,summary):focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+    .icon{display:inline-grid;place-items:center;min-width:42px;height:42px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+    .primary{background:#006ba6;color:white;border-radius:8px;padding:.7rem 1rem;font-weight:650}
+    .primary:disabled{background:#5d839b}
+    .chip{display:inline-flex;gap:.4rem;align-items:center;padding:.25rem .35rem .25rem .7rem;border-radius:999px;background:var(--chip);border:1px solid var(--line)}
+    .chip button{border:0;background:transparent;min-width:28px;height:28px;display:grid;place-items:center;border-radius:50%}
+    .search{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:.8rem .9rem;width:100%}
+    .choice{display:flex;align-items:center;gap:.8rem;cursor:pointer;border-bottom:1px solid var(--line);padding:.65rem .75rem;min-height:56px}
+    .choice:hover{background:var(--chip)}.choice:last-child{border-bottom:0}
+    .choice input{width:19px;height:19px;accent-color:#0077b4}
+    .choice .secondary{font-size:12px;color:var(--muted)}
+    .frame{border:1px solid var(--line);border-radius:11px;padding:1.1rem;margin:0;min-width:0}
+    .frame legend{font-weight:650;padding:0 .5rem}
+    .notice{border-inline-start:4px solid #3c91ba;background:var(--chip);padding:.7rem .9rem;border-radius:7px}
+    @media(max-width:660px){.main{padding:12px}.choice{min-height:60px}header .utility span{display:none}.frame{padding:.7rem}}
+  </style>
+</head>
+<body>
+  <header style="background:var(--surface);border-bottom:1px solid var(--line)">
+    <div class="mx-auto max-w-5xl flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+      <div class="flex items-center gap-3">
+        <div class="rounded-full bg-sky-700 text-white w-10 h-10 grid place-items-center font-semibold" aria-hidden="true">NC</div>
+        <div><div class="font-semibold">Nextcloud</div><div class="text-xs muted">Administration / Downloader access</div></div>
+      </div>
+      <div class="utility flex items-center gap-2">
+        <span class="text-sm muted">Administrator · Synthetic demonstration</span>
+        <button id="language" class="icon" type="button" title="Switch language" aria-label="Switch language">EN</button>
+        <button id="theme" class="icon" type="button" title="Switch light/dark theme" aria-label="Switch light/dark theme">◐</button>
+      </div>
+    </div>
+  </header>
+  <main class="main mx-auto max-w-5xl px-4 py-6 space-y-4">
+    <nav aria-label="Breadcrumb" class="text-sm muted">Settings / Administration / Downloader access</nav>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div><h1 class="text-2xl font-bold" id="heading">Who can use Downloader?</h1><p class="muted mt-1">Choose people or groups from your Nextcloud directory.</p></div>
+      <div id="state" class="rounded-full border px-3 py-1 text-sm" role="status" aria-live="polite">No changes</div>
+    </div>
+    <section class="surface p-4 md:p-6 space-y-4" aria-labelledby="heading">
+      <div class="notice text-sm" id="hint">Only selected people and members of selected groups receive access. Nobody else is granted access by default.</div>
+      <div class="grid gap-5 md:grid-cols-2">
+        <fieldset class="frame"><legend>People with access</legend>
+          <p class="muted text-sm mb-2">Grant an individual access, even if their group is not included.</p>
+          <div id="selected-users" class="flex flex-wrap gap-2" aria-label="Selected people"></div>
+        </fieldset>
+        <fieldset class="frame"><legend>Groups with access</legend>
+          <p class="muted text-sm mb-2">Members receive access according to live group membership.</p>
+          <div id="selected-groups" class="flex flex-wrap gap-2" aria-label="Selected groups"></div>
+        </fieldset>
+      </div>
+      <fieldset class="frame max-w-3xl"><legend>Add from directory</legend>
+        <div class="grid gap-3">
+          <label for="search" class="font-medium">Find a person or group</label>
+          <input id="search" type="search" class="search" placeholder="Start typing a name..." autocomplete="off" aria-controls="results" aria-describedby="lookup-help">
+          <p class="text-sm muted" id="lookup-help">Search is simulated with synthetic data. No real Nextcloud directory is accessed.</p>
+          <div role="group" aria-label="Directory category" class="flex gap-2" id="filter">
+            <button type="button" class="icon px-4 min-w-20" aria-pressed="true" data-filter="all" title="Show all entries">All</button>
+            <button type="button" class="icon px-4 min-w-20" aria-pressed="false" data-filter="users" title="Show people">People</button>
+            <button type="button" class="icon px-4 min-w-20" aria-pressed="false" data-filter="groups" title="Show groups">Groups</button>
+          </div>
+          <div id="results" class="rounded-lg border overflow-hidden" style="border-color:var(--line)" role="group" aria-label="Directory search results"></div>
+          <p id="search-state" role="status" aria-live="polite" class="text-sm muted"></p>
+        </div>
+      </fieldset>
+      <details class="text-sm"><summary class="cursor-pointer font-medium">Advanced: internal IDs</summary><p class="muted mt-1">Displayed for diagnosis only. Do not type these IDs in the primary workflow.</p><pre id="ids" class="overflow-auto rounded p-3 mt-2" style="background:var(--page)"></pre></details>
+      <div id="error" role="alert" hidden class="notice"></div>
+      <div class="flex flex-wrap gap-3 items-center justify-end border-t pt-4" style="border-color:var(--line)">
+        <button id="discard" type="button" class="icon px-4" title="Discard unsaved changes">Discard changes</button>
+        <button id="save" type="button" class="primary" disabled>Save access changes</button>
+      </div>
+    </section>
+    <section class="surface p-4 text-sm muted"><strong>Prototype only.</strong> All data is synthetic. The Save control updates this page's mock baseline only. No Nextcloud/Core API calls or real entitlements are changed. The Tailwind CDN styling script may load over the network.</section>
+  </main>
+<script>
+(() => {
+  'use strict';
+  const people = [
+    {id:'demo-user-anna',name:'Anna Example',kind:'users',detail:'anna · active user'},
+    {id:'demo-user-david',name:'David Sample',kind:'users',detail:'david · active user'},
+    {id:'demo-user-eleni',name:'Eleni Test',kind:'users',detail:'eleni · active user'},
+    {id:'demo-user-noa',name:'Noa Placeholder',kind:'users',detail:'noa · active user'},
+  ];
+  const groups = [
+    {id:'demo-group-volunteers',name:'Volunteers',kind:'groups',detail:'7 members'},
+    {id:'demo-group-operations',name:'Operations',kind:'groups',detail:'4 members'},
+    {id:'demo-group-admins',name:'Administrators',kind:'groups',detail:'2 members'},
+  ];
+  const directory=[...people,...groups];
+  let saved={users:new Set(['demo-user-anna']),groups:new Set(['demo-group-volunteers'])};
+  let selected=clone(saved),filter='all',hebrew=false;
+  const el=id=>document.getElementById(id);
+  const byId=id=>directory.find(item=>item.id===id);
+  const same=()=>['users','groups'].every(kind=>selected[kind].size===saved[kind].size&&[...selected[kind]].every(x=>saved[kind].has(x)));
+  function clone(value){return {users:new Set(value.users),groups:new Set(value.groups)}}
+  function mark(){const dirty=!same();el('state').textContent=dirty?'Unsaved changes':'No changes';el('save').disabled=!dirty;el('discard').disabled=!dirty;el('error').hidden=true;el('error').textContent=''}
+  function renderChips(kind){
+    const parent=el('selected-'+kind);parent.replaceChildren();
+    for(const id of selected[kind]){
+      const item=byId(id);if(!item)continue;
+      const chip=document.createElement('span');chip.className='chip';
+      const label=document.createElement('span');label.textContent=item.name;
+      const remove=document.createElement('button');remove.type='button';remove.textContent='×';
+      remove.title='Remove '+item.name;remove.setAttribute('aria-label',remove.title);
+      remove.addEventListener('click',()=>{selected[kind].delete(id);render();el('search').focus()});
+      chip.append(label,remove);parent.append(chip);
+    }
+    if(!parent.children.length){const empty=document.createElement('span');empty.className='muted text-sm';empty.textContent='None selected';parent.append(empty)}
+  }
+  function renderDirectory(){
+    const term=el('search').value.trim().toLocaleLowerCase();
+    const hits=directory.filter(item=>(filter==='all'||item.kind===filter)&&(item.name.toLocaleLowerCase().includes(term)||item.detail.toLocaleLowerCase().includes(term)));
+    el('results').replaceChildren();
+    for(const item of hits){
+      const label=document.createElement('label');label.className='choice';
+      const input=document.createElement('input');input.type='checkbox';input.checked=selected[item.kind].has(item.id);
+      input.setAttribute('aria-label','Grant access to '+item.name);
+      input.dataset.directoryId=item.id;input.dataset.directoryKind=item.kind;
+      input.addEventListener('change',()=>{
+        if(input.checked)selected[item.kind].add(item.id);else selected[item.kind].delete(item.id);
+        render();
+        const replacement=[...el('results').querySelectorAll('input')].find(candidate=>
+          candidate.dataset.directoryId===item.id&&candidate.dataset.directoryKind===item.kind);
+        (replacement||el('search')).focus();
+      });
+      const body=document.createElement('span');body.className='flex-1';
+      const name=document.createElement('strong');name.textContent=item.name;
+      const detail=document.createElement('div');detail.className='secondary';detail.textContent=(item.kind==='groups'?'Group · ':'Person · ')+item.detail;
+      body.append(name,detail);label.append(input,body);el('results').append(label);
+    }
+    el('search-state').textContent=hits.length?hits.length+' directory entries shown':'No matches. Check the spelling or try another search.';
+  }
+  function render(){
+    renderChips('users');renderChips('groups');renderDirectory();
+    el('ids').textContent=JSON.stringify({users:[...selected.users],groups:[...selected.groups]},null,2);
+    mark();
+  }
+  for(const button of el('filter').querySelectorAll('button')){
+    button.addEventListener('click',()=>{
+      filter=button.dataset.filter;for(const other of el('filter').querySelectorAll('button'))other.setAttribute('aria-pressed',String(other===button));renderDirectory();
+    });
+  }
+  el('search').addEventListener('input',renderDirectory);
+  el('discard').addEventListener('click',()=>{selected=clone(saved);render()});
+  el('save').addEventListener('click',()=>{
+    if(same())return;
+    // Prototype only: updates local in-memory mock baseline, never any server.
+    saved=clone(selected);render();el('state').textContent='Saved in demo only';
+  });
+  el('theme').addEventListener('click',()=>{
+    const dark=document.documentElement.getAttribute('data-theme')==='dark';
+    document.documentElement.setAttribute('data-theme',dark?'light':'dark');
+    el('theme').title=dark?'Switch to dark theme':'Switch to light theme';
+  });
+  el('language').addEventListener('click',()=>{
+    hebrew=!hebrew;
+    document.documentElement.lang=hebrew?'he':'en';
+    document.documentElement.dir=hebrew?'rtl':'ltr';
+    el('language').textContent=hebrew?'HE':'EN';
+    // Mock labels remain English: full i18n requires real Nextcloud catalogs.
+  });
+  render();
+})();
+</script>
+</body>
+</html>
