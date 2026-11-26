@@ -278,6 +278,9 @@ export function previewSelectionSummary(rows, selected) {
 
 export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const dialog = e('dialog', '', 'dl-dialog dl-link-dialog');
+  // Use the real Nextcloud document locale when the host CSS direction differs.
+  dialog.dir = /^(ar|fa|he|iw|ur|ps|sd|ug|yi|dv|ckb)(?:[-_]|$)/i.test(document.documentElement.lang)
+    || getComputedStyle(document.body).direction === 'rtl' ? 'rtl' : 'ltr';
   dialog.setAttribute('aria-modal','true');
   const form = e('form');
   form.method='dialog';
