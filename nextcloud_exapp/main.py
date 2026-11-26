@@ -24,6 +24,7 @@ from nc_py_api.nextcloud import AsyncNextcloudApp
 
 from nextcloud_exapp.user import (
     UserContext, require_user, require_admin, admin_files_connection_status,
+    validate_entitlement_patch,
     read_user_preferences, write_user_preferences, validate_folder,
     job_submission, own_job, own_job_provenance, scoped_cookie_filename,
     unscoped_cookie_filename,
@@ -759,6 +760,7 @@ async def admin_write_entitlements(request: Request,
     # Validate the entire patch before modifying any administrator settings.
     if any(not isinstance(value, str) or len(value) > 10000 for value in body.values()):
         raise HTTPException(status_code=422, detail="Invalid entitlement list")
+    await validate_entitlement_patch(admin, body)
     for key in ("allowed_users", "allowed_groups"):
         if key in body:
             await admin.nc.appconfig_ex.set_value(key, body[key])
