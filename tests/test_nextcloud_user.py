@@ -136,6 +136,58 @@ class UserUnitTests(TestCase):
         self.assertEqual(rejected.exception.status_code, 422)
         nc.appconfig_ex.set_value.assert_not_awaited()
 
+    def test_signed_entitlement_save_checks_exact_user_and_group_ids_before_writing(self):
+        from nextcloud_exapp.main import admin_write_entitlements
+        from unittest.mock import AsyncMock
+        nc = FakeNc("admin", users="alice", groups="staff", user_groups=("admin",))
+        nc.users.get_list = AsyncMock(return_value=["alice", "bob"])
+        nc.users_groups = SimpleNamespace(get_list=AsyncMock(return_value=["staff", "volunteers"]))
+        nc.appconfig_ex.set_value = AsyncMock(wraps=nc.appconfig_ex.set_value)
+        request = Request({"type": "http", "headers": [], "username": "admin"})
+        original = dict(nc.appconfig_ex.saved)
+        for payload, missing in (
+            ({"allowed_users": "Alice", "allowed_groups": "volunteers"}, "user IDs: Alice"),
+            ({"allowed_users": "bob", "allowed_groups": "staff, typo"}, "group IDs: typo"),
+        ):
+            with self.subTest(payload=payload), self.assertRaises(HTTPException) as rejected:
+                request._json = payload
+                asyncio.run(admin_write_entitlements(request, UserContext("admin", nc)))
+            self.assertEqual(rejected.exception.status_code, 422)
+            self.assertIn(missing, rejected.exception.detail)
+            self.assertEqual(nc.appconfig_ex.saved, original)
+            nc.appconfig_ex.set_value.assert_not_awaited()
+        request._json = {"allowed_users": "alice, bob", "allowed_groups": "volunteers"}
+        result = asyncio.run(admin_write_entitlements(request, UserContext("admin", nc)))
+        self.assertEqual(result, request._json)
+
+    def test_entitlement_directory_failure_or_bad_shape_cannot_save_grants(self):
+        from nextcloud_exapp.main import admin_write_entitlements
+        from unittest.mock import AsyncMock
+        nc = FakeNc("admin", users="alice", groups="staff", user_groups=("admin",))
+        nc.users.get_list = AsyncMock(return_value=["alice", "bob"])
+        nc.users_groups = SimpleNamespace(get_list=AsyncMock())
+        nc.appconfig_ex.set_value = AsyncMock(wraps=nc.appconfig_ex.set_value)
+        request = Request({"type": "http", "headers": [], "username": "admin"})
+        request._json = {"allowed_users": "bob", "allowed_groups": "staff"}
+        original = dict(nc.appconfig_ex.saved)
+        for value in (None, {"groups": ["staff"]}, [123], RuntimeError("directory down")):
+            with self.subTest(value=value):
+                nc.users_groups.get_list.side_effect = value if isinstance(value, Exception) else None
+                nc.users_groups.get_list.return_value = value
+                with self.assertRaises(HTTPException) as rejected:
+                    asyncio.run(admin_write_entitlements(request, UserContext("admin", nc)))
+                self.assertEqual(rejected.exception.status_code, 503)
+                self.assertEqual(nc.appconfig_ex.saved, original)
+                nc.appconfig_ex.set_value.assert_not_awaited()
+        nc.users.get_list.side_effect = RuntimeError("directory down")
+        nc.users.get_list.reset_mock()
+        nc.users_groups.get_list.reset_mock()
+        request._json = {"allowed_users": "", "allowed_groups": ""}
+        result = asyncio.run(admin_write_entitlements(request, UserContext("admin", nc)))
+        self.assertEqual(result, request._json)
+        nc.users.get_list.assert_not_awaited()
+        nc.users_groups.get_list.assert_not_awaited()
+
     def test_personal_webdav_password_is_sensitive_and_never_returned(self):
         ctx = UserContext("alice", FakeNc("alice"))
         prefs = asyncio.run(write_user_preferences(ctx, {
