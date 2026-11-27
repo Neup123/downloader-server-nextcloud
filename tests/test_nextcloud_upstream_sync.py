@@ -133,7 +133,7 @@ class UpstreamSyncWorkflowTests(unittest.TestCase):
         ):
             source = (ROOT / ".github/workflows" / name).read_text()
             pr_trigger = source.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
-            self.assertIn("branches: [main]", pr_trigger)
+            self.assertIn("branches: [main, integration]", pr_trigger)
             self.assertNotIn("paths:", pr_trigger)
             self.assertNotIn("paths-ignore:", pr_trigger)
 
