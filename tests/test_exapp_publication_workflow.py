@@ -91,6 +91,21 @@ class ExAppPublicationWorkflowTests(unittest.TestCase):
         self.assertIn("git ls-remote origin refs/heads/main", sync)
         self.assertNotIn("pull_request:", publisher)
 
+    def test_integration_prs_run_all_five_acceptance_workflows_without_publication(self):
+        for name in (
+            "appapi-docker-deploy-e2e.yml",
+            "bridge-package.yml",
+            "live-nextcloud-preflight.yml",
+            "nextcloud-exapp-build.yml",
+            "nextcloud-preflight.yml",
+        ):
+            with self.subTest(workflow=name):
+                source = (ROOT / ".github/workflows" / name).read_text()
+                self.assertIn("  pull_request:\n    branches: [main, integration]", source)
+        publisher = WORKFLOW.read_text()
+        self.assertNotIn("integration", publisher)
+        self.assertNotIn("pull_request:", publisher)
+
     def test_release_changes_retrigger_disposable_ci_acceptance(self):
         workflow = (ROOT / ".github/workflows/appapi-docker-deploy-e2e.yml").read_text()
         build = (ROOT / ".github/workflows/nextcloud-exapp-build.yml").read_text()

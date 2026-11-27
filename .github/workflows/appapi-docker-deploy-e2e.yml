@@ -24,7 +24,7 @@ on:
       - "tests/test_nextcloud_delivery_flat.py"
   # Required checks must not remain pending on path-filtered PRs.
   pull_request:
-    branches: [main]
+    branches: [main, integration]
   workflow_dispatch:
 
 permissions:
