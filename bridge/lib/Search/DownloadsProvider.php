@@ -5,6 +5,7 @@ namespace OCA\DownloaderBridge\Search;
 
 use OCP\Config\IUserConfig;
 use OCP\IAppConfig;
+use OCP\IL10N;
 use OCP\IGroupManager;
 use OCP\IUser;
 use OCP\IURLGenerator;
@@ -26,6 +27,7 @@ final class DownloadsProvider implements IProvider {
         private IAppConfig $appConfig,
         private IGroupManager $groupManager,
         private IURLGenerator $urlGenerator,
+        private IL10N $l10n,
     ) {
     }
 
@@ -34,7 +36,7 @@ final class DownloadsProvider implements IProvider {
     }
 
     public function getName(): string {
-        return 'Downloads';
+        return $this->l10n->t('Downloads');
     }
 
     public function getOrder(string $route, array $routeParameters): ?int {
@@ -44,7 +46,7 @@ final class DownloadsProvider implements IProvider {
     public function search(IUser $user, ISearchQuery $query): SearchResult {
         $uid = $user->getUID();
         if (!$this->entitled($uid)) {
-            return SearchResult::complete('Downloads', []);
+            return SearchResult::complete($this->getName(), []);
         }
         // The AppAPI preferences_ex interface writes lazy user config under
         // the ExApp ID using Nextcloud's standard IUserConfig storage.
@@ -53,11 +55,11 @@ final class DownloadsProvider implements IProvider {
         );
         $items = json_decode($json, true);
         if (!is_array($items)) {
-            return SearchResult::complete('Downloads', []);
+            return SearchResult::complete($this->getName(), []);
         }
         $term = trim($query->getTerm());
         if ($term === '') {
-            return SearchResult::complete('Downloads', []);
+            return SearchResult::complete($this->getName(), []);
         }
         $limit = max(1, min(50, $query->getLimit()));
         $results = [];
@@ -65,7 +67,7 @@ final class DownloadsProvider implements IProvider {
             if (!is_array($item) || !is_string($item['id'] ?? null)) {
                 continue;
             }
-            $title = (string)($item['title'] ?? 'Download');
+            $title = (string)($item['title'] ?? $this->l10n->t('Download'));
             $status = (string)($item['status'] ?? '');
             $engine = (string)($item['engine'] ?? '');
             $filenames = array_filter($item['files'] ?? [], 'is_string');
@@ -85,7 +87,7 @@ final class DownloadsProvider implements IProvider {
                 break;
             }
         }
-        return SearchResult::complete('Downloads', $results);
+        return SearchResult::complete($this->getName(), $results);
     }
 
     private function entitled(string $uid): bool {

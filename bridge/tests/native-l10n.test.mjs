@@ -239,3 +239,21 @@ test('Every current Core job state resolves a native catalog label',()=>{
     assert.equal(downloadStatus({status:'new-state'}),'מצב לא ידוע: new-state');
   }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
 });
+
+test('Dashboard and native PHP headings use the shared catalog and logical menu placement',()=>{
+  const dashboard=readFileSync(new URL('../src/dashboard.ts', import.meta.url),'utf8');
+  for(const match of dashboard.matchAll(/t\('downloader_bridge',\s*'([^']+)'/g)){
+    const key=match[1];
+    assert.equal(typeof catalog.translations[key],'string',key);
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),key);
+  }
+  for(const pattern of [/\belem\('[a-z0-9]+',\s*'[A-Za-z][^']*'/,/\.(?:textContent|title)\s*=\s*'[A-Za-z][^']*'/,/setAttribute\('aria-label',\s*'[A-Za-z][^']*'/,/\bitem\('[A-Za-z][^']*'/])assert.doesNotMatch(dashboard,pattern);
+  assert.match(dashboard,/inset-inline-end:0;inset-block-start:100%/);
+  const widget=readFileSync(new URL('../lib/Dashboard/DownloadsWidget.php', import.meta.url),'utf8');
+  const provider=readFileSync(new URL('../lib/Search/DownloadsProvider.php', import.meta.url),'utf8');
+  assert.match(widget,/return \$this->l10n->t\('My downloads'\)/);
+  assert.ok(widget.indexOf('Util::addTranslations')<widget.indexOf('Util::addScript'));
+  assert.match(provider,/return \$this->l10n->t\('Downloads'\)/);
+  assert.doesNotMatch(provider,/SearchResult::complete\('Downloads'/);
+  for(const php of [widget,provider])for(const match of php.matchAll(/->t\('([^']+)'/g))assert.equal(typeof catalog.translations[match[1]],'string',match[1]);
+});

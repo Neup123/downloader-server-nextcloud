@@ -340,5 +340,14 @@ OC.L10N.register("downloader_bridge", {
   "Starting": "מתחיל",
   "Extracting": "מחלץ",
   "Post-processing": "עיבוד לאחר הורדה",
-  "Unknown status: {status}": "מצב לא ידוע: {status}"
+  "Unknown status: {status}": "מצב לא ידוע: {status}",
+  "Quick download link": "קישור להורדה מהירה",
+  "Link to download into my Files": "קישור להורדה לקבצים שלי",
+  "Review download": "בדיקת ההורדה",
+  "Paste a link to check it before downloading.": "הדביקו קישור כדי לבדוק אותו לפני ההורדה.",
+  "Source link copied.": "קישור המקור הועתק.",
+  "Unable to copy source link in this browser.": "לא ניתן להעתיק את קישור המקור בדפדפן זה.",
+  "Delivered files": "קבצים שנמסרו",
+  "Progress for {name}": "התקדמות עבור {name}",
+  "Copy source link": "העתקת קישור המקור"
 }, "nplurals=2; plural=(n != 1);");
