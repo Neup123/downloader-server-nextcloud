@@ -7,6 +7,7 @@ use OCA\DownloaderBridge\AppInfo\Application;
 use OCP\Dashboard\IWidget;
 use OCP\Dashboard\IConditionalWidget;
 use OCP\IAppConfig;
+use OCP\IL10N;
 use OCP\IGroupManager;
 use OCP\IUserSession;
 use OCP\Util;
@@ -20,6 +21,7 @@ final class DownloadsWidget implements IWidget, IConditionalWidget {
         private IAppConfig $appConfig,
         private IGroupManager $groupManager,
         private IUserSession $userSession,
+        private IL10N $l10n,
     ) {
     }
 
@@ -53,7 +55,7 @@ final class DownloadsWidget implements IWidget, IConditionalWidget {
     }
 
     public function getTitle(): string {
-        return 'My downloads';
+        return $this->l10n->t('My downloads');
     }
 
     public function getOrder(): int {
@@ -69,6 +71,7 @@ final class DownloadsWidget implements IWidget, IConditionalWidget {
     }
 
     public function load(): void {
+        Util::addTranslations(Application::APP_ID);
         Util::addScript(Application::APP_ID, 'dashboard', 'dashboard');
     }
 }

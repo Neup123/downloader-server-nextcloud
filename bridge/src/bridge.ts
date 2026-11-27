@@ -24,7 +24,7 @@ type Oc = {generateUrl: (path: string) => string; requestToken?: string;
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 17v3h16v-3"/></svg>';
 const oc = () => (window as unknown as {OC?: Oc}).OC;
 const root = () => {
-  if (!oc()?.generateUrl) throw new Error('Nextcloud routing unavailable');
+  if (!oc()?.generateUrl) throw new Error(t('downloader_bridge', 'Nextcloud routing unavailable'));
   return oc()!.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/api');
 };
 
@@ -52,7 +52,7 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
       throw failure;
     }
     const detail = (body as {detail?: string} | null)?.detail;
-    throw new Error(detail || 'Downloader request failed (' + res.status + ')');
+    throw new Error(detail || t('downloader_bridge', 'Downloader request failed ({status})', {status:res.status}));
   }
   return body as T;
 }
@@ -571,7 +571,7 @@ function registerProvenanceSidebar() {
   const tagName = 'downloader_bridge-provenance-tab';
   registerSidebarTab({
     id: 'downloader_bridge-provenance',
-    displayName: 'Downloads',
+    displayName: t('downloader_bridge', 'Downloads'),
     iconSvgInline: ICON,
     order: 70,
     tagName,
@@ -588,31 +588,31 @@ function registerProvenanceSidebar() {
         }
         private async renderRecord() {
           const call = ++this.version;
-          this.replaceChildren(node('p', 'Checking download source…', 'dl-muted'));
+          this.replaceChildren(node('p', t('downloader_bridge', 'Checking download source…'), 'dl-muted'));
           const id = String(this._node?.id ?? '');
           if (!/^\d{1,32}$/.test(id)) {
-            this.replaceChildren(node('p', 'No Downloader source is associated with this file.', 'dl-muted'));
+            this.replaceChildren(node('p', t('downloader_bridge', 'No Downloader source is associated with this file.'), 'dl-muted'));
             return;
           }
           try {
             const record = await api<Provenance>('/provenance?file_id=' + encodeURIComponent(id));
             if (this.version !== call) return;
-            const heading = node('h3', 'Original download source');
+            const heading = node('h3', t('downloader_bridge', 'Original download source'));
             const url = node('a', record.source_url, 'dl-provenance-source');
             url.href = record.source_url;
             url.target = '_blank'; url.rel = 'noopener noreferrer';
             const info = node('dl', '', 'dl-provenance-details');
             const when = new Date(record.created_at);
             const entries: Array<[string, string]> = [
-              ['Filename', record.filename || 'Unknown'],
-              ['Downloaded by', record.owner_id || 'Unknown'],
-              ['Downloaded on', Number.isFinite(when.getTime()) ? when.toLocaleString() : 'Date unavailable'],
-              ['Engine', record.engine || 'Unknown'],
+              [t('downloader_bridge', 'Filename'), record.filename || t('downloader_bridge', 'Unknown')],
+              [t('downloader_bridge', 'Downloaded by'), record.owner_id || t('downloader_bridge', 'Unknown')],
+              [t('downloader_bridge', 'Downloaded on'), Number.isFinite(when.getTime()) ? when.toLocaleString() : t('downloader_bridge', 'Date unavailable')],
+              [t('downloader_bridge', 'Engine'), record.engine || t('downloader_bridge', 'Unknown')],
             ];
             for (const [key, value] of entries) {
               info.append(node('dt', key), node('dd', value));
             }
-            const redownload = node('button', 'Re-download from source', 'dl-primary');
+            const redownload = node('button', t('downloader_bridge', 'Re-download from source'), 'dl-primary');
             redownload.type = 'button';
             let redownloadId: string | null = null;
             redownload.addEventListener('click', async () => {
@@ -620,7 +620,7 @@ function registerProvenanceSidebar() {
               try {
                 if (!redownloadId) {
                   if (typeof globalThis.crypto?.randomUUID !== 'function')
-                    throw new Error('Use a secure browser to queue a re-download.');
+                    throw new Error(t('downloader_bridge', 'Use a secure browser to queue a re-download.'));
                   redownloadId = globalThis.crypto.randomUUID();
                 }
                 const created = await api<{id?:string}>('/provenance/' +
@@ -629,7 +629,7 @@ function registerProvenanceSidebar() {
                 announceQueued(created);
                 redownloadId = null; // A new click after confirmed acceptance is a new action.
               } catch (error) {
-                notify(error instanceof Error ? error.message : 'Could not re-download source');
+                notify(error instanceof Error ? error.message : t('downloader_bridge', 'Could not re-download source'));
               } finally {
                 redownload.disabled = false;
               }
@@ -638,8 +638,8 @@ function registerProvenanceSidebar() {
           } catch (error) {
             if (this.version !== call) return;
             const message = error instanceof Error && /404|not found/i.test(error.message)
-              ? 'No Downloader source is associated with this file.'
-              : 'Unable to check download source. Open Downloads to retry.';
+              ? t('downloader_bridge', 'No Downloader source is associated with this file.')
+              : t('downloader_bridge', 'Unable to check download source. Open Downloads to retry.');
             this.replaceChildren(node('p', message, 'dl-muted'));
           }
         }
@@ -752,6 +752,7 @@ function styles() {
     '.dl-torrent-expander{box-sizing:border-box;display:block;flex:0 0 9px;width:9px;height:9px;',
     'border-right:2px solid currentColor;border-bottom:2px solid currentColor;',
     'transform:rotate(-45deg);transition:transform .15s ease}',
+    '.dl-torrent-expander:dir(rtl){transform:rotate(135deg)}',
     '.dl-torrent-folder[open]>summary .dl-torrent-expander{transform:rotate(45deg)}',
     '.dl-torrent-folder-name{min-width:0;overflow-wrap:anywhere}',
     '.dl-torrent-children{box-sizing:border-box;min-width:0;max-width:100%;',
@@ -768,6 +769,7 @@ function styles() {
 
     // Keep the action accessible while dialog content scrolls.
     '.dl-link-dialog[open]{display:flex;flex-direction:column;overflow:hidden;padding:16px}',
+    '.dl-link-dialog[dir=rtl]{direction:rtl}',
     '.dl-link-dialog.dl-torrent-dialog[open]{width:min(840px,calc(100vw - 32px))}',
     '.dl-link-dialog form{display:flex;flex-direction:column;gap:10px;',
     'min-height:0;max-height:calc(100dvh - 64px);width:100%}',
@@ -800,18 +802,20 @@ function styles() {
     // so these do not render as two independent square controls.
     '.dl-link-dialog .dl-segmented-toggle{position:relative;display:grid;',
     'grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;',
-    'box-sizing:border-box;width:82px;height:38px;padding:3px;gap:0;direction:ltr;',
+    'box-sizing:border-box;width:82px;height:38px;padding:3px;gap:0;direction:inherit;',
     'border:1px solid var(--color-border,#bbb);',
     'border-radius:var(--border-radius-large,10px);',
     'background:var(--color-background-dark,#e7e7e7);overflow:hidden;',
     'box-shadow:inset 0 1px 2px #0001}',
     '.dl-link-dialog .dl-segmented-slider{position:absolute;z-index:0;',
-    'top:3px;bottom:3px;left:3px;width:calc(50% - 3px);',
+    'inset-block:3px;inset-inline-start:3px;width:calc(50% - 3px);',
     'border-radius:var(--border-radius-element,7px);',
     'background:var(--color-main-text,#262626);',
     'box-shadow:0 1px 4px #0003;transition:transform .2s ease;pointer-events:none}',
     '.dl-link-dialog .dl-segmented-toggle[data-view=flat] .dl-segmented-slider{',
     'transform:translateX(calc(100% + 1px))}',
+    '.dl-link-dialog .dl-segmented-toggle[data-view=flat]:dir(rtl) .dl-segmented-slider{',
+    'transform:translateX(calc(-100% - 1px))}',
     '.dl-link-dialog .dl-segmented-toggle .dl-segmented-button{',
     'position:relative;z-index:1;display:grid;place-items:center;',
     'box-sizing:border-box;width:100%!important;height:100%!important;',

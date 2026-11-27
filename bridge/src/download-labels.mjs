@@ -53,7 +53,7 @@ export function downloadSymbol(job) {
   return '↓';
 }
 
-export const SKIPPED_DETAIL = 'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.';
+export const SKIPPED_DETAIL = t('downloader_bridge', 'Download skipped: a file already exists in Nextcloud Files. The existing file was kept.');
 
 /** @param {Job} job */
 export function downloadStatusDetail(job) {
@@ -81,7 +81,11 @@ export function downloadStatus(job) {
       ? ' · ' + downloadAmount(job.progress.speed_bytes_per_second) + '/s' : '');
   if (job.status === 'delivering') return t('downloader_bridge', 'Delivering to your destination');
   if (job.status === 'queued') return t('downloader_bridge', 'Queued');
-  return (job.status || t('downloader_bridge', 'Pending')).replaceAll('-', ' ');
+  if (job.status === 'starting') return t('downloader_bridge', 'Starting');
+  if (job.status === 'extracting') return t('downloader_bridge', 'Extracting');
+  if (job.status === 'post-processing') return t('downloader_bridge', 'Post-processing');
+  return job.status ? t('downloader_bridge', 'Unknown status: {status}', {status:job.status})
+    : t('downloader_bridge', 'Pending');
 }
 
 /** Bubble has a dedicated percentage beside the pause button. */

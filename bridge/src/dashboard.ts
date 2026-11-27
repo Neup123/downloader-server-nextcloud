@@ -1,5 +1,5 @@
 /** Native Nextcloud Dashboard widget; fetches only current signed-in user's jobs. */
-import { downloadTitle, downloadStatus, downloadStatusDetail, deliveredFilesQuery, downloadSymbol, downloadAmount } from './download-labels.mjs';
+import { downloadTitle, downloadStatus, downloadStatusDetail, deliveredFilesQuery, downloadSymbol, downloadAmount, t } from './download-labels.mjs';
 import { showLinkDialog } from './link-first-dialog.mjs';
 import {isTerminalJobState} from './job-states.generated.mjs';
 type Oc = {generateUrl: (path: string) => string; requestToken?: string};
@@ -19,7 +19,7 @@ const elem = <K extends keyof HTMLElementTagNameMap>(name: K, text = ''): HTMLEl
 };
 function apiRoot(): string {
   const oc = host.OC;
-  if (!oc?.generateUrl) throw new Error('Nextcloud routing unavailable');
+  if (!oc?.generateUrl) throw new Error(t('downloader_bridge', 'Nextcloud routing unavailable'));
   return oc.generateUrl('/apps/app_api/proxy/downloader-server-nextcloud/user/api');
 }
 async function api<T>(url: string, method = 'GET', data?: object): Promise<T> {
@@ -33,7 +33,7 @@ async function api<T>(url: string, method = 'GET', data?: object): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null) as {detail?: unknown} | null;
-    const detail = typeof body?.detail === 'string' ? body.detail : 'Downloader unavailable';
+    const detail = typeof body?.detail === 'string' ? body.detail : t('downloader_bridge', 'Downloader is unavailable. Retry in a moment.');
     throw new Error(detail);
   }
   return await response.json() as T;
@@ -56,7 +56,7 @@ const CARD_STYLE = `
 .downloader-dashboard-content .job-menu summary{width:20px;height:24px;font-size:21px;font-weight:800;line-height:1;background:transparent!important;border:0!important;border-radius:0;padding:0}
 .downloader-dashboard-content .job-menu summary:hover{background:transparent!important;color:var(--color-primary,#377bd1)}
 .downloader-dashboard-content .job-menu summary::-webkit-details-marker{display:none}
-.downloader-dashboard-content .job-menu-items{position:absolute;z-index:100;right:0;top:100%;width:max-content;min-width:160px;padding:5px;display:grid;gap:2px;border:1px solid var(--color-border,#aaa);border-radius:9px;background:var(--color-main-background,#fff);box-shadow:0 6px 24px #0003}
+.downloader-dashboard-content .job-menu-items{position:absolute;z-index:100;inset-inline-end:0;inset-block-start:100%;width:max-content;min-width:160px;padding:5px;display:grid;gap:2px;border:1px solid var(--color-border,#aaa);border-radius:9px;background:var(--color-main-background,#fff);box-shadow:0 6px 24px #0003}
 .downloader-dashboard-content .job-menu-items button{width:100%;min-height:34px;display:block;text-align:start;padding:6px 10px;font-size:12px}
 .downloader-dashboard-content .mini-progress{width:100%;height:2px}
 .downloader-dashboard-content :is(button,a,summary):focus-visible{outline:3px solid var(--color-primary,#377bd1);outline-offset:2px}
@@ -73,21 +73,21 @@ function renderDashboard(element: HTMLElement) {
   const cardStyle = elem('style');
   cardStyle.textContent = CARD_STYLE;
   area.append(cardStyle);
-  const history = elem('a', 'Open downloads history');
+  const history = elem('a', t('downloader_bridge', 'Open history'));
   history.href = host.OC!.generateUrl('/apps/downloader_bridge/library');
   history.style.display = 'block';
   history.style.padding = '8px 0';
   const quick = elem('form');
   quick.style.cssText = 'display:grid;gap:8px;margin-bottom:15px';
-  const label = elem('label', 'Quick download link');
+  const label = elem('label', t('downloader_bridge', 'Quick download link'));
   label.style.cssText = 'display:grid;gap:7px;font-size:13px';
   const field = elem('input');
   // A magnet URI is not HTTP: accept the text to display the disabled state.
   field.type = 'text'; field.required = true;
   field.placeholder = 'https://example.org/file';
-  field.setAttribute('aria-label', 'Link to download into my Files');
+  field.setAttribute('aria-label', t('downloader_bridge', 'Link to download into my Files'));
   field.style.cssText = 'width:100%;min-height:44px;padding:9px;border:1px solid var(--color-border,#777);border-radius:8px';
-  const submit = elem('button', 'Download');
+  const submit = elem('button', t('downloader_bridge', 'Download'));
   submit.type = 'submit';
   submit.style.cssText = 'padding:9px 12px;min-height:44px;cursor:pointer';
   const feedback = elem('p'); feedback.setAttribute('role', 'status');
@@ -98,12 +98,12 @@ function renderDashboard(element: HTMLElement) {
   area.append(quick, history, list);
   // The Dashboard is just another entrypoint into the content-aware,
   // signed link-first workflow. It must never submit directly to /jobs.
-  submit.textContent = 'Review download';
+  submit.textContent = t('downloader_bridge', 'Review download');
   quick.addEventListener('submit', event => {
     event.preventDefault();
     const source = field.value.trim();
     if (!source) {
-      feedback.textContent = 'Paste a link to check it before downloading.';
+      feedback.textContent = t('downloader_bridge', 'Paste a link to check it before downloading.');
       field.focus();
       return;
     }
@@ -153,17 +153,17 @@ function renderDashboard(element: HTMLElement) {
   async function runAction(job: Job, action: 'cancel'|'retry'|'redeliver') {
     try {
       await api('/jobs/' + encodeURIComponent(job.id) + '/' + action, 'POST');
-      feedback.textContent = action === 'cancel' ? 'Download cancelled.' : 'Download queued.';
+      feedback.textContent = action === 'cancel' ? t('downloader_bridge', 'Download cancelled.') : t('downloader_bridge', 'Download queued. Follow progress in Downloads.');
       await refresh();
     } catch (error) {
-      feedback.textContent = error instanceof Error ? error.message : 'Could not update this download.';
+      feedback.textContent = error instanceof Error ? error.message : t('downloader_bridge', 'Could not update download.');
     }
   }
   async function copySource(job: Job) {
     try {
       await navigator.clipboard.writeText(job.url);
-      feedback.textContent = 'Source link copied.';
-    } catch { feedback.textContent = 'Unable to copy source link in this browser.'; }
+      feedback.textContent = t('downloader_bridge', 'Source link copied.');
+    } catch { feedback.textContent = t('downloader_bridge', 'Unable to copy source link in this browser.'); }
   }
   function showDetails(job: Job) {
     const dialog = elem('dialog');
@@ -172,22 +172,22 @@ function renderDashboard(element: HTMLElement) {
     heading.id = 'downloader-widget-modal-heading';
     dialog.setAttribute('aria-labelledby', heading.id);
     const status = elem('p', downloadStatusDetail(job));
-    const source = elem('p', 'Source: ' + job.url);
+    const source = elem('p', t('downloader_bridge', 'Source: {url}', {url:job.url}));
     source.style.overflowWrap = 'anywhere';
     dialog.append(heading, status, source);
     if (job.error) dialog.append(elem('p', job.error));
     if (job.output_files?.length) {
-      dialog.append(elem('h3', 'Delivered files'));
+      dialog.append(elem('h3', t('downloader_bridge', 'Delivered files')));
       for (const file of job.output_files) {
         dialog.append(elem('p', file.filename + ' · ' + downloadAmount(file.size_bytes) +
-          (file.verified ? ' · Verified' : ' · Not verified')));
+          ' · ' + (file.verified ? t('downloader_bridge', 'Verified') : t('downloader_bridge', 'Awaiting verification'))));
       }
     }
     const log = elem('details');
-    log.append(elem('summary', 'Technical log (advanced)'), elem('pre', job.log_text || 'No log output yet.'));
+    log.append(elem('summary', t('downloader_bridge', 'Technical log (advanced)')), elem('pre', job.log_text || t('downloader_bridge', 'No log output.')));
     dialog.append(log);
     const actions = elem('div'); actions.className = 'job-modal-actions';
-    const close = elem('button', 'Close'); close.type = 'button';
+    const close = elem('button', t('downloader_bridge', 'Close')); close.type = 'button';
     close.addEventListener('click', () => dialog.close());
     actions.append(close); dialog.append(actions);
     document.body.append(dialog);
@@ -229,7 +229,7 @@ function renderDashboard(element: HTMLElement) {
       const progress = elem('progress'); progress.className = 'mini-progress';
       progress.max = 100;
       progress.value = Math.max(0, Math.min(100, Number(job.progress?.percent || 0)));
-      progress.setAttribute('aria-label', 'Progress for ' + downloadTitle(job));
+      progress.setAttribute('aria-label', t('downloader_bridge', 'Progress for {name}', {name:downloadTitle(job)}));
       info.append(progress);
     }
     const actions = elem('div'); actions.className = 'job-actions';
@@ -237,15 +237,15 @@ function renderDashboard(element: HTMLElement) {
       : isTerminalJobState(job.status) ? 'retry' : 'cancel';
     const rerun = elem('button', operation === 'redeliver' ? '↻' : operation === 'retry' ? '⟳' : '×');
     rerun.type = 'button';
-    rerun.title = operation === 'redeliver' ? 'Deliver again'
-      : operation === 'retry' ? 'Try again' : 'Cancel download';
+    rerun.title = operation === 'redeliver' ? t('downloader_bridge', 'Deliver again')
+      : operation === 'retry' ? t('downloader_bridge', 'Try again') : t('downloader_bridge', 'Cancel download');
     rerun.setAttribute('aria-label', rerun.title);
     rerun.addEventListener('click', () => {void runAction(job, operation);});
     actions.append(rerun);
     const more = elem('details'); more.className = 'job-menu';
     const summary = elem('summary', '⋮');
-    summary.title = 'More actions';
-    summary.setAttribute('aria-label', 'More actions for ' + downloadTitle(job));
+    summary.title = t('downloader_bridge', 'More actions');
+    summary.setAttribute('aria-label', t('downloader_bridge', 'More actions for {name}', {name:downloadTitle(job)}));
     const menu = elem('div'); menu.className = 'job-menu-items';
     function item(label: string, click: () => void) {
       const button = elem('button', label); button.type = 'button'; button.title = label;
@@ -253,17 +253,17 @@ function renderDashboard(element: HTMLElement) {
       menu.append(button);
     }
     const query = deliveredFilesQuery(job);
-    if (query) item('Open in Files', () => {
+    if (query) item(t('downloader_bridge', 'Open in Files'), () => {
       window.location.href = host.OC!.generateUrl('/apps/files/files') + query;
     });
-    item('View details', () => showDetails(job));
-    item('Copy source link', () => {void copySource(job);});
-    item('Remove from history', () => {void (async () => {
+    item(t('downloader_bridge', 'View details'), () => showDetails(job));
+    item(t('downloader_bridge', 'Copy source link'), () => {void copySource(job);});
+    item(t('downloader_bridge', 'Remove from history'), () => {void (async () => {
       try {
         await api('/jobs/' + encodeURIComponent(job.id) + '/hide', 'POST');
-        feedback.textContent = 'Removed from your history. Files remain untouched.';
+        feedback.textContent = t('downloader_bridge', 'Removed from your history. Files were not deleted.');
         await refresh();
-      } catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Could not remove history entry.';}
+      } catch (error) {feedback.textContent = error instanceof Error ? error.message : t('downloader_bridge', 'Could not remove entry.');}
     })();});
     more.append(summary, menu); actions.append(more);
     row.append(icon, info, actions);
@@ -285,7 +285,7 @@ function renderDashboard(element: HTMLElement) {
       const focused = document.activeElement?.closest<HTMLElement>('.job-row');
       const focusId = focused?.dataset.jobId;
       const focusMenu = focused?.querySelector<HTMLDetailsElement>('.job-menu')?.contains(document.activeElement) ?? false;
-      list.replaceChildren(...(jobs.length ? jobs.map(rowFor) : [elem('p', 'No downloads yet.')]));
+      list.replaceChildren(...(jobs.length ? jobs.map(rowFor) : [elem('p', t('downloader_bridge', 'No downloads yet. Add a link to get started.'))]));
       for (const row of list.querySelectorAll<HTMLElement>('.job-row')) {
         if (menus.has(row.dataset.jobId || '')) {
           const menu = row.querySelector<HTMLDetailsElement>('.job-menu');
@@ -303,7 +303,7 @@ function renderDashboard(element: HTMLElement) {
         }
       }
     } catch {
-      list.replaceChildren(elem('p', 'Downloader is temporarily unavailable.'));
+      list.replaceChildren(elem('p', t('downloader_bridge', 'Downloader is unavailable. Retry in a moment.')));
     } finally {
       refreshing = false;
     }

@@ -111,7 +111,7 @@ export function previewRows(preview) {
     .map(item => ({
       index: item.index,
       ...(validGalleryIdentity(item.selection_id)?{selection_id:item.selection_id}:{}),
-      title: typeof item.title === 'string' ? item.title.slice(0,500) : 'Untitled',
+      title: typeof item.title === 'string' ? item.title.slice(0,500) : t('downloader_bridge', 'Untitled'),
       subtitle: typeof item.subtitle === 'string' ? item.subtitle.slice(0,200) : '',
       thumbnail: safeThumbnail(item.thumbnail),
       size_bytes: Number.isSafeInteger(item.size_bytes) && item.size_bytes >= 0 ? item.size_bytes : null,
@@ -159,7 +159,7 @@ export function previewMeta(row) {
     if(Number.isFinite(date.getTime()))meta.push(date.toISOString().slice(0,10));
   }
   if(row.size_bytes!==null)meta.push(sizeLabel(row.size_bytes));
-  else if(row.size_estimate_bytes!==null)meta.push('About '+sizeLabel(row.size_estimate_bytes));
+  else if(row.size_estimate_bytes!==null)meta.push(t('downloader_bridge', 'About {size}', {size:sizeLabel(row.size_estimate_bytes)}));
   if(row.duration!==null){
     const seconds=Math.round(row.duration);
     const minutes=Math.floor(seconds/60);
@@ -245,7 +245,7 @@ export function shouldDisableSubtitleLanguage(checked, audioOnly, languagesAvail
   return !checked || audioOnly || !languagesAvailable;
 }
 function sizeLabel(value) {
-  if (!Number.isSafeInteger(value) || value < 0) return 'Size not available';
+  if (!Number.isSafeInteger(value) || value < 0) return t('downloader_bridge', 'Size not available');
   if (value < 1024) return value + ' B';
   if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB';
   return (value / (1024 * 1024)).toFixed(1) + ' MiB';
@@ -264,15 +264,23 @@ export function previewSelectionSummary(rows, selected) {
     bytes+=amount;withSize++;
     if(estimate)approximate++;
   }
-  const parts=[count+' of '+rows.length+' selected'];
-  if(!count)return parts[0]+' · 0 B selected';
-  if(withSize)parts.push((approximate?'About ':'')+sizeLabel(bytes)+' for '+withSize+' sized item'+(withSize===1?'':'s'));
-  if(missing)parts.push('size unknown for '+missing+' item'+(missing===1?'':'s'));
+  const parts=[t('downloader_bridge', '{selected} of {total} selected', {selected:count,total:rows.length})];
+  if(!count)return parts[0]+' · '+t('downloader_bridge', '0 B selected');
+  if(withSize){
+    const values={size:sizeLabel(bytes),count:withSize};
+    parts.push(approximate
+      ? (withSize===1?t('downloader_bridge', 'About {size} for {count} sized item', values):t('downloader_bridge', 'About {size} for {count} sized items', values))
+      : (withSize===1?t('downloader_bridge', '{size} for {count} sized item', values):t('downloader_bridge', '{size} for {count} sized items', values)));
+  }
+  if(missing)parts.push(missing===1?t('downloader_bridge', 'size unknown for {count} item', {count:missing}):t('downloader_bridge', 'size unknown for {count} items', {count:missing}));
   return parts.join(' · ');
 }
 
 export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
   const dialog = e('dialog', '', 'dl-dialog dl-link-dialog');
+  // Use the real Nextcloud document locale when the host CSS direction differs.
+  dialog.dir = /^(ar|fa|he|iw|ur|ps|sd|ug|yi|dv|ckb)(?:[-_]|$)/i.test(document.documentElement.lang)
+    || getComputedStyle(document.body).direction === 'rtl' ? 'rtl' : 'ltr';
   dialog.setAttribute('aria-modal','true');
   const form = e('form');
   form.method='dialog';
@@ -1015,13 +1023,13 @@ export function showLinkDialog({folder, suggested = '', api, notify, queued}) {
         selectedIndices:[...selected],cbz:cbz?.checked,
         ...(identityGallery()?{extractor:'gallery-dl',galleryItemIds:selectedGalleryIdentities(choices,selected)}:{}),
       });
-    }catch(error){notify('Please review your download options and try again.');return;}
+    }catch(error){notify(t('downloader_bridge', 'Please review your download options and try again.'));return;}
     // Retry one unchanged action with the same key. New user choices
     // intentionally begin a new Core submission. The identity is never logged.
     const identity=JSON.stringify(body);
     if(identity!==lastSubmissionPayload){
       if(typeof globalThis.crypto?.randomUUID!=='function'){
-        notify('A secure browser connection is required to start downloads.');
+        notify(t('downloader_bridge', 'A secure browser connection is required to start downloads.'));
         return;
       }
       lastSubmissionPayload=identity;

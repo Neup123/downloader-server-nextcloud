@@ -164,3 +164,96 @@ test('Cookie vault translated labels keep dynamic site names as replacements, ne
   const form=readFileSync(new URL('../lib/Settings/PersonalSettings.php',import.meta.url),'utf8');
   assert.ok(form.indexOf('Util::addTranslations')<form.indexOf('Util::addScript'));
 });
+
+import {previewSelectionSummary, previewRows, previewMeta} from '../src/link-first-dialog.mjs';
+
+test('Remaining dynamic Link and Library messages are extracted and keep named replacements',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  const keys=["Untitled","About {size}","Size not available","{selected} of {total} selected","0 B selected","About {size} for {count} sized item","About {size} for {count} sized items","{size} for {count} sized item","{size} for {count} sized items","size unknown for {count} item","size unknown for {count} items","Please review your download options and try again.","A secure browser connection is required to start downloads.","Downloader is unavailable. Retry in a moment.","Source: {url}","Verified","Awaiting verification","{count} history entries hidden. Files were not deleted.","More actions for {name}","{count} downloads queued to retry.","Download skipped: a file already exists in Nextcloud Files. The existing file was kept."];
+  for(const key of keys){
+    assert.ok([dialog,library,labels].some(source=>source.includes("t('downloader_bridge', '"+key+"'")),key);
+    assert.equal(typeof catalog.translations[key],'string',key);
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort());
+  }
+  const previous=globalThis.t;
+  try{
+    globalThis.t=(app,key,values={})=>{assert.equal(app,'downloader_bridge');return (catalog.translations[key]||key).replace(/\{(\w+)\}/g,(_,name)=>values[name]);};
+    const rows=previewRows({entries:[{index:1,size_estimate_bytes:1024},{index:2}]});
+    assert.equal(rows[0].title,catalog.translations.Untitled);
+    assert.equal(previewMeta(rows[0]),'כ־1.0 KiB');
+    assert.equal(previewSelectionSummary(rows,new Set([1,2])),'נבחרו 2 מתוך 2 · כ־1.0 KiB עבור פריט אחד (1) שגודלו ידוע · גודל לא ידוע עבור פריט אחד (1)');
+  }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
+  assert.equal(previewSelectionSummary([{index:1,size_bytes:1024}],new Set([1])),'1 of 1 selected · 1.0 KiB for 1 sized item');
+});
+
+test('Torrent segmented control mirrors movement in RTL; Library menu uses logical axes',()=>{
+  assert.match(bridge,/inset-block:3px;inset-inline-start:3px/);
+  assert.match(bridge,/data-view=flat\]:dir\(rtl\) \.dl-segmented-slider/);
+  assert.match(bridge,/translateX\(calc\(-100% - 1px\)\)/);
+  assert.match(bridge,/\.dl-torrent-expander:dir\(rtl\)/);
+  assert.match(library,/inset-inline-end:0;inset-block-start:100%/);
+});
+
+
+test('All literal translation keys in Link, Library and shared native labels exist with matching placeholders',()=>{
+  const dialog=readFileSync(new URL('../src/link-first-dialog.mjs',import.meta.url),'utf8');
+  for(const [name,source] of Object.entries({dialog,library,labels,bridge})){
+    for(const match of source.matchAll(/t\('downloader_bridge',\s*'((?:\\.|[^'\\])*)'/g)){
+      const key=match[1].replace(/\\'/g,"'");
+      assert.equal(typeof catalog.translations[key],'string',name+': '+key);
+      assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),key);
+    }
+  }
+  // Direct UI literal sinks; symbols, element/attribute names, data and internal
+  // exceptions are not messages. Dynamic copy is checked separately above.
+  for(const source of [dialog,library]){
+    assert.doesNotMatch(source, /\b(?:e|el)\('[a-z0-9]+',\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /\.(?:textContent|placeholder|title)\s*=\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /setAttribute\('aria-label',\s*'[A-Za-z][^']*'/);
+    assert.doesNotMatch(source, /\bnotify\('[A-Za-z][^']*'/);
+  }
+  const template=readFileSync(new URL('../templates/library.php',import.meta.url),'utf8');
+  for(const key of ['My downloads','Loading your download history…','Downloads are not enabled for your account. Ask your Nextcloud administrator for access.']){
+    assert.ok(template.includes("$l->t('"+key+"')"),key);
+    assert.equal(typeof catalog.translations[key],'string',key);
+  }
+  assert.doesNotMatch(bridge,/gap:0;direction:ltr;/);
+  assert.match(dialog,/dialog\.dir = /);
+});
+
+import {ALL_JOB_STATES} from '../src/job-states.generated.mjs';
+
+test('Every current Core job state resolves a native catalog label',()=>{
+  const previous=globalThis.t;
+  try{
+    globalThis.t=(app,key,replacements={})=>{
+      assert.equal(app,'downloader_bridge');
+      assert.equal(typeof catalog.translations[key],'string',key);
+      return catalog.translations[key].replace(/\{(\w+)\}/g,(_,name)=>String(replacements[name]));
+    };
+    for(const state of ALL_JOB_STATES){
+      const value=downloadStatus({id:'fixture',url:'https://example.org/file',status:state});
+      assert.match(value,/[\u0590-\u05ff]/,state);
+      assert.doesNotMatch(value,/undefined/);
+    }
+    assert.equal(downloadStatus({status:'new-state'}),'מצב לא ידוע: new-state');
+  }finally{if(previous===undefined)delete globalThis.t;else globalThis.t=previous;}
+});
+
+test('Dashboard and native PHP headings use the shared catalog and logical menu placement',()=>{
+  const dashboard=readFileSync(new URL('../src/dashboard.ts', import.meta.url),'utf8');
+  for(const match of dashboard.matchAll(/t\('downloader_bridge',\s*'([^']+)'/g)){
+    const key=match[1];
+    assert.equal(typeof catalog.translations[key],'string',key);
+    assert.deepEqual([...catalog.translations[key].matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),[...key.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort(),key);
+  }
+  for(const pattern of [/\belem\('[a-z0-9]+',\s*'[A-Za-z][^']*'/,/\.(?:textContent|title)\s*=\s*'[A-Za-z][^']*'/,/setAttribute\('aria-label',\s*'[A-Za-z][^']*'/,/\bitem\('[A-Za-z][^']*'/])assert.doesNotMatch(dashboard,pattern);
+  assert.match(dashboard,/inset-inline-end:0;inset-block-start:100%/);
+  const widget=readFileSync(new URL('../lib/Dashboard/DownloadsWidget.php', import.meta.url),'utf8');
+  const provider=readFileSync(new URL('../lib/Search/DownloadsProvider.php', import.meta.url),'utf8');
+  assert.match(widget,/return \$this->l10n->t\('My downloads'\)/);
+  assert.ok(widget.indexOf('Util::addTranslations')<widget.indexOf('Util::addScript'));
+  assert.match(provider,/return \$this->l10n->t\('Downloads'\)/);
+  assert.doesNotMatch(provider,/SearchResult::complete\('Downloads'/);
+  for(const php of [widget,provider])for(const match of php.matchAll(/->t\('([^']+)'/g))assert.equal(typeof catalog.translations[match[1]],'string',match[1]);
+});

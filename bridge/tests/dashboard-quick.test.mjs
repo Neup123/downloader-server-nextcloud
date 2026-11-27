@@ -26,8 +26,8 @@ test('Dashboard reviews downloads using shared signed link-first dialog', () => 
 
 test('Provenance remains owner-scoped and readable with download date and engine', () => {
   for (const expected of [
-    "['Filename', record.filename", "['Downloaded by', record.owner_id",
-    "['Downloaded on',", "['Engine', record.engine",
+    "[t('downloader_bridge', 'Filename'), record.filename", "[t('downloader_bridge', 'Downloaded by'), record.owner_id",
+    "[t('downloader_bridge', 'Downloaded on'),", "[t('downloader_bridge', 'Engine'), record.engine",
     'new Date(record.created_at)', 'node(\'dl\'', 'node(\'dt\'', 'node(\'dd\'',
     "'/provenance?file_id='", '/redownload'
   ]) {
@@ -135,9 +135,16 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
         const listRect = list.getBoundingClientRect();
         const target = document.elementFromPoint(inputRect.x + inputRect.width / 2,
           inputRect.y + inputRect.height / 2);
+        const menu = list.querySelector('.job-menu');
+        menu.open = true;
+        const menuRect = menu.querySelector('.job-menu-items').getBoundingClientRect();
+        const anchor = menu.getBoundingClientRect();
+        const rtl = getComputedStyle(menu).direction === 'rtl';
+        const menuAligned = Math.abs(rtl ? menuRect.left-anchor.left : menuRect.right-anchor.right) < 2;
         list.scrollTop = 120;
         document.body.setAttribute('data-layout-result', encodeURIComponent(JSON.stringify({
           rows: list.querySelectorAll('.job-row').length,
+          rtl, menuAligned, reviewText:button.textContent, fieldLabel:input.getAttribute('aria-label'),
           panelHeight: panelRect.height,
           contentHeight: content.getBoundingClientRect().height,
           wrapperHeight: wrapper.getBoundingClientRect().height,
@@ -156,8 +163,10 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
     });
   }
 
+  const catalog=JSON.parse(readFileSync(new URL('../l10n/he.json', import.meta.url),'utf8')).translations;
+  for (const rtl of [false,true]) {
   const html = [
-    '<!doctype html><html><head><meta charset="utf-8">',
+    '<!doctype html><html lang="'+(rtl?'he':'en')+'" dir="'+(rtl?'rtl':'ltr')+'"><head><meta charset="utf-8">',
     '<style>body{margin:0;padding:16px}',
     '.panel{width:400px;height:528px;box-sizing:border-box;display:block;background:white}',
     '.panel--heading{height:88px;flex:0 0 88px}',
@@ -166,6 +175,7 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
     '<div class="panel"><div class="panel--heading">My downloads</div>',
     '<div class="panel--content"><div id="widget-mount"></div></div></div>',
     '<script>(', setup.toString(), ')()</script>',
+    rtl ? '<script>window.t=(app,key,values={})=>('+JSON.stringify(catalog)+'[key]||key).replace(/\\{(\\w+)\\}/g,(_,name)=>values[name]??"{"+name+"}");</script>' : '',
     '<script>', bundle, '</script>',
     '<script>(', measure.toString(), ')()</script></body></html>',
   ].join('');
@@ -192,8 +202,13 @@ test('Dashboard form is clickable and the job scroller has real, bounded height 
       assert.equal(layout[key], true, key + ' failed: ' + JSON.stringify(layout));
     }
     assert.equal(layout.overflowY, 'auto');
+    assert.equal(layout.rtl,rtl);
+    assert.equal(layout.menuAligned,true,'Menu inline-end alignment '+JSON.stringify(layout));
+    assert.equal(layout.reviewText,rtl?catalog['Review download']:'Review download');
+    assert.equal(layout.fieldLabel,rtl?catalog['Link to download into my Files']:'Link to download into my Files');
   } finally {
     rmSync(dir, {recursive: true, force: true});
+  }
   }
 });
 

@@ -701,7 +701,7 @@ def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
         for catalog in ("core", "lib"):
             check = subprocess.run(
                 ["docker", "exec", app, "sh", "-c",
-                 "test -f /var/www/html/" + catalog + "/l10n/he.json"],
+                 "test -f /var/www/html/" + catalog + "/l10n/ar.json"],
                 check=False, capture_output=True, text=True, timeout=35,
             )
             print("Nextcloud " + catalog + " Arabic catalog: "
@@ -741,6 +741,45 @@ def configure_disposable_appearance(*, dark: bool, arabic: bool) -> None:
         time.sleep(1)
     else:
         raise AssertionError("Disposable Nextcloud did not restart after appearance update")
+
+
+def check_hebrew_native_catalog(page) -> None:
+    """Real installed app translation via Nextcloud's documented forceLanguage.
+
+    Nextcloud 35.0.2 does not ship the stock core Hebrew catalog. This checks
+    the native app's actual rendered Hebrew text independently of global
+    shell locale; the separate Arabic test proves genuine RTL geometry.
+    No DOM attribute or translation function is overridden.
+    """
+    import json
+
+    catalog = json.loads((Path(__file__).resolve().parents[1] /
+                          "bridge/l10n/he.json").read_text(encoding="utf-8"))["translations"]
+    response = page.goto(BASE + "/index.php/apps/downloader_bridge/library?forceLanguage=he",
+                         wait_until="domcontentloaded")
+    assert response and response.status == 200
+    root = page.locator("#downloader-library-app")
+    expect(root.locator(".library-controls")).to_be_visible(timeout=25_000)
+    expect(root.locator("h1")).to_have_text(catalog["My downloads"])
+    expect(root.locator(".library-controls input")).to_have_attribute(
+        "aria-label", catalog["Search by filename or source link"])
+    expect(root.get_by_role("button", name=catalog["Clear history"])).to_be_visible()
+    capture(page, "24-library-hebrew-catalog.png")
+    trigger = page.locator("#downloader-topbar-progress .dl-trigger")
+    expect(trigger).to_be_visible(timeout=25_000)
+    trigger.click()
+    page.locator("#downloader-header-popover .dl-popover-add").click()
+    dialog = page.locator("dialog.dl-link-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_have_attribute("aria-label", catalog["Download link"])
+    source = dialog.locator("input[autocomplete='url']")
+    expect(source).to_have_attribute("aria-label", catalog["Source link"])
+    source.fill("not a valid URL")
+    expect(dialog.locator(".dl-detect-status")).to_have_text(
+        catalog["Paste a valid HTTP(S) link or magnet URI."])
+    capture(page, "25-link-dialog-hebrew-catalog.png")
+    page.keyboard.press("Escape")
+    print("Real Nextcloud native Hebrew catalog: Library and Link dialog render translated labels and validation PASS", flush=True)
 
 
 def check_mobile_rtl_and_theme(page) -> None:
@@ -834,6 +873,29 @@ def check_mobile_rtl_and_theme(page) -> None:
         in_viewport(page, "dialog.dl-link-dialog")
         in_viewport(page, "dialog.dl-link-dialog input[aria-label='Source link']")
         capture(page, "07-link-dialog-mobile-rtl.png")
+        # Use the real Nextcloud RTL shell, with a deterministic manifest.
+        def rtl_manifest(route):
+            route.fulfill(json={"files": [{"index": 1, "path": "Album/file.mp3",
+                                           "name": "file.mp3", "size_bytes": 1024}]})
+        page.route("**/user/api/torrent-manifest", rtl_manifest)
+        try:
+            dialog = page.locator("dialog.dl-link-dialog")
+            dialog.locator("input[aria-label='Source link']").fill(
+                "magnet:?xt=urn:btih:0123456789012345678901234567890123456789")
+            segment = dialog.locator(".dl-segmented-toggle")
+            expect(segment).to_be_visible(timeout=20_000)
+            assert segment.evaluate("(el) => getComputedStyle(el).direction") == "rtl"
+            slider = segment.locator(".dl-segmented-slider")
+            flat = segment.locator("button").last
+            initial_x = slider.bounding_box()["x"]
+            flat.click()
+            expect(flat).to_have_attribute("aria-pressed", "true")
+            page.wait_for_function("(el) => new DOMMatrix(getComputedStyle(el).transform).e < -1",
+                                   arg=slider.element_handle())
+            assert slider.bounding_box()["x"] < initial_x
+            capture(page, "07b-torrent-selector-rtl.png")
+        finally:
+            page.unroute("**/user/api/torrent-manifest", rtl_manifest)
         page.keyboard.press("Escape")
         print("Real Nextcloud 35 Arabic RTL and dark theme config across pages PASS", flush=True)
     finally:
@@ -856,6 +918,7 @@ def main() -> None:
             check_gallery_identity_selector(page)
             check_torrent_selector(page)
             check_real_native_job_journey(page)
+            check_hebrew_native_catalog(page)
             check_mobile_rtl_and_theme(page)
         except Exception:
             capture(page, "failure-last-page.png")

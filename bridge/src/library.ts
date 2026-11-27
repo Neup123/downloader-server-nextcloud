@@ -30,7 +30,7 @@ async function api<T>(url:string,method='GET',data?:unknown):Promise<T> {
   const body = await res.json().catch(()=>null);
   if(!res.ok){
     const error = body as {detail?:string}|null;
-    throw new Error(error?.detail||'Downloader is unavailable. Retry in a moment.');
+    throw new Error(error?.detail||t('downloader_bridge', 'Downloader is unavailable. Retry in a moment.'));
   }
   return body as T;
 }
@@ -57,7 +57,7 @@ const STYLES = `
 #downloader-library-app .library-overflow summary{list-style:none;width:20px;height:24px;display:grid;place-items:center;font-size:21px;font-weight:800;line-height:1;border:0;border-radius:0;background:transparent;cursor:pointer}
 #downloader-library-app .library-overflow summary::-webkit-details-marker{display:none}
 #downloader-library-app .library-overflow summary:hover{color:var(--color-primary,#377bd1)}
-#downloader-library-app .library-overflow-list{position:absolute;inset-inline-end:0;top:100%;z-index:30;width:max-content;min-width:160px;padding:4px;display:grid;gap:2px;background:var(--color-main-background,#fff);border:1px solid var(--color-border,#ddd);border-radius:8px;box-shadow:0 6px 18px #0003}
+#downloader-library-app .library-overflow-list{position:absolute;inset-inline-end:0;inset-block-start:100%;z-index:30;width:max-content;min-width:160px;padding:4px;display:grid;gap:2px;background:var(--color-main-background,#fff);border:1px solid var(--color-border,#ddd);border-radius:8px;box-shadow:0 6px 18px #0003}
 #downloader-library-app .library-overflow-list button{width:100%;min-height:30px;padding:5px 9px;border:0;background:transparent;text-align:start;font-size:12px}
 #downloader-library-app .library-overflow-list button:hover{background:var(--color-background-hover,#eee)}
 #downloader-library-app .library-row-actions .library-overflow-list button{min-width:0}
@@ -117,11 +117,11 @@ function main() {
     const dlg = el('dialog');dlg.className = 'downloader-library-modal';
     const heading = el('h2',downloadTitle(job));heading.id='library-job-title';
     dlg.setAttribute('aria-labelledby',heading.id);
-    const source=el('p','Source: '+job.url);source.style.overflowWrap='anywhere';
+    const source=el('p',t('downloader_bridge', 'Source: {url}', {url:job.url}));source.style.overflowWrap='anywhere';
     dlg.append(heading,el('p',downloadStatusDetail(job)),source);
     if (job.error) dlg.append(el('p',job.error));
     for (const file of job.output_files||[]) {
-      dlg.append(el('p',file.filename+(file.verified?' · Verified':file.skipped?' · Skipped':' · Awaiting verification')));
+      dlg.append(el('p',file.filename+' · '+(file.verified?t('downloader_bridge', 'Verified'):file.skipped?t('downloader_bridge', 'Skipped'):t('downloader_bridge', 'Awaiting verification'))));
     }
     const technical=el('details');
     technical.append(el('summary',t('downloader_bridge', 'Technical log (advanced)')),el('pre',job.log_text||t('downloader_bridge', 'No log output.')));
@@ -143,7 +143,7 @@ function main() {
     cancel.addEventListener('click',()=>dlg.close());
     confirm.addEventListener('click',()=>{dlg.close();void (async()=>{
       try { const result=await api<{hidden:number}>('/jobs/clear-history','POST',{confirm:true});
-        feedback.textContent=result.hidden+' history entries hidden. Files were not deleted.';
+        feedback.textContent=t('downloader_bridge', '{count} history entries hidden. Files were not deleted.', {count:result.hidden});
         await load(true);
       }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Could not clear history.');}
     })();});
@@ -186,7 +186,7 @@ function main() {
     const controls=el('div');controls.className='library-row-actions';
     const overflow=el('details');overflow.className='library-overflow';
     const trigger=el('summary','⋮');
-    trigger.title=t('downloader_bridge', 'More actions');trigger.setAttribute('aria-label','More actions for '+downloadTitle(job));
+    trigger.title=t('downloader_bridge', 'More actions');trigger.setAttribute('aria-label',t('downloader_bridge', 'More actions for {name}', {name:downloadTitle(job)}));
     const menu=el('div');menu.className='library-overflow-list';
     function control(label:string,fn:()=>void){
       const button=el('button',label);button.type='button';
@@ -259,7 +259,7 @@ function main() {
       retryAll.disabled=true;
       try {
         const result=await api<{retried:number}>('/jobs/retry-failed','POST');
-        feedback.textContent=result.retried+' downloads queued to retry.';
+        feedback.textContent=t('downloader_bridge', '{count} downloads queued to retry.', {count:result.retried});
         await load(true);
       }catch(e){feedback.textContent=e instanceof Error?e.message:t('downloader_bridge', 'Unable to retry failed downloads.');}
       finally{retryAll.disabled=false;}
